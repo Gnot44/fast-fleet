@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface-container-high: #dce9ff;
+  --color-status-running: #10B981;
+  --color-inverse-on-surface: #eaf1ff;
+  --color-active-item-bg: #EFF6FF;
+  --color-surface-tint: #0053db;
+  --color-surface-variant: #d3e4fe;
+  --color-on-surface: #0b1c30;
+  --color-primary-fixed: #dbe1ff;
+  --color-surface: #f8f9ff;
+  --color-on-surface-variant: #434655;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #ffede6;
+  --color-secondary-fixed: #eaddff;
+  --color-on-background: #0b1c30;
+  --color-surface-container-highest: #d3e4fe;
+  --color-on-secondary-fixed: #25005a;
+  --color-primary-fixed-dim: #b4c5ff;
+  --color-inverse-primary: #b4c5ff;
+  --color-on-secondary: #ffffff;
+  --color-on-primary-container: #eeefff;
+  --color-status-stopped: #64748B;
+  --color-status-alert: #EF4444;
+  --color-on-secondary-fixed-variant: #5a00c6;
+  --color-secondary: #712ae2;
+  --color-on-tertiary-fixed: #360f00;
+  --color-on-primary-fixed-variant: #003ea8;
+  --color-tertiary: #943700;
+  --color-outline: #737686;
+  --color-error-container: #ffdad6;
+  --color-status-idle: #F59E0B;
+  --color-surface-container-lowest: #ffffff;
+  --color-background: #f8f9ff;
+  --color-surface-container: #e5eeff;
+  --color-tertiary-fixed: #ffdbcd;
+  --color-on-secondary-container: #fffbff;
+  --color-primary-container: #2563eb;
+  --color-surface-dim: #cbdbf5;
+  --color-status-offline: #94A3B8;
+  --color-on-error-container: #93000a;
+  --color-surface-container-low: #eff4ff;
+  --color-on-tertiary-fixed-variant: #7d2d00;
+  --color-secondary-container: #8a4cfc;
+  --color-error: #ba1a1a;
+  --color-outline-variant: #c3c6d7;
+  --color-surface-bg: #F4F5F7;
+  --color-secondary-fixed-dim: #d2bbff;
+  --color-on-error: #ffffff;
+  --color-surface-bright: #f8f9ff;
+  --color-on-primary-fixed: #00174b;
+  --color-tertiary-container: #bc4800;
+  --color-on-primary: #ffffff;
+  --color-primary: #004ac6;
+  --color-tertiary-fixed-dim: #ffb596;
+  --color-inverse-surface: #213145;
+  --color-status-pause: #3B82F6;
+
+  --spacing-element-gap: 0.75rem;
+  --spacing-grid-gutter: 1rem;
+  --spacing-section-gap: 1.5rem;
+  --spacing-container-padding: 1.5rem;
+  --spacing-sidebar-expanded: 240px;
+  --spacing-sidebar-collapsed: 72px;
+
+  --font-headline-xl: Prompt;
+  --font-label-sm: Inter;
+  --font-headline-lg-mobile: Prompt;
+  --font-kpi-value: Prompt;
+  --font-body-md: Inter;
+  --font-headline-md: Prompt;
+  --font-body-lg: Inter;
+  --font-headline-lg: Prompt;
+  --font-label-md: Inter;
+
+  /* Custom text sizes with line-heights */
+  --text-headline-xl: 24px;
+  --text-headline-xl--line-height: 32px;
+  --text-headline-xl--font-weight: 600;
+
+  --text-label-sm: 11px;
+  --text-label-sm--line-height: 14px;
+  --text-label-sm--letter-spacing: 0.03em;
+  --text-label-sm--font-weight: 600;
+
+  --text-headline-lg-mobile: 18px;
+  --text-headline-lg-mobile--line-height: 26px;
+  --text-headline-lg-mobile--font-weight: 600;
+
+  --text-kpi-value: 28px;
+  --text-kpi-value--line-height: 34px;
+  --text-kpi-value--font-weight: 700;
+
+  --text-body-md: 14px;
+  --text-body-md--line-height: 20px;
+  --text-body-md--font-weight: 400;
+
+  --text-headline-md: 18px;
+  --text-headline-md--line-height: 24px;
+  --text-headline-md--font-weight: 500;
+
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 24px;
+  --text-body-lg--font-weight: 400;
+
+  --text-headline-lg: 20px;
+  --text-headline-lg--line-height: 28px;
+  --text-headline-lg--font-weight: 600;
+
+  --text-label-md: 12px;
+  --text-label-md--line-height: 16px;
+  --text-label-md--letter-spacing: 0.02em;
+  --text-label-md--font-weight: 500;
+}
+
+body {
+  @apply bg-background font-body-md text-on-surface antialiased overflow-hidden;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-surface-container-lowest: #0b1120;
+  --color-surface-container-low: #0f172a;
+  --color-surface-container: #1e293b;
+  --color-surface-container-high: #334155;
+  --color-surface-container-highest: #475569;
+  --color-background: #060b14;
+  --color-surface: #0b1120;
+  --color-on-surface: #f8fafc;
+  --color-on-surface-variant: #94a3b8;
+  --color-outline-variant: #1e293b;
+  --color-outline: #475569;
+}
+
+html.dark body {
+  background-color: #060b14;
+  color: #f8fafc;
+}
+
+/* Dark mode comprehensive style overrides for instant visual excellence */
+html.dark .bg-surface-container-lowest,
+html.dark .bg-white {
+  background-color: #0f172a !important;
+  color: #f8fafc;
+}
+
+html.dark .bg-surface-bg,
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-100 {
+  background-color: #0b1120 !important;
+}
+
+html.dark .bg-slate-100\/80,
+html.dark .bg-slate-100\/90,
+html.dark .bg-slate-200 {
+  background-color: #1e293b !important;
+}
+
+html.dark .border-slate-200,
+html.dark .border-slate-100,
+html.dark .border-slate-300,
+html.dark .border-outline-variant {
+  border-color: #1e293b !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark select,
+html.dark textarea {
+  background-color: #0b1120 !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-blue-50,
+html.dark .bg-blue-50\/70,
+html.dark .bg-blue-50\/80 {
+  background-color: rgba(37, 99, 235, 0.18) !important;
+}
+
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-50\/70 {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-50\/70 {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+}
+
+html.dark .bg-rose-50,
+html.dark .bg-rose-50\/70 {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+}
+
+html.dark .bg-purple-50,
+html.dark .bg-purple-50\/70 {
+  background-color: rgba(168, 85, 247, 0.18) !important;
+}
+
+/* Leaflet maps dark contrast layer */
+html.dark .leaflet-tile-pane {
+  filter: brightness(0.75) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+
+html.dark .leaflet-popup-content-wrapper,
+html.dark .leaflet-popup-tip {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

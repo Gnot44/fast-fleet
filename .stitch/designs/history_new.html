@@ -1,0 +1,512 @@
+<!DOCTYPE html><html class="h-full bg-surface-bg" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Trip Management - Logistics Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Prompt:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-bg": "#F4F5F7",
+                      "surface-variant": "#d3e4fe",
+                      "on-surface": "#0b1c30",
+                      "status-alert": "#EF4444",
+                      "status-pause": "#3B82F6",
+                      "surface-container": "#e5eeff",
+                      "on-tertiary": "#ffffff",
+                      "secondary-fixed": "#eaddff",
+                      "on-primary-container": "#eeefff",
+                      "error-container": "#ffdad6",
+                      "on-primary-fixed": "#00174b",
+                      "on-tertiary-container": "#ffede6",
+                      "secondary": "#712ae2",
+                      "status-idle": "#F59E0B",
+                      "secondary-container": "#8a4cfc",
+                      "surface-container-lowest": "#ffffff",
+                      "status-offline": "#94A3B8",
+                      "on-secondary-container": "#fffbff",
+                      "surface-dim": "#cbdbf5",
+                      "surface-tint": "#0053db",
+                      "surface-container-high": "#dce9ff",
+                      "tertiary-container": "#bc4800",
+                      "on-background": "#0b1c30",
+                      "inverse-primary": "#b4c5ff",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "on-secondary": "#ffffff",
+                      "active-item-bg": "#EFF6FF",
+                      "on-tertiary-fixed": "#360f00",
+                      "surface": "#f8f9ff",
+                      "surface-bright": "#f8f9ff",
+                      "on-primary": "#ffffff",
+                      "outline": "#737686",
+                      "tertiary-fixed": "#ffdbcd",
+                      "primary-fixed": "#dbe1ff",
+                      "secondary-fixed-dim": "#d2bbff",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "status-running": "#10B981",
+                      "primary": "#004ac6",
+                      "tertiary-fixed-dim": "#ffb596",
+                      "background": "#f8f9ff",
+                      "on-secondary-fixed-variant": "#5a00c6",
+                      "outline-variant": "#c3c6d7",
+                      "status-stopped": "#64748B",
+                      "on-secondary-fixed": "#25005a",
+                      "inverse-surface": "#213145",
+                      "surface-container-highest": "#d3e4fe",
+                      "on-tertiary-fixed-variant": "#7d2d00",
+                      "inverse-on-surface": "#eaf1ff",
+                      "primary-container": "#2563eb",
+                      "tertiary": "#943700",
+                      "on-error": "#ffffff",
+                      "error": "#ba1a1a",
+                      "on-error-container": "#93000a",
+                      "on-surface-variant": "#434655",
+                      "surface-container-low": "#eff4ff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sidebar-expanded": "240px",
+                      "section-gap": "1.5rem",
+                      "container-padding": "1.5rem",
+                      "element-gap": "0.75rem",
+                      "sidebar-collapsed": "72px",
+                      "grid-gutter": "1rem"
+              },
+              "fontFamily": {
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Prompt"
+                      ],
+                      "headline-md": [
+                              "Prompt"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "kpi-value": [
+                              "Prompt"
+                      ],
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "headline-lg-mobile": [
+                              "Prompt"
+                      ],
+                      "headline-xl": [
+                              "Prompt"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "18px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "kpi-value": [
+                              "28px",
+                              {
+                                      "lineHeight": "34px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-sm": [
+                              "11px",
+                              {
+                                      "lineHeight": "14px",
+                                      "letterSpacing": "0.03em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "18px",
+                              {
+                                      "lineHeight": "26px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-xl": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        .custom-shadow { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08); }
+        .drawer-shadow { box-shadow: 0 10px 15px rgba(15, 23, 42, 0.1); }
+      </style>
+</head>
+<body class="bg-surface-bg text-on-surface h-full flex overflow-hidden font-body-md text-body-md">
+<!-- Sidebar -->
+<aside class="w-sidebar-expanded h-full fixed left-0 top-0 bg-surface-container-lowest border-r border-outline-variant shadow-sm flex flex-col py-6 px-4 z-50">
+<div class="flex items-center gap-3 mb-8 px-2"><div class="w-full">{{DATA:DOCUMENT:DOCUMENT_37}}</div></div>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-md text-label-md">Trip History</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-md text-label-md">Staff Management</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-active-item-bg text-primary border-l-2 border-primary font-bold" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">local_shipping</span>
+<span class="font-label-md text-label-md">Trip Management</span>
+</a>
+</nav>
+<div class="mt-auto border-t border-outline-variant pt-4 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-md text-label-md">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 ml-sidebar-expanded flex flex-col h-full overflow-hidden">
+<!-- Top Navbar -->
+<header class="h-16 flex justify-between items-center px-container-padding w-full bg-surface-container-lowest border-b border-outline-variant z-40 shrink-0">
+<div class="flex-1 max-w-md">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-bg border border-outline-variant rounded-lg font-body-md text-body-md focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-shadow" placeholder="Search trips, drivers, routes..." type="text">
+</div>
+</div>
+<div class="flex items-center gap-4 ml-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-status-alert rounded-full"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant ml-2">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a logistics fleet administrator in a brightly lit modern office setting. The style is clean, corporate, and high-quality, fitting a light-mode enterprise dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0VyySJaBxcyRKYF--X6fUESLRh7GbzR1PczFZVVgWucIZJkJSq5kC1BE-rD_NWz315Vp0bZ16qPK1A9QqJcHaSitrEE9uefCURsJ63TSH8xZkaZmn-juOaNAvZUNH9IFUCZP58U8UvHZkmwBIACpelaMiKw-uZ-1C_cOBBMVug288lyyhuEHAcNJmyEkmyfk12j_4OnPznVcWfyMO2jFAtNHHJoUhq_gjpkrBMHpR0KI2mqPxqhDo">
+</div>
+</div>
+</header>
+<!-- Split Layout Area -->
+<main class="flex-1 flex overflow-hidden p-container-padding gap-container-padding">
+<!-- Master List (Left Column) -->
+<section class="w-1/3 flex flex-col bg-surface-container-lowest rounded-xl border border-outline-variant custom-shadow overflow-hidden flex-shrink-0">
+<div class="p-4 border-b border-outline-variant bg-surface-bg">
+<div class="flex justify-between items-center mb-4">
+<h2 class="font-headline-md text-headline-md">Active Trips</h2>
+<button class="p-1.5 text-primary-container hover:bg-surface-container-low rounded-lg transition-colors">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+</div>
+<div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+<button class="px-3 py-1.5 rounded-full bg-active-item-bg text-primary-container font-label-md text-label-md whitespace-nowrap border border-primary-fixed">All (12)</button>
+<button class="px-3 py-1.5 rounded-full bg-surface-bg text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap border border-outline-variant">Active (5)</button>
+<button class="px-3 py-1.5 rounded-full bg-surface-bg text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap border border-outline-variant">Pending (3)</button>
+<button class="px-3 py-1.5 rounded-full bg-surface-bg text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md whitespace-nowrap border border-outline-variant">Completed</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto">
+<!-- Selected Trip Card -->
+<div class="p-4 border-b border-outline-variant bg-active-item-bg border-l-4 border-l-primary-container cursor-pointer hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">TRP-2023-089</span>
+<h3 class="font-headline-md text-headline-md text-on-surface">Bangkok Central Route</h3>
+</div>
+<span class="px-2 py-1 rounded-full bg-surface-container-low text-status-running font-label-sm text-label-sm border border-[#A7F3D0]">In Progress</span>
+</div>
+<div class="flex items-center gap-2 mb-3">
+<div class="w-6 h-6 rounded-full overflow-hidden bg-surface-variant">
+<img class="w-full h-full object-cover" data-alt="A small, clear headshot of a delivery driver wearing a company uniform, smiling slightly in a professional corporate portrait style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAX3tHl-aXfHl9f98qLBM6i3cQqHx6UGNjVImA0JHJtZJ26JO29ZPJAG_EgljtxDpFT1alDyFHo3wEfGfhTqTXA3OdqsrnQ0HGTJpVflu6qaBzH6SZtUUQeBHezGxtDHJniZEFCozL0d46C0vIZfn3v208nFhGL9R2V1RrNCXactjhhYYxgab5M2TSuGHShFKz8z5CyGvsDX1T0003qhsf8IvaxYI1YkNzGcC-6uwNEEQJJ0XcF-FBk">
+</div>
+<span class="font-body-md text-body-md text-on-surface-variant">Sompong C.</span>
+</div>
+<div class="flex items-center justify-between font-label-md text-label-md text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span class="">Started 08:30 AM</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">pin_drop</span>
+<span class="">2/5 Drops</span>
+</div>
+</div>
+</div>
+<!-- Other Trip Cards -->
+<div class="p-4 border-b border-outline-variant bg-surface-container-lowest cursor-pointer hover:bg-surface-bg transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">TRP-2023-090</span>
+<h3 class="font-headline-md text-headline-md text-on-surface">North Industrial Zone</h3>
+</div>
+<span class="px-2 py-1 rounded-full bg-[#FEF2F2] text-status-alert font-label-sm text-label-sm border border-[#FECACA]">Delayed</span>
+</div>
+<div class="flex items-center gap-2 mb-3">
+<div class="w-6 h-6 rounded-full overflow-hidden bg-surface-variant">
+<img class="w-full h-full object-cover" data-alt="A small, clear headshot of a female delivery driver in uniform, looking professional." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-dErm6psKlcRHn3vu8ForMGdGptJoTw6KZBBS9anoPRE-oTCAWfW4geJFHDG5w412uMeQWuw41zIv00HYDhFE4U4I_LcPJqdUTzP2V0aL2k_NKH4GXNoHL-cN_ZhvNdZq5RVtCjmYxjNARlrzBl3T1fDfCuc-E_kB-tcbYnft4COKKaGXqipuphJq5YLlHOiprr0fh0Uigb-Jgj_63FM18WUL4BszS5_9ZiUJ1QXJywH14SPnBYam">
+</div>
+<span class="font-body-md text-body-md text-on-surface-variant">Mali T.</span>
+</div>
+<div class="flex items-center justify-between font-label-md text-label-md text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span class="">Started 09:15 AM</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">pin_drop</span>
+<span class="">1/3 Drops</span>
+</div>
+</div>
+</div>
+<div class="p-4 border-b border-outline-variant bg-surface-container-lowest cursor-pointer hover:bg-surface-bg transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">TRP-2023-088</span>
+<h3 class="font-headline-md text-headline-md text-on-surface">South City Hub Loop</h3>
+</div>
+<span class="px-2 py-1 rounded-full bg-[#F0FDF4] text-status-running font-label-sm text-label-sm border border-[#BBF7D0]">Completed</span>
+</div>
+<div class="flex items-center gap-2 mb-3">
+<div class="w-6 h-6 rounded-full overflow-hidden bg-surface-variant">
+<img class="w-full h-full object-cover" data-alt="A professional small portrait of a male driver." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCNrYMXp-wzdneBCHag8lNqPX4Kor7rjYvBok64TkcFQ98bMQIaEfRe4ZtKpTRPme54J1H1MS1di9_Oj7ZjktqxpWXo-rrTxcEaOnGUZNxwfiBz8kc_EWfN7IBvPs3eolxBEpqq3Q0MYgvPwQzzm0rJ1TQW810SPo57WADv9KZCcuYVkWOeXIF44kdIbjqab87qU9ooIz0sKX8Gh2NDRiemXcOjba9UyG5t6K0jiYA2KZZaOs2NJDcX">
+</div>
+<span class="font-body-md text-body-md text-on-surface-variant">Arun K.</span>
+</div>
+<div class="flex items-center justify-between font-label-md text-label-md text-on-surface-variant">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span class="">Ended 11:45 AM</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">pin_drop</span>
+<span class="">4/4 Drops</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Detail View (Right Column) -->
+<section class="flex-1 flex flex-col bg-surface-container-lowest rounded-xl border border-outline-variant custom-shadow overflow-hidden">
+<!-- Detail Header -->
+<div class="p-6 border-b border-outline-variant bg-surface-bg flex justify-between items-center shrink-0">
+<div>
+<div class="flex items-center gap-3 mb-1">
+<h2 class="font-headline-xl text-headline-xl text-on-surface">Bangkok Central Route</h2>
+<span class="px-2.5 py-1 rounded-full bg-[#ECFDF5] text-status-running font-label-sm text-label-sm border border-[#A7F3D0]">Active</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">TRP-2023-089 • Driver: Sompong C. • Vehicle: BKK-4452 (Isuzu D-Max)</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary transition-colors font-label-md text-label-md">
+<span class="material-symbols-outlined text-[18px]">map</span>
+                            Full Map
+                        </button>
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-container text-white hover:bg-on-primary-fixed-variant transition-colors font-label-md text-label-md">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                            Export Report
+                        </button>
+</div>
+</div>
+<!-- Scrollable Detail Content -->
+<div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+<!-- Map Preview Area -->
+<div class="w-full h-64 rounded-xl border border-outline-variant overflow-hidden relative bg-surface-variant custom-shadow">
+<img class="w-full h-full object-cover" data-alt="A clean, modern top-down map interface showing a delivery route through a city. The map uses a light-mode color scheme with subtle roads and a clear blue route line connecting several drop points. High contrast, professional dashboard style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBeChu1844QZlSiedCiPjsgX4sgNsNESZlK36G0UwvHXj8l51Lu-OrP3oHXzmgDyvh96hlfr_iViUrz6pCd43ZBrReKq7qD_lkvjtI1E7qU3hNpz2vmVp4tl4zDIDphf-EJvfsgSHdjmqSye07cSFqM6xNqM4RZKvdL0q2BszLqkyXuofcFpJK9_hF2tI7I1I2mpHSW5UTNEpuKMh3gz4Va8Jk35K1SACvhNu4VOKwsZ8Cm5ywcO5-D">
+<!-- Overlay elements -->
+<div class="absolute top-4 left-4 bg-surface-container-lowest/90 backdrop-blur px-3 py-2 rounded-lg border border-outline-variant shadow-sm flex flex-col gap-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Current Status</span>
+<span class="font-body-md text-body-md font-semibold text-status-running">En route to Drop 3</span>
+</div>
+</div>
+<!-- Metrics Grid -->
+<div class="grid grid-cols-4 gap-4">
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow flex flex-col gap-2">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">route</span>
+<span class="font-label-md text-label-md uppercase">Total Distance</span>
+</div>
+<div class="font-kpi-value text-kpi-value text-on-surface">45.2 <span class="text-lg font-normal text-on-surface-variant">km</span></div>
+</div>
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow flex flex-col gap-2">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">timer</span>
+<span class="font-label-md text-label-md uppercase">Duration</span>
+</div>
+<div class="font-kpi-value text-kpi-value text-on-surface">2h 15m</div>
+</div>
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow flex flex-col gap-2">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+<span class="font-label-md text-label-md uppercase">Start Odo</span>
+</div>
+<div class="font-kpi-value text-kpi-value text-on-surface">45,230</div>
+</div>
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow flex flex-col gap-2">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+<span class="font-label-md text-label-md uppercase">Current Odo</span>
+</div>
+<div class="font-kpi-value text-kpi-value text-on-surface">45,275</div>
+</div>
+</div>
+<!-- Bottom Split: Journey Log & Expenses -->
+<div class="grid grid-cols-2 gap-6">
+<!-- Journey Log -->
+<div class="p-5 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow">
+<h3 class="font-headline-md text-headline-md mb-4 text-on-surface">Journey Log</h3>
+<div class="relative pl-6 border-l border-outline-variant ml-3 flex flex-col gap-6">
+<div class="relative">
+<div class="absolute -left-[30px] top-1 w-3 h-3 rounded-full bg-outline-variant border-2 border-surface-container-lowest"></div>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">08:30 AM</span>
+<span class="font-body-md text-body-md font-medium text-on-surface">Started Journey</span>
+<span class="font-body-md text-body-md text-on-surface-variant">HQ Office Depot</span>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[30px] top-1 w-3 h-3 rounded-full bg-status-running border-2 border-surface-container-lowest"></div>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">09:15 AM</span>
+<span class="font-body-md text-body-md font-medium text-on-surface">Drop 1: ABC Corp</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Delivered (2 Pallets)</span>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[30px] top-1 w-3 h-3 rounded-full bg-status-running border-2 border-surface-container-lowest"></div>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">10:45 AM</span>
+<span class="font-body-md text-body-md font-medium text-on-surface">Drop 2: Siam Retail</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Delivered (5 Boxes)</span>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[30px] top-1 w-3 h-3 rounded-full bg-primary-container border-2 border-surface-container-lowest shadow-[0_0_0_3px_rgba(37,99,235,0.2)]"></div>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-primary-container font-semibold">11:30 AM (Current)</span>
+<span class="font-body-md text-body-md font-medium text-on-surface">Arriving at Drop 3</span>
+<span class="font-body-md text-body-md text-on-surface-variant">Mega Bangna Complex</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Expenses & Photos -->
+<div class="flex flex-col gap-6">
+<!-- Photos -->
+<div class="p-5 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow">
+<h3 class="font-headline-md text-headline-md mb-4 text-on-surface">Site Photos</h3>
+<div class="flex gap-3">
+<div class="w-20 h-20 rounded-lg overflow-hidden border border-outline-variant cursor-pointer hover:opacity-80 transition-opacity">
+<img class="w-full h-full object-cover" data-alt="A clear photo of stacked cardboard boxes on a wooden pallet inside a clean warehouse environment, brightly lit." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAeTqc_HT_3pN_On_ZrF2W3ESYrPMFFsiv79VwK7REGnL_tk0tWaYCjCw67CdjhSUpUaouy2nOgdMSccuayqwS7_QDebndi-cuGs1nG-bvRKTDvMDJv-TTJQJNBfmMuOm94O7zvZwOI8DejNsLh-PFycsxOVDxTb76Q8diw0pF7OivqhjwATuirnFPrKkv9cK17FPQXWZpDqxpEhqdBpJtugdrY19m7xUyIUaruXQeMqimq1XP_k-hU">
+</div>
+<div class="w-20 h-20 rounded-lg overflow-hidden border border-outline-variant cursor-pointer hover:opacity-80 transition-opacity">
+<img class="w-full h-full object-cover" data-alt="A photo of a delivery truck parked at a modern retail loading dock, captured during daylight in a clear, professional style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7QAcaf3H2DPFnJLRq6kpRVcIQUY9O9jsI9TWJJRnlztyWcexb0xPA7FYRF61A9rKKXz_wEEulGL-8Po0f-4Y8wYRU-RmmwQI8h0SS7bkK9XwvqifgGsMDqFhsdW3s-w5ymKfN4dIJ5kx53V-CplD6SEuRjbbhYcWsYBgb2I6gaOeQwxYxBL9ar9H3Vi94acFnvUKXXaJAPBhyf4Ave9lPPYrvrpU1XRIOrMEnIi3ag2_EoaQiFG9K">
+</div>
+<div class="w-20 h-20 rounded-lg border border-outline-variant border-dashed flex flex-col items-center justify-center text-outline-variant hover:text-primary-container hover:bg-surface-container-low cursor-pointer transition-colors">
+<span class="material-symbols-outlined">add_a_photo</span>
+</div>
+</div>
+</div>
+<!-- Expenses -->
+<div class="p-5 rounded-xl border border-outline-variant bg-surface-container-lowest custom-shadow flex-1">
+<div class="flex justify-between items-center mb-4">
+<h3 class="font-headline-md text-headline-md text-on-surface">Expenses</h3>
+<span class="font-label-md text-label-md text-on-surface-variant">Total: ฿450.00</span>
+</div>
+<div class="flex flex-col gap-3">
+<div class="flex justify-between items-center p-3 rounded-lg border border-outline-variant bg-surface-bg">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">local_gas_station</span>
+</div>
+<div>
+<div class="font-body-md text-body-md font-medium text-on-surface">Toll Fee</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">Expressway Chonburi</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-body-md text-body-md text-on-surface">฿150.00</span>
+<button class="text-on-surface-variant hover:text-primary-container"><span class="material-symbols-outlined text-[18px]">receipt</span></button>
+</div>
+</div>
+<div class="flex justify-between items-center p-3 rounded-lg border border-outline-variant bg-surface-bg">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">local_parking</span>
+</div>
+<div>
+<div class="font-body-md text-body-md font-medium text-on-surface">Parking</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">Siam Retail Loading Bay</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-body-md text-body-md text-on-surface">฿300.00</span>
+<button class="text-on-surface-variant hover:text-primary-container"><span class="material-symbols-outlined text-[18px]">receipt</span></button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+</div>
+
+
+</body></html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface-bg bg-slate-50" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Logistics Pro - System Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "secondary-fixed-dim": "#d2bbff",
+                "secondary": "#712ae2",
+                "on-primary-container": "#eeefff",
+                "inverse-surface": "#213145",
+                "status-stopped": "#64748B",
+                "on-primary-fixed-variant": "#003ea8",
+                "surface": "#f8f9ff",
+                "surface-container-low": "#eff4ff",
+                "status-idle": "#F59E0B",
+                "secondary-container": "#8a4cfc",
+                "primary-fixed": "#dbe1ff",
+                "on-surface": "#0b1c30",
+                "on-primary": "#ffffff",
+                "surface-tint": "#0053db",
+                "primary": "#004ac6",
+                "tertiary-fixed-dim": "#ffb596",
+                "status-offline": "#94A3B8",
+                "on-secondary-fixed": "#25005a",
+                "tertiary-container": "#bc4800",
+                "inverse-primary": "#b4c5ff",
+                "on-secondary-fixed-variant": "#5a00c6",
+                "tertiary": "#943700",
+                "inverse-on-surface": "#eaf1ff",
+                "on-surface-variant": "#434655",
+                "background": "#f8f9ff",
+                "status-running": "#10B981",
+                "surface-dim": "#cbdbf5",
+                "surface-container-high": "#dce9ff",
+                "active-item-bg": "#EFF6FF",
+                "tertiary-fixed": "#ffdbcd",
+                "surface-container-lowest": "#ffffff",
+                "surface-container-highest": "#d3e4fe",
+                "on-tertiary-container": "#ffede6",
+                "on-tertiary-fixed": "#360f00",
+                "on-primary-fixed": "#00174b",
+                "on-tertiary-fixed-variant": "#7d2d00",
+                "on-tertiary": "#ffffff",
+                "secondary-fixed": "#eaddff",
+                "surface-container": "#e5eeff",
+                "outline-variant": "#c3c6d7",
+                "status-pause": "#3B82F6",
+                "on-secondary": "#ffffff",
+                "primary-fixed-dim": "#b4c5ff",
+                "on-secondary-container": "#fffbff",
+                "surface-bg": "#F4F5F7",
+                "on-error-container": "#93000a",
+                "surface-bright": "#f8f9ff",
+                "surface-variant": "#d3e4fe",
+                "error": "#ba1a1a",
+                "status-alert": "#EF4444",
+                "on-error": "#ffffff",
+                "outline": "#737686",
+                "on-background": "#0b1c30",
+                "primary-container": "#2563eb",
+                "error-container": "#ffdad6"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "sidebar-expanded": "240px",
+                "section-gap": "1.5rem",
+                "grid-gutter": "1rem",
+                "sidebar-collapsed": "72px",
+                "container-padding": "1.5rem",
+                "element-gap": "0.75rem"
+        },
+        "fontFamily": {
+                "label-md": [
+                        "Inter"
+                ],
+                "headline-lg-mobile": [
+                        "Prompt"
+                ],
+                "body-md": [
+                        "Inter"
+                ],
+                "headline-md": [
+                        "Prompt"
+                ],
+                "body-lg": [
+                        "Inter"
+                ],
+                "label-sm": [
+                        "Inter"
+                ],
+                "kpi-value": [
+                        "Prompt"
+                ],
+                "headline-lg": [
+                        "Prompt"
+                ],
+                "headline-xl": [
+                        "Prompt"
+                ]
+        },
+        "fontSize": {
+                "label-md": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.02em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "18px",
+                        {
+                                "lineHeight": "26px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-md": [
+                        "18px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "500"
+                        }
+                ],
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-sm": [
+                        "11px",
+                        {
+                                "lineHeight": "14px",
+                                "letterSpacing": "0.03em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "kpi-value": [
+                        "28px",
+                        {
+                                "lineHeight": "34px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-lg": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-xl": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Prompt:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #2563eb;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #2563eb;
+        }
+    </style>
+</head>
+<body class="bg-surface-bg text-on-surface font-body-md h-full flex overflow-hidden" style='font-family: "Plus Jakarta Sans", sans-serif;'>
+<!-- SideNavBar -->
+<nav class="hidden md:flex bg-surface-container-lowest border-r border-outline-variant w-sidebar-expanded h-screen flex-col z-40 fixed left-0 top-0">
+<div class="px-container-padding py-6 border-b border-outline-variant flex items-center gap-3">
+<div class="h-10 w-full flex items-center">{{DATA:DOCUMENT:DOCUMENT_28}}</div>
+</div>
+<div class="flex-1 overflow-y-auto py-4 flex flex-col gap-1">
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">map</span>
+<span class="font-label-md text-label-md">Live Map</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">calendar_today</span>
+<span class="font-label-md text-label-md">Appointments</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">badge</span>
+<span class="font-label-md text-label-md">Staff Management</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">bar_chart</span>
+<span class="font-label-md text-label-md">Reports</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">history</span>
+<span class="font-label-md text-label-md">Audit Trail</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded bg-active-item-bg text-primary border-l-2 border-primary font-bold" href="#">
+<span class="material-symbols-outlined text-primary">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</div>
+<div class="border-t border-outline-variant py-4 flex flex-col gap-1">
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant" href="#">
+<span class="material-symbols-outlined text-outline">support</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+<a class="flex items-center gap-element-gap px-4 py-3 mx-2 rounded hover:bg-surface-container transition-all text-on-surface-variant" href="#">
+<span class="material-symbols-outlined text-outline">logout</span>
+<span class="font-label-md text-label-md">Logout</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col md:ml-sidebar-expanded h-screen overflow-hidden">
+<!-- TopNavBar Mobile (Only visible on small screens to replace sidebar) -->
+<header class="md:hidden flex justify-between items-center px-container-padding py-4 bg-surface-container-lowest border-b border-outline-variant sticky top-0 z-50">
+<div class="flex items-center gap-3">
+<div class="h-8 w-auto flex items-center">{{DATA:DOCUMENT:DOCUMENT_28}}</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary">Settings</h1>
+</div>
+<button class="text-on-surface-variant">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</header>
+<!-- Page Header & Secondary Nav -->
+<div class="bg-surface-container-lowest border-b border-outline-variant px-container-padding pt-6 z-30 flex-shrink-0">
+<div class="flex justify-between items-end mb-6">
+<div>
+<h2 class="font-headline-xl text-headline-xl text-on-surface mb-1">System Settings</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Configure platform-wide preferences, notifications, and access controls.</p>
+</div>
+<div class="hidden sm:flex gap-3">
+<button class="px-4 py-2 bg-surface-container border border-outline-variant text-on-surface rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors">Discard Changes</button>
+<button class="px-4 py-2 bg-primary-container text-on-primary-container rounded-lg font-label-md text-label-md hover:bg-primary transition-colors flex items-center gap-2 bg-blue-600">
+<span class="material-symbols-outlined text-[18px]">save</span> Save Settings
+                    </button>
+</div>
+</div>
+<!-- Horizontal Tabs -->
+<div class="flex gap-8 border-b border-transparent">
+<a class="pb-3 px-1 font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors border-b-2 border-transparent" href="#">General</a>
+<a class="pb-3 px-1 font-label-md text-label-md text-primary font-bold border-b-2 border-primary" href="#">Notifications</a>
+<a class="pb-3 px-1 font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors border-b-2 border-transparent" href="#">Security</a>
+<a class="pb-3 px-1 font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors border-b-2 border-transparent" href="#">API</a>
+</div>
+</div>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto p-container-padding bg-surface-bg bg-slate-50">
+<div class="max-w-6xl mx-auto space-y-section-gap">
+<!-- Bento Grid Layout for Settings -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-grid-gutter">
+<!-- Section 1: Notification Channels (Takes up more space) -->
+<div class="lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center bg-surface-bright">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-outline">campaign</span>
+                                    Notification Channels
+                                </h3>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Configure how alerts are delivered for critical events.</p>
+</div>
+<button class="text-primary font-label-md text-label-md flex items-center gap-1 hover:underline">
+<span class="material-symbols-outlined text-[16px]">add</span> Add Custom Alert
+                            </button>
+</div>
+<div class="overflow-x-auto flex-1">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-bg">
+<th class="py-3 px-6 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Alert Type</th>
+<th class="py-3 px-6 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider text-center">In-App</th>
+<th class="py-3 px-6 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider text-center">Email</th>
+<th class="py-3 px-6 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider text-center">SMS</th>
+<th class="py-3 px-6 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider text-center">Push</th>
+</tr>
+</thead>
+<tbody>
+<tr class="border-b border-slate-100 hover:bg-surface-bright transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center text-status-alert">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Over Speed Limit</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">Vehicle exceeds set limit &gt; 10s</p>
+</div>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="material-symbols-outlined text-status-running">check_circle</span>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input checked="" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-primary-container z-10 transition-all duration-300 right-0 border-blue-600" id="toggle1" name="toggle1" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-primary-container cursor-pointer transition-colors duration-300 bg-blue-600" for="toggle1"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-outline-variant z-10 transition-all duration-300 left-0" id="toggle2" name="toggle2" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-dim cursor-pointer transition-colors duration-300" for="toggle2"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input checked="" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-primary-container z-10 transition-all duration-300 right-0 border-blue-600" id="toggle3" name="toggle3" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-primary-container cursor-pointer transition-colors duration-300 bg-blue-600" for="toggle3"></label>
+</div>
+</td>
+</tr>
+<tr class="border-b border-slate-100 hover:bg-surface-bright transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-status-idle">
+<span class="material-symbols-outlined text-[18px]">timer</span>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Excessive Idling</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">Engine running &gt; 5 mins without movement</p>
+</div>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="material-symbols-outlined text-status-running">check_circle</span>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-outline-variant z-10 transition-all duration-300 left-0" id="toggle4" name="toggle4" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-dim cursor-pointer transition-colors duration-300" for="toggle4"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-outline-variant z-10 transition-all duration-300 left-0" id="toggle5" name="toggle5" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-dim cursor-pointer transition-colors duration-300" for="toggle5"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-outline-variant z-10 transition-all duration-300 left-0" id="toggle6" name="toggle6" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-dim cursor-pointer transition-colors duration-300" for="toggle6"></label>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-bright transition-colors">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[18px]">share_location</span>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface font-semibold">Geofence Breach</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-0.5">Asset enters/exits designated zone</p>
+</div>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="material-symbols-outlined text-status-running">check_circle</span>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input checked="" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-primary-container z-10 transition-all duration-300 right-0 border-blue-600" id="toggle7" name="toggle7" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-primary-container cursor-pointer transition-colors duration-300 bg-blue-600" for="toggle7"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input checked="" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-primary-container z-10 transition-all duration-300 right-0 border-blue-600" id="toggle8" name="toggle8" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-primary-container cursor-pointer transition-colors duration-300 bg-blue-600" for="toggle8"></label>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-outline-variant z-10 transition-all duration-300 left-0" id="toggle9" name="toggle9" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-dim cursor-pointer transition-colors duration-300" for="toggle9"></label>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Right Column (Stacked smaller sections) -->
+<div class="lg:col-span-4 flex flex-col gap-grid-gutter">
+<!-- Section 2: Map Defaults -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm p-6">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-outline">map</span>
+                                Map Defaults
+                            </h3>
+<div class="space-y-4">
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1">Default View Mode</label>
+<div class="flex bg-surface-container rounded-lg p-1">
+<button class="flex-1 py-1.5 rounded-md bg-surface-container-lowest shadow-sm font-label-md text-label-md text-on-surface">Street</button>
+<button class="flex-1 py-1.5 rounded-md font-label-md text-label-md text-on-surface-variant hover:text-on-surface">Satellite</button>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-1">
+<label class="block font-label-md text-label-md text-on-surface-variant">Default Zoom Level</label>
+<span class="font-label-sm text-label-sm text-primary">City (12x)</span>
+</div>
+<input class="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary-container" max="20" min="1" type="range" value="12"/>
+</div>
+<div>
+<div class="flex justify-between mb-1">
+<label class="block font-label-md text-label-md text-on-surface-variant">Geofence Opacity</label>
+<span class="font-label-sm text-label-sm text-primary">40%</span>
+</div>
+<input class="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary-container" max="100" min="10" type="range" value="40"/>
+</div>
+</div>
+</div>
+<!-- Section 3: Quick Role Overview -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm p-6 flex-1">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-outline">admin_panel_settings</span>
+                                Access Summary
+                            </h3>
+<div class="space-y-3">
+<div class="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-surface-bright">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-purple-500"></span>
+<span class="font-label-md text-label-md font-semibold">Admin</span>
+</div>
+<span class="px-2 py-1 bg-surface-container text-on-surface font-label-sm text-label-sm rounded">Full Access</span>
+</div>
+<div class="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-surface-bright">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-500"></span>
+<span class="font-label-md text-label-md font-semibold">Manager</span>
+</div>
+<span class="px-2 py-1 bg-surface-container text-on-surface font-label-sm text-label-sm rounded">View &amp; Edit Ops</span>
+</div>
+<div class="flex justify-between items-center p-3 border border-slate-100 rounded-lg bg-surface-bright">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-slate-400"></span>
+<span class="font-label-md text-label-md font-semibold">Dispatcher</span>
+</div>
+<span class="px-2 py-1 bg-surface-container text-on-surface font-label-sm text-label-sm rounded">View Only</span>
+</div>
+</div>
+<a class="inline-flex items-center gap-1 font-label-sm text-label-sm text-primary mt-4 hover:underline" href="#">
+                                Manage Roles &amp; Permissions <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<footer class="bg-surface-container-lowest border-t border-outline-variant px-container-padding py-3 flex items-center z-30">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-status-running"></span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Connected</span>
+</div>
+</footer>
+</main>
+</body></html>

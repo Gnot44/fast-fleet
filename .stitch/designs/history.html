@@ -1,0 +1,577 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Appointments &amp; Visit History - Logistics Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Prompt:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "surface-bright": "#f8f9ff",
+                "secondary-container": "#8a4cfc",
+                "tertiary-container": "#bc4800",
+                "inverse-primary": "#b4c5ff",
+                "surface-container-high": "#dce9ff",
+                "status-idle": "#F59E0B",
+                "tertiary": "#943700",
+                "secondary-fixed-dim": "#d2bbff",
+                "on-background": "#0b1c30",
+                "surface": "#f8f9ff",
+                "status-alert": "#EF4444",
+                "surface-container": "#e5eeff",
+                "status-pause": "#3B82F6",
+                "on-tertiary-fixed-variant": "#7d2d00",
+                "surface-container-low": "#eff4ff",
+                "primary-fixed": "#dbe1ff",
+                "on-primary-fixed-variant": "#003ea8",
+                "on-surface": "#0b1c30",
+                "on-primary-container": "#eeefff",
+                "on-primary": "#ffffff",
+                "inverse-on-surface": "#eaf1ff",
+                "on-primary-fixed": "#00174b",
+                "surface-container-highest": "#d3e4fe",
+                "primary-container": "#2563eb",
+                "on-tertiary-fixed": "#360f00",
+                "surface-bg": "#F4F5F7",
+                "outline-variant": "#c3c6d7",
+                "error-container": "#ffdad6",
+                "background": "#F4F5F7",
+                "on-error": "#ffffff",
+                "primary-fixed-dim": "#b4c5ff",
+                "on-secondary-container": "#fffbff",
+                "on-secondary": "#ffffff",
+                "status-offline": "#94A3B8",
+                "surface-tint": "#0053db",
+                "active-item-bg": "#EFF6FF",
+                "status-running": "#10B981",
+                "on-surface-variant": "#434655",
+                "inverse-surface": "#213145",
+                "outline": "#737686",
+                "tertiary-fixed": "#ffdbcd",
+                "tertiary-fixed-dim": "#ffb596",
+                "surface-dim": "#cbdbf5",
+                "on-secondary-fixed": "#25005a",
+                "error": "#ba1a1a",
+                "primary": "#2563eb",
+                "on-error-container": "#93000a",
+                "on-tertiary-container": "#ffede6",
+                "surface-container-lowest": "#ffffff",
+                "status-stopped": "#64748B",
+                "on-secondary-fixed-variant": "#5a00c6",
+                "surface-variant": "#d3e4fe",
+                "on-tertiary": "#ffffff",
+                "secondary-fixed": "#eaddff",
+                "secondary": "#712ae2"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "sidebar-expanded": "240px",
+                "container-padding": "1.5rem",
+                "sidebar-collapsed": "72px",
+                "section-gap": "1.5rem",
+                "element-gap": "0.75rem",
+                "grid-gutter": "1rem"
+        },
+        "fontFamily": {
+                "headline-xl": [
+                        "Prompt", "sans-serif"
+                ],
+                "headline-lg": [
+                        "Prompt", "sans-serif"
+                ],
+                "headline-md": [
+                        "Prompt", "sans-serif"
+                ],
+                "body-lg": [
+                        "Inter", "sans-serif"
+                ],
+                "label-sm": [
+                        "Inter", "sans-serif"
+                ],
+                "body-md": [
+                        "Inter", "sans-serif"
+                ],
+                "kpi-value": [
+                        "Prompt", "sans-serif"
+                ],
+                "label-md": [
+                        "Inter", "sans-serif"
+                ],
+                "headline-lg-mobile": [
+                        "Prompt", "sans-serif"
+                ],
+                "headline-sm": [
+                        "Prompt", "sans-serif"
+                ],
+                "label-bold": [
+                        "Inter", "sans-serif"
+                ]
+        },
+        "fontSize": {
+                "headline-xl": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-lg": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-md": [
+                        "18px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-sm": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-sm": [
+                        "11px",
+                        {
+                                "lineHeight": "14px",
+                                "letterSpacing": "0.03em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "kpi-value": [
+                        "28px",
+                        {
+                                "lineHeight": "34px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-md": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.02em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "label-bold": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "18px",
+                        {
+                                "lineHeight": "26px",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, h4, h5, h6, .font-prompt { font-family: 'Prompt', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex antialiased">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-sidebar-expanded bg-surface-container-lowest border-r border-surface-container-highest flex flex-col z-50 transition-colors duration-200">
+<div class="p-4 border-b border-surface-container-highest flex items-center gap-3">
+<div class="w-10 h-10 rounded-md overflow-hidden bg-primary-container/10 flex-shrink-0 flex items-center justify-center"><img alt="Marketing Tracker Pro Logo" class="w-full h-full object-contain" src="https://lh3.googleusercontent.com/aida/AP1WRLuSHU4qtWE3veYSbHzwA9PHr7ok8OTHZV7vBTuryzgxSdJkchqoaR0Y7dbvyBFjAoNCpl3C79TE45s7i4phFQCMBl-bOQg3Vn_Iau9sFckYGbPZTQ_Hx31F9XkbColdOaJ0ekXEPu35Ezh7yYL_gsEVt-QpP7zYoC8v1juYZLMBwIyRbXMwVHyUuA7w4kTmoWEQh-JeFDlcSEXXo9Ydzh5pv_zLhi5YxUhRnH6-HqyF7wEd2ZbReJ6iOcY"></div>
+<div>
+<h1 class="font-headline-md text-on-surface font-bold truncate text-[16px]" title="Marketing Tracker Pro">Marketing Tracker Pro</h1>
+<p class="font-label-md text-on-surface-variant truncate">v1.3.0</p>
+</div>
+</div>
+<nav class="flex-1 overflow-y-auto py-4 flex flex-col gap-1"><a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#"><span class="material-symbols-outlined text-[20px]" data-icon="dashboard">dashboard</span><span class="font-body-md">Dashboard</span></a><a class="flex items-center gap-3 px-4 py-2.5 text-primary border-l-4 border-primary bg-[#EFF6FF] cursor-pointer active:opacity-80 transition-colors duration-200 justify-between" href="#"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[20px] fill text-[#2563EB]" data-icon="calendar_today">calendar_today</span><span class="font-body-md font-medium text-[#2563EB]">Appointment</span></div></a><a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#"><span class="material-symbols-outlined text-[20px]" data-icon="badge">badge</span><span class="font-body-md">Staff Management</span></a><a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#"><span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span><span class="font-body-md">Setting</span></a></nav>
+<div class="border-t border-surface-container-highest p-4 mt-auto">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant flex-shrink-0"><img alt="Administrator Profile" class="w-8 h-8 rounded-full object-cover border border-surface-container-highest" data-alt="A professional headshot of a corporate administrator in a modern office setting. Light mode aesthetic with cool blue and crisp white tones. The lighting is soft and flattering, highlighting a trustworthy and efficient expression. A subtle, blurred background ensures focus on the subject. High quality, realistic photographic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9COB-NEUhcAB6L8bw7aP6sALwsf7EdQJzpJ-o8atmzIIk4G7lUzylurIWxKLeCRm9Derz6F08u28eWfonmV7tx4TleYfJsuJCgiyLnrtLPrd_PJEqfh5RwNeyxybiKzPDl812I7ZDKu5cKXR_MjK2MRB0M9YX7-hCC13smK3kx48Oyy7Dp9jnTTBD3gPk2nYQmOlCumRHhkFlFPyd1AKXT7_2_d1EJDptFmUtN5ppGZfpHr_2bVmKt6coVAbOo69_NCEgttxMG3Y"></div>
+<div class="flex-1 truncate">
+<p class="font-label-bold text-on-surface truncate">John Doe</p>
+<p class="font-label-md text-on-surface-variant flex items-center gap-1 truncate">
+                         Administrator
+                         <span class="material-symbols-outlined text-[14px] text-primary" data-icon="verified_user">verified_user</span>
+</p>
+</div>
+<button class="text-on-surface-variant hover:bg-surface-container rounded-md p-1">
+<span class="material-symbols-outlined text-[18px]" data-icon="keyboard_double_arrow_left">keyboard_double_arrow_left</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-240px)] flex justify-between items-center h-16 px-container-padding bg-surface-container-lowest border-b border-surface-container-highest z-40 ml-[240px] shadow-sm">
+<div class="flex items-center gap-4 w-96 relative">
+<span class="material-symbols-outlined absolute left-3 text-on-surface-variant pointer-events-none">search</span>
+<input class="w-full pl-10 pr-4 py-2 border border-surface-container-highest rounded-md bg-surface-container-low text-body-md font-body-md focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-shadow" placeholder="Search appointments..." type="text">
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-2 border border-surface-container-highest rounded-md text-body-md text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200 hidden md:flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="calendar_month">calendar_month</span>
+                Date Range
+            </button>
+<div class="flex items-center gap-2 relative">
+<button aria-label="notifications" class="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-all duration-200 scale-95 active:scale-90 relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 -mt-1 -mr-1 bg-status-alert text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">99+</span>
+</button>
+</div>
+<button class="px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-lg font-body-md transition-colors shadow-sm hidden md:flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+            Add Vehicle
+        </button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-surface-container-highest ml-2 flex-shrink-0">
+<img alt="Administrator Avatar" class="w-full h-full object-cover" data-alt="A highly detailed close-up portrait of a professional corporate administrator in a modern, well-lit office setting. The lighting is soft and natural, emphasizing a trustworthy and competent demeanor suitable for a light-mode enterprise fleet management dashboard. The color palette features neutral greys and crisp whites." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD18Ao2WKrCB04kdDSHbAefTSUjF9C6NrmjOS73nSPMIzpUqyEWrrldSwtnLafWFCMIMR6KN8MmCEozaqneKQ87hpFVfk344aGXDjwZCtWBzO2rN1fzV3D6bh6txPTFWu8pttlEg2BMwR1fRoYFg3_wFGnTvPnFavAXusAEHqR_gqGPTpMskkLQ2hRRZr4nWVSMjGYwnaLmf_kb3L1xHb8wmO3jx5_r6jJljtP3vzR6wbJM93IEedX_xiAvIxAwP1eZHhRHviEELqU">
+</div>
+</div>
+</header>
+<!-- Main Layout -->
+<main class="ml-sidebar-expanded pt-16 flex-1 bg-background min-h-screen">
+<div class="p-section-gap max-w-[1600px] mx-auto w-full flex flex-col gap-section-gap">
+<!-- Page Header -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-headline-lg font-headline-lg text-on-surface font-bold text-[20px]">Appointments &amp; Visit History</h2>
+<p class="text-body-md font-body-md text-on-surface-variant mt-1">Manage and track staff field visits and operational appointments.</p>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center border border-surface-container-highest rounded-md bg-surface-container-lowest overflow-hidden shadow-sm">
+<button class="px-3 py-2 text-on-surface-variant hover:bg-surface-container-low font-label-bold text-label-bold flex items-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-sm">calendar_month</span>
+                            Today
+                        </button>
+<div class="w-px h-5 bg-surface-container-highest"></div>
+<button class="px-3 py-2 text-on-surface font-label-bold text-label-bold flex items-center gap-2 hover:bg-surface-container-low transition-colors">
+                            Aug 10 - Aug 17, 2026
+                            <span class="material-symbols-outlined text-sm">arrow_drop_down</span>
+</button>
+</div>
+<button class="px-4 py-2 border border-surface-container-highest text-on-surface hover:bg-surface-container-low rounded-md font-label-bold text-label-bold flex items-center gap-2 transition-colors shadow-sm bg-surface-container-lowest">
+<span class="material-symbols-outlined text-sm">download</span>
+                        Export
+                    </button>
+</div>
+</div>
+<!-- Summary Metric Cards -->
+<div class="grid grid-cols-4 gap-grid-gutter">
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
+<div>
+<p class="text-label-md font-label-md text-on-surface-variant uppercase tracking-wider font-medium">Scheduled</p>
+<p class="text-headline-xl font-headline-xl text-on-surface mt-1">5</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-[#EFF6FF] flex items-center justify-center text-[#2563EB]">
+<span class="material-symbols-outlined" data-icon="event">event</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 flex items-center justify-between relative overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+<div class="relative z-10">
+<p class="text-label-md font-label-md text-on-surface-variant uppercase tracking-wider font-medium">In Progress</p>
+<p class="text-headline-xl font-headline-xl text-on-surface mt-1">3</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-status-running/10 flex items-center justify-center text-status-running relative z-10">
+<span class="material-symbols-outlined animate-pulse" data-icon="directions_car">directions_car</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
+<div>
+<p class="text-label-md font-label-md text-on-surface-variant uppercase tracking-wider font-medium">Pending Report</p>
+<p class="text-headline-xl font-headline-xl text-on-surface mt-1">4</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-status-idle/10 flex items-center justify-center text-status-idle">
+<span class="material-symbols-outlined" data-icon="assignment_late">assignment_late</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
+<div>
+<p class="text-label-md font-label-md text-on-surface-variant uppercase tracking-wider font-medium">Completed</p>
+<p class="text-headline-xl font-headline-xl text-on-surface mt-1">28</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-[#EFF6FF] flex items-center justify-center text-[#2563EB]">
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+</div>
+</div>
+</div>
+<!-- Split Layout -->
+<div class="flex gap-grid-gutter h-[800px]">
+<!-- Left Panel: Appointment List (55%) -->
+<div class="w-[55%] flex flex-col bg-surface-container-lowest border border-surface-container-highest rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+<div class="p-5 border-b border-surface-container-highest bg-surface-container-lowest flex flex-col gap-4">
+<div class="flex gap-2 border-b border-surface-container-highest pb-2">
+<button class="px-3 py-1.5 text-primary border-b-2 border-primary font-label-bold text-label-bold">All</button>
+<button class="px-3 py-1.5 text-on-surface-variant hover:text-on-surface font-label-bold text-label-bold">Scheduled</button>
+<button class="px-3 py-1.5 text-on-surface-variant hover:text-on-surface font-label-bold text-label-bold">In Progress</button>
+<button class="px-3 py-1.5 text-on-surface-variant hover:text-on-surface font-label-bold text-label-bold">Pending</button>
+<button class="px-3 py-1.5 text-on-surface-variant hover:text-on-surface font-label-bold text-label-bold">Completed</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-5 space-y-4 bg-background">
+<!-- Selected Card -->
+<div class="bg-surface-container-lowest border-l-4 border-primary border-y border-r border-y-surface-container-highest border-r-surface-container-highest rounded-r-xl p-5 shadow-sm cursor-pointer">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">ABC Corporation</h4>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">location_on</span>
+                                        Bangna, Bangkok
+                                    </p>
+</div>
+<span class="px-3 py-1.5 bg-surface-container-low text-on-surface font-label-bold text-label-bold rounded-full flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">check_circle</span> Completed
+                                </span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-secondary-container overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A crisp, professional headshot of an Asian male field operative in a neat corporate uniform. The lighting is bright and even, set against a pristine white background. The image conveys reliability and readiness, perfectly suited for an enterprise fleet management dashboard in light mode." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD0dJzTzyGOjVTiA4HtsgKNjZYs33EcBEfcZNOpfy7ooAiCAud5u_hBq_2UwCj5N1Uu9Q82ubVBDDq-t31qhxP0jv4AcrodlTyMhzioCIkAHjMzEENIKgegxDo_tn7Hv_IqYYo9KlrExPwKgpgc7ehT1NIpdJiOojkOP2WAQ99ZdxDDnGHuPKsOp4LC3T462QKNlGCyJwSW0X6htuaKbXzVXD8eNEYUjkiCbwSrlIm5dl8SFSZN_pl7UREGy3fPDTHBDyXPInqUwZw">
+</div>
+<div>
+<p class="font-label-bold text-label-bold text-on-surface">Somchai Rakdee</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">Field Agent</p>
+</div>
+</div>
+<div class="flex flex-col items-end justify-center">
+<p class="font-label-bold text-label-bold text-on-surface">13 Aug 2026</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">09:30 - 11:45 • 45.2 km</p>
+</div>
+</div>
+</div>
+<!-- Unselected Card 1 -->
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 hover:bg-surface-container-low transition-colors cursor-pointer shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">TechSolutions Inc.</h4>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">location_on</span>
+                                        Silom, Bangkok
+                                    </p>
+</div>
+<span class="px-3 py-1.5 bg-status-running/10 text-status-running font-label-bold text-label-bold rounded-full flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">sync</span> In Progress
+                                </span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-[#EFF6FF] overflow-hidden">
+<div class="w-full h-full flex items-center justify-center font-label-bold text-primary">NW</div>
+</div>
+<div>
+<p class="font-label-bold text-label-bold text-on-surface">Naree Wong</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">Senior Tech</p>
+</div>
+</div>
+<div class="flex flex-col items-end justify-center">
+<p class="font-label-bold text-label-bold text-on-surface">13 Aug 2026</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">13:00 - Present • 12.4 km</p>
+</div>
+</div>
+</div>
+<!-- Unselected Card 2 -->
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-5 hover:bg-surface-container-low transition-colors cursor-pointer shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">Global Logistics Hub</h4>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">location_on</span>
+                                        Chonburi
+                                    </p>
+</div>
+<span class="px-3 py-1.5 bg-status-idle/10 text-status-idle font-label-bold text-label-bold rounded-full flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span> Scheduled
+                                </span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-[#EFF6FF] overflow-hidden">
+<div class="w-full h-full flex items-center justify-center font-label-bold text-primary">PK</div>
+</div>
+<div>
+<p class="font-label-bold text-label-bold text-on-surface">Panya K.</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">Inspector</p>
+</div>
+</div>
+<div class="flex flex-col items-end justify-center">
+<p class="font-label-bold text-label-bold text-on-surface">14 Aug 2026</p>
+<p class="font-label-md text-label-md text-on-surface-variant mt-0.5">09:00 - 12:00 • Est. 85 km</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel: Detail View (45%) -->
+<div class="w-[45%] flex flex-col bg-surface-container-lowest border border-surface-container-highest rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+<!-- Header -->
+<div class="p-6 border-b border-surface-container-highest bg-surface-container-lowest">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface font-bold text-[20px]">ABC Corporation</h3>
+<div class="flex items-center gap-4 mt-3">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-secondary-container overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A highly detailed close-up portrait of a professional corporate administrator in a modern, well-lit office setting. The lighting is soft and natural, emphasizing a trustworthy and competent demeanor suitable for a light-mode enterprise fleet management dashboard. The color palette features neutral greys and crisp whites." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0N6HwzLLjTIuPgltmb0zlR4O2UQe0UpaGRRB2ZbhAfNJKRWy-ki-5Zps-Rqr_cJEHRcQdgaH9QGLa0Rm-7zFC8dtnss8UszUfxXp0EU7CNHoKTT7-zuEdrp3vzU10qE9zx1gJwainC1FNKD3E2KhY2gPIv8dG-HWpb99oVDAsR55ClIDbSlvsFtUrtPVQBvjJQS2PtaSMiNwKmSaSnEcW-p8MDNsLu6ZfHoggJquufb9aSlrCjQLf29QUlQ8YBvxh_bBDcGgYURg">
+</div>
+<span class="font-label-bold text-label-bold text-on-surface">Somchai Rakdee</span>
+</div>
+<span class="w-1 h-1 rounded-full bg-surface-container-highest"></span>
+<span class="font-body-md text-body-md text-on-surface-variant">13 Aug 2026</span>
+</div>
+</div>
+<span class="px-3 py-1.5 bg-surface-container-low text-on-surface font-label-bold text-label-bold rounded-full flex items-center gap-1.5 border border-surface-container-highest">
+<span class="material-symbols-outlined text-[16px]">check_circle</span> Completed
+                            </span>
+</div>
+</div>
+<!-- Scrollable Details -->
+<div class="flex-1 overflow-y-auto p-6 space-y-8">
+<!-- Route Map -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4 font-medium">Route Taken</h4>
+<div class="h-48 rounded-xl overflow-hidden border border-surface-container-highest relative bg-surface-container-low" data-location="Bangkok">
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="A detailed, clean top-down map interface showing a suburban industrial area. A clear, thick primary blue polyline marks a route from a green starting marker to a red ending destination marker. The map uses a very light, modern corporate color palette typical of high-end logistics software, emphasizing clarity and data density without visual clutter." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuC0TYQUnYFgTOKrKsHz7q12_WCUac_0zUp1FkqZ_RyHREhKWEcMxKiT5-8Gkiys93FoQmWaLL7wpsBA0AaZ4OP9x1s70_DhGzf04U4PK1B7Z19CdvQdsn1WW77hQr28ozuq9s9jscRDqh5kS-d6wi0AND6CoqcTCyxJNxMQCwxGP1z_G-C18TcfYBTEtsdCXjuB0ZgQC8nEBECBUGx99ygRjFHiDJ1SAkUaHPPDkIhG-YWJAABk4wUrqOV7Y7rv-mgd_u6H-kUffLA')"></div>
+</div>
+<div class="grid grid-cols-4 gap-4 mt-4">
+<div class="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-highest shadow-sm">
+<p class="font-label-md text-label-md text-on-surface-variant">Distance</p>
+<p class="font-label-bold text-label-bold text-on-surface mt-1">45.2 km</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-highest shadow-sm">
+<p class="font-label-md text-label-md text-on-surface-variant">Duration</p>
+<p class="font-label-bold text-label-bold text-on-surface mt-1">2h 15m</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-highest shadow-sm">
+<p class="font-label-md text-label-md text-on-surface-variant">Start ODO</p>
+<p class="font-label-bold text-label-bold text-on-surface mt-1">45,230</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-highest shadow-sm">
+<p class="font-label-md text-label-md text-on-surface-variant">End ODO</p>
+<p class="font-label-bold text-label-bold text-on-surface mt-1">45,275</p>
+</div>
+</div>
+</div>
+<!-- Timeline -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4 font-medium">Activity Timeline</h4>
+<div class="relative pl-6 space-y-6 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-surface-container-highest">
+<div class="relative">
+<div class="absolute -left-[29px] w-3 h-3 rounded-full bg-status-running ring-4 ring-surface-container-lowest"></div>
+<p class="font-label-bold text-label-bold text-on-surface">09:30 - Started Journey</p>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Departed from HQ</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[29px] w-3 h-3 rounded-full bg-primary ring-4 ring-surface-container-lowest"></div>
+<p class="font-label-bold text-label-bold text-on-surface">10:45 - Arrived at Location</p>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">ABC Corporation Main Office</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[29px] w-3 h-3 rounded-full bg-status-idle ring-4 ring-surface-container-lowest"></div>
+<p class="font-label-bold text-label-bold text-on-surface">11:30 - Report Submitted</p>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Inspection notes and photos uploaded</p>
+</div>
+<div class="relative">
+<div class="absolute -left-[29px] w-3 h-3 rounded-full bg-status-stopped ring-4 ring-surface-container-lowest"></div>
+<p class="font-label-bold text-label-bold text-on-surface">11:45 - Visit Completed</p>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Sign-off received from client</p>
+</div>
+</div>
+</div>
+<!-- Notes & Photos Grid -->
+<div class="grid grid-cols-2 gap-6">
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4 font-medium">Meeting Notes</h4>
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-xl p-4 h-32 overflow-y-auto shadow-sm">
+<p class="font-body-md text-body-md text-on-surface">Discussed Q4 marketing strategy rollout. Client raised concerns about delivery timelines for promotional materials. Agreed to expedite the first batch by next week. Overall positive sentiment, hardware inspection passed without issues.</p>
+</div>
+</div>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4 font-medium">Visit Photos (2)</h4>
+<div class="grid grid-cols-2 gap-2 h-32">
+<div class="rounded-lg overflow-hidden border border-surface-container-highest bg-surface-container-low shadow-sm">
+<img class="w-full h-full object-cover" data-alt="A brightly lit, modern corporate conference room viewed during a meeting. The focus is on a clean, glass-topped table with professional documents and a laptop. The aesthetic is clean, light-mode, and highly structured, fitting for enterprise reporting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBVSp3zdXAcAMKJ9_J_TiOhDHvmHItQyUT03kTAzkaSLMVBzHeriqkdgLcEzjIpA4X8vo6xp_p5bJmaeuiLetV3Uz9LoxXrlImKzj-vD9AmCDiAMihe9kG_9Pt8rA6gVzP5Hn22xEta9Ww09yoy7jpXR42ZEvhIrEWYDQspihhEz2R836nAeFkhzfv_f96RKOpR0_ZWWuOFtaAp2EtJJCUAiMo4ZggbNKjAgy8fHazvKyKfQXLYjo_CrR7WfoLZ0EhtJMZXVN6bJeA">
+</div>
+<div class="rounded-lg overflow-hidden border border-surface-container-highest bg-surface-container-low shadow-sm">
+<img class="w-full h-full object-cover" data-alt="A close-up shot of a signed digital tablet screen showing a completed inspection form, held by a professional in a neat uniform. The background is slightly blurred showing an office environment. Lighting is crisp and cool, conveying efficiency." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1Z8VoAxYN2v5TpHb7xxb4NBBFcxw9z_8_FA9r3vB2QeAML385Z0IY2veslUqVlsA-9gzLfk7pZARa666GmlGw4QAVe9XCtY38OsXyV8HJ19H2ht9hqY1KfZSmO63Ts_8xjiJDpdImip3YvyPP8hQ5q7Y8QyypvKNGBKtic_cTTzLQfQLTXghE7q2LWmdtbo4Qtq9oEassq6Ruz8fY2LWieLTF2PVp7x5HTRLRr6cfmWUpDPyMt5zAelNQJ8YEFd2Yg97ms3hVDk8">
+</div>
+</div>
+</div>
+</div>
+<!-- Expenses -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4 font-medium">Expenses Logged</h4>
+<div class="border border-surface-container-highest rounded-xl overflow-hidden shadow-sm bg-surface-container-lowest">
+<table class="w-full text-left">
+<thead class="bg-surface-container-lowest border-b border-surface-container-highest">
+<tr>
+<th class="px-4 py-3 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Category</th>
+<th class="px-4 py-3 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Description</th>
+<th class="px-4 py-3 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Amount</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-highest">
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-4 py-4 font-body-md text-body-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">local_gas_station</span> Gas
+                                            </td>
+<td class="px-4 py-4 font-body-md text-body-md text-on-surface-variant">PTT Station Bangna</td>
+<td class="px-4 py-4 font-label-bold text-label-bold text-on-surface text-right">800 THB</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-4 py-4 font-body-md text-body-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">restaurant</span> Lunch
+                                            </td>
+<td class="px-4 py-4 font-body-md text-body-md text-on-surface-variant">Client meeting lunch</td>
+<td class="px-4 py-4 font-label-bold text-label-bold text-on-surface text-right">350 THB</td>
+</tr>
+</tbody>
+<tfoot class="bg-surface-container-low border-t border-surface-container-highest">
+<tr>
+<td class="px-4 py-4 font-label-bold text-label-bold text-on-surface text-right" colspan="2">Total:</td>
+<td class="px-4 py-4 font-headline-sm text-headline-sm text-primary text-right">1,150 THB</td>
+</tr>
+</tfoot>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+
+
+
+
+</body></html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html><html class="light" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Logistics Pro - Admin Profile</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Prompt:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-tertiary": "#ffffff",
+                      "surface-container-highest": "#d3e4fe",
+                      "on-tertiary-fixed-variant": "#7d2d00",
+                      "tertiary-fixed": "#ffdbcd",
+                      "status-idle": "#F59E0B",
+                      "secondary-fixed-dim": "#d2bbff",
+                      "on-secondary": "#ffffff",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "on-error-container": "#93000a",
+                      "on-primary-container": "#eeefff",
+                      "on-primary": "#ffffff",
+                      "on-surface": "#0b1c30",
+                      "inverse-primary": "#b4c5ff",
+                      "active-item-bg": "#EFF6FF",
+                      "inverse-on-surface": "#eaf1ff",
+                      "primary": "#004ac6",
+                      "primary-container": "#2563eb",
+                      "on-error": "#ffffff",
+                      "on-surface-variant": "#434655",
+                      "surface-dim": "#cbdbf5",
+                      "surface-bright": "#f8f9ff",
+                      "tertiary": "#943700",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "tertiary-fixed-dim": "#ffb596",
+                      "surface": "#f8f9ff",
+                      "status-offline": "#94A3B8",
+                      "surface-container-high": "#dce9ff",
+                      "error-container": "#ffdad6",
+                      "surface-container-low": "#eff4ff",
+                      "secondary-fixed": "#eaddff",
+                      "inverse-surface": "#213145",
+                      "surface-tint": "#0053db",
+                      "error": "#ba1a1a",
+                      "status-running": "#10B981",
+                      "outline": "#737686",
+                      "secondary": "#712ae2",
+                      "surface-variant": "#d3e4fe",
+                      "on-primary-fixed": "#00174b",
+                      "background": "#f8f9ff",
+                      "surface-container-lowest": "#ffffff",
+                      "status-pause": "#3B82F6",
+                      "surface-bg": "#F4F5F7",
+                      "primary-fixed": "#dbe1ff",
+                      "on-secondary-container": "#fffbff",
+                      "on-secondary-fixed": "#25005a",
+                      "secondary-container": "#8a4cfc",
+                      "on-tertiary-container": "#ffede6",
+                      "on-secondary-fixed-variant": "#5a00c6",
+                      "status-stopped": "#64748B",
+                      "outline-variant": "#c3c6d7",
+                      "on-background": "#0b1c30",
+                      "status-alert": "#EF4444",
+                      "tertiary-container": "#bc4800",
+                      "surface-container": "#e5eeff",
+                      "on-tertiary-fixed": "#360f00"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sidebar-collapsed": "72px",
+                      "section-gap": "1.5rem",
+                      "grid-gutter": "1rem",
+                      "container-padding": "1.5rem",
+                      "sidebar-expanded": "240px",
+                      "element-gap": "0.75rem"
+              },
+              "fontFamily": {
+                      "label-sm": [
+                              "Inter", "sans-serif"
+                      ],
+                      "headline-lg": [
+                              "Prompt", "sans-serif"
+                      ],
+                      "body-lg": [
+                              "Inter", "sans-serif"
+                      ],
+                      "headline-xl": [
+                              "Prompt", "sans-serif"
+                      ],
+                      "body-md": [
+                              "Inter", "sans-serif"
+                      ],
+                      "headline-lg-mobile": [
+                              "Prompt", "sans-serif"
+                      ],
+                      "label-md": [
+                              "Inter", "sans-serif"
+                      ],
+                      "kpi-value": [
+                              "Prompt", "sans-serif"
+                      ],
+                      "headline-md": [
+                              "Prompt", "sans-serif"
+                      ]
+              },
+              "fontSize": {
+                      "label-sm": [
+                              "11px",
+                              {
+                                      "lineHeight": "14px",
+                                      "letterSpacing": "0.03em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-xl": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "18px",
+                              {
+                                      "lineHeight": "26px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "kpi-value": [
+                              "28px",
+                              {
+                                      "lineHeight": "34px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-md": [
+                              "18px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+          font-variation-settings:
+          'FILL' 1,
+          'wght' 400,
+          'GRAD' 0,
+          'opsz' 24
+        }
+    </style>
+</head>
+<body class="bg-surface-bg text-on-surface font-body-md min-h-screen flex">
+<!-- SideNavBar -->
+<aside class="w-sidebar-expanded h-screen sticky left-0 top-0 bg-surface-container-lowest border-r border-outline-variant flex flex-col py-container-padding z-50">
+<div class="px-6 mb-8 flex items-center justify-center"><div class="flex flex-col items-center gap-2">
+  <div class="h-12 w-auto flex items-center justify-center">{{DATA:DOCUMENT:DOCUMENT_28}}</div>
+  <span class="text-label-sm font-label-sm text-outline uppercase tracking-wider">Fleet Admin</span>
+</div></div>
+<nav class="flex-1 overflow-y-auto">
+<ul class="space-y-1">
+<li class="">
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md">Live Map</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="font-label-md text-label-md">Appointments</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">badge</span>
+<span class="font-label-md text-label-md">Staff Management</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-3 px-6 py-3 bg-active-item-bg text-primary border-l-2 border-primary font-bold hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-150" href="#" style="background-color: rgb(239, 246, 255); color: rgb(37, 99, 235); border-left-color: rgb(37, 99, 235); font-family: Inter, sans-serif;">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</li>
+</ul>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0 bg-surface font-body-md">
+<!-- TopAppBar -->
+<header class="w-full sticky top-0 h-16 bg-surface border-b border-outline-variant shadow-sm flex justify-between items-center px-container-padding z-40 transition-all duration-200">
+<div class="flex items-center flex-1 max-w-md">
+<div class="relative w-full">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-outline">search</span>
+</div>
+<input class="block w-full pl-10 pr-3 py-2 border border-outline-variant rounded-lg text-body-md text-on-surface bg-surface-container-lowest focus:ring-primary focus:border-primary sm:text-sm" placeholder="Search logistics data..." type="text">
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded-full relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-status-alert rounded-full border-2 border-surface"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded-full">
+<span class="material-symbols-outlined">help</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-surface-container-high border border-outline-variant overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all">
+<img alt="Fleet Manager Profile" class="w-full h-full object-cover" data-alt="A highly detailed close-up professional corporate headshot of a middle-aged male system administrator with a neat short beard and glasses, looking confident and approachable. The lighting is crisp studio white light over a subtle slate-gray background, perfectly matching the Logistics Pro fleet management corporate visual aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBPZEy_viZkyQ3RyKxpV463GvkWV2sO9HSt1-7iXg6Rj3nCPP5b0zMS0HTZk3N-kON4Txv4jxsdVA28CuhKwUzKbPWbuOfpm_5lJjxhsUpnVm-EJ0UZ7J1VKtc0wd53d_5rqAaczDHemMKKqLVx-k2rfYZzRavH9bdh2UxNSSYup9VYibnRYT-SworZsaw-4qzedNrCZSAJTOwy-84GUBcVdJduG0osebRdEpP3kPOL3FiSbP2UvkK1082T2dMzWrpyRGe9G55eKsM">
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="flex-1 p-container-padding overflow-y-auto">
+<div class="max-w-5xl mx-auto space-y-section-gap">
+<!-- Profile Header Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden flex flex-col">
+<div class="p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center gap-6">
+<div class="w-24 h-24 rounded-full border-4 border-surface shadow-sm overflow-hidden flex-shrink-0 bg-surface-container-high">
+<img alt="John Doe" class="w-full h-full object-cover" data-alt="A highly detailed close-up professional corporate headshot of a middle-aged male system administrator with a neat short beard and glasses, looking confident and approachable. The lighting is crisp studio white light over a subtle slate-gray background, perfectly matching the Logistics Pro fleet management corporate visual aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCw2A56zCCL7L7w91BaGyMaoQ4OfZB9p0aAjBKzWFbN-6V77aCn-DXTGsVs4-5EnF8IO90J19J5nA9bpgN4Y805kpEpaFZWo7jboptf_5xNah4zgQytaGvIB1Xxf0ShBOyvFGFfQinno60jb8NIwy1mhW5OAPy7z1-Tb7qyDzsF44_LhYs-LVJK-Dh3PmyaXxP5gRuuHAfLU_4cACcXx0HITAyT8S89MJogEJv6qyQj_9FnuNz39U_hifGUzDmsgRliQMrfIxJx0hU">
+</div>
+<div class="flex-1">
+<h2 class="font-headline-xl text-headline-xl text-on-surface mb-1">John Doe</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-4">System Administrator</p>
+<!-- Sub-header Info Grid -->
+<div class="flex flex-wrap gap-4 text-sm text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-outline" style="font-size: 18px;">mail</span>
+<span class="">admin@logistics-pro.com</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-outline" style="font-size: 18px;">call</span>
+<span class="">+66 81 234 5678</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-outline" style="font-size: 18px;">schedule</span>
+<span class="">GMT+7 Bangkok</span>
+</div>
+</div>
+</div>
+<div class="flex-shrink-0 mt-4 md:mt-0">
+<button class="bg-primary-container hover:bg-primary text-on-primary font-label-md text-label-md py-2.5 px-5 rounded-lg flex items-center gap-2 transition-colors active:scale-95 shadow-sm" style="background-color: rgb(37, 99, 235); font-family: Inter, sans-serif;">
+<span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
+                                Edit Profile
+                            </button>
+</div>
+</div>
+</div>
+<!-- Tabs & Content -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm flex flex-col">
+<!-- Tab Header -->
+<div class="border-b border-outline-variant flex px-4 pt-2 overflow-x-auto hide-scrollbar">
+<button class="px-6 py-3 font-label-md text-label-md text-primary font-bold border-b-2 border-primary whitespace-nowrap" style="color: rgb(37, 99, 235); border-bottom-color: rgb(37, 99, 235); font-family: Inter, sans-serif;">
+                            Personal Details
+                        </button>
+<button class="px-6 py-3 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">
+                            Security
+                        </button>
+<button class="px-6 py-3 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">
+                            Login Activity
+                        </button>
+</div>
+<!-- Tab Content: Personal Details -->
+<div class="p-6 md:p-8">
+<form class="space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1.5">Full Name</label>
+<input class="w-full px-4 py-2 border border-outline-variant rounded-lg text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" type="text" value="John Doe">
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1.5">Nickname / Handle</label>
+<input class="w-full px-4 py-2 border border-outline-variant rounded-lg text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" type="text" value="johndoe_admin">
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1.5">Preferred Language</label>
+<select class="w-full px-4 py-2 border border-outline-variant rounded-lg text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all bg-surface-container-lowest">
+<option>English (US)</option>
+<option>Thai (TH)</option>
+<option>Spanish (ES)</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1.5">Department</label>
+<input class="w-full px-4 py-2 border border-outline-variant rounded-lg text-body-md bg-surface-container-low text-on-surface-variant cursor-not-allowed" disabled="" type="text" value="IT Operations">
+</div>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1.5">Bio</label>
+<textarea class="w-full px-4 py-2 border border-outline-variant rounded-lg text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all resize-none" rows="4">Lead System Administrator overseeing fleet telemetry infrastructure and user access control for the Southeast Asia region.</textarea>
+</div>
+<div class="flex justify-end gap-3 pt-4 border-t border-outline-variant">
+<button class="px-5 py-2.5 rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-container-low transition-colors" type="button">
+                                    Cancel
+                                </button>
+<button class="px-5 py-2.5 rounded-lg bg-primary-container hover:bg-primary text-on-primary font-label-md text-label-md transition-colors shadow-sm" type="button" style="background-color: rgb(37, 99, 235); font-family: Inter, sans-serif;">
+                                    Save Changes
+                                </button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+</main>
+
+
+
+
+
+
+
+
+</body></html>

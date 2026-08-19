@@ -1,0 +1,652 @@
+<!DOCTYPE html><html class="light" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Staff Management - Marketing Tracker Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Prompt:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "status-stopped": "#64748B",
+                "secondary-container": "#8a4cfc",
+                "on-tertiary-fixed": "#360f00",
+                "primary-fixed": "#dbe1ff",
+                "status-pause": "#3B82F6",
+                "inverse-surface": "#213145",
+                "status-alert": "#EF4444",
+                "on-tertiary-container": "#ffede6",
+                "on-primary-fixed": "#00174b",
+                "surface-bright": "#f8f9ff",
+                "tertiary-fixed": "#ffdbcd",
+                "on-secondary": "#ffffff",
+                "outline-variant": "#c3c6d7",
+                "status-running": "#10B981",
+                "surface-container": "#e5eeff",
+                "tertiary-container": "#bc4800",
+                "on-secondary-fixed-variant": "#5a00c6",
+                "on-surface": "#0b1c30",
+                "surface-tint": "#0053db",
+                "surface": "#f8f9ff",
+                "surface-bg": "#F4F5F7",
+                "inverse-primary": "#b4c5ff",
+                "outline": "#737686",
+                "surface-dim": "#cbdbf5",
+                "surface-container-lowest": "#ffffff",
+                "primary": "#004ac6",
+                "tertiary-fixed-dim": "#ffb596",
+                "on-primary-container": "#eeefff",
+                "secondary-fixed-dim": "#d2bbff",
+                "on-secondary-container": "#fffbff",
+                "primary-container": "#2563eb",
+                "active-item-bg": "#EFF6FF",
+                "surface-container-high": "#dce9ff",
+                "secondary": "#712ae2",
+                "secondary-fixed": "#eaddff",
+                "error-container": "#ffdad6",
+                "background": "#f8f9ff",
+                "on-surface-variant": "#434655",
+                "on-error-container": "#93000a",
+                "error": "#ba1a1a",
+                "on-primary-fixed-variant": "#003ea8",
+                "on-error": "#ffffff",
+                "tertiary": "#943700",
+                "surface-container-highest": "#d3e4fe",
+                "surface-container-low": "#eff4ff",
+                "on-background": "#0b1c30",
+                "primary-fixed-dim": "#b4c5ff",
+                "inverse-on-surface": "#eaf1ff",
+                "on-tertiary": "#ffffff",
+                "surface-variant": "#d3e4fe",
+                "on-secondary-fixed": "#25005a",
+                "status-offline": "#94A3B8",
+                "on-primary": "#ffffff",
+                "on-tertiary-fixed-variant": "#7d2d00",
+                "status-idle": "#F59E0B"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "grid-gutter": "1rem",
+                "element-gap": "0.75rem",
+                "sidebar-expanded": "240px",
+                "section-gap": "1.5rem",
+                "container-padding": "1.5rem",
+                "sidebar-collapsed": "72px"
+        },
+        "fontFamily": {
+                "headline-lg": [
+                        "Prompt"
+                ],
+                "body-lg": [
+                        "Inter"
+                ],
+                "kpi-value": [
+                        "Prompt"
+                ],
+                "headline-md": [
+                        "Prompt"
+                ],
+                "label-md": [
+                        "Inter"
+                ],
+                "headline-lg-mobile": [
+                        "Prompt"
+                ],
+                "headline-xl": [
+                        "Prompt"
+                ],
+                "label-sm": [
+                        "Inter"
+                ],
+                "body-md": [
+                        "Inter"
+                ]
+        },
+        "fontSize": {
+                "headline-lg": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "kpi-value": [
+                        "28px",
+                        {
+                                "lineHeight": "34px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-md": [
+                        "18px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "500"
+                        }
+                ],
+                "label-md": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.02em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "18px",
+                        {
+                                "lineHeight": "26px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-xl": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "label-sm": [
+                        "11px",
+                        {
+                                "lineHeight": "14px",
+                                "letterSpacing": "0.03em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+          font-variation-settings: 'FILL' 1;
+        }
+      </style>
+</head>
+<body class="bg-background text-on-surface font-body-md text-body-md h-screen w-screen overflow-hidden flex antialiased">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-lowest border-r border-surface-container-highest flex flex-col z-50 transition-colors duration-200">
+<div class="p-4 border-b border-surface-container-highest flex items-center gap-3">
+<div class="flex-shrink-0 flex items-center justify-center">
+<svg class="h-10 w-auto" height="60" viewBox="0 0 200 60" width="200" xmlns="http://www.w3.org/2000/svg">
+<g transform="translate(10, 10)">
+<path d="M 5,20 C 15,20 20,35 30,35" fill="none" stroke="#F8BD26" stroke-linecap="round" stroke-width="4"></path>
+<path d="M 25,15 C 25,6.7 31.7,0 40,0 C 48.3,0 55,6.7 55,15 C 55,26 40,40 40,40 C 40,40 25,26 25,15 Z" fill="#1D4ED8"></path>
+<circle cx="40" cy="15" fill="#FFFFFF" r="5"></circle>
+</g>
+<text fill="#03246B" font-family="'Segoe UI', sans-serif" font-size="22" font-weight="700" x="80" y="32">Marketing</text>
+<text fill="#1D4ED8" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="500" x="80" y="48">Tracker Pro</text>
+</svg>
+</div>
+</div>
+<nav class="flex-1 overflow-y-auto py-4 flex flex-col gap-1"><a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="dashboard">dashboard</span>
+<span class="font-body-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="route">route</span>
+<span class="font-body-md">Trip Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-primary border-l-4 border-primary bg-[#EFF6FF] cursor-pointer active:opacity-80 transition-colors duration-200 justify-between" href="#">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] fill text-[#2563EB]" data-icon="badge">badge</span>
+<span class="font-body-md font-medium text-[#2563EB]">Staff Management</span>
+</div>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-low cursor-pointer active:opacity-80 transition-colors duration-200 border-l-4 border-transparent" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span class="font-body-md">Setting</span>
+</a></nav>
+<div class="border-t border-surface-container-highest p-4 mt-auto">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant flex-shrink-0">
+<img alt="Administrator Profile" class="w-8 h-8 rounded-full object-cover border border-surface-container-highest" data-alt="A professional headshot of a corporate administrator in a modern office setting. Light mode aesthetic with cool blue and crisp white tones. The lighting is soft and flattering, highlighting a trustworthy and efficient expression. A subtle, blurred background ensures focus on the subject. High quality, realistic photographic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9COB-NEUhcAB6L8bw7aP6sALwsf7EdQJzpJ-o8atmzIIk4G7lUzylurIWxKLeCRm9Derz6F08u28eWfonmV7tx4TleYfJsuJCgiyLnrtLPrd_PJEqfh5RwNeyxybiKzPDl812I7ZDKu5cKXR_MjK2MRB0M9YX7-hCC13smK3kx48Oyy7Dp9jnTTBD3gPk2nYQmOlCumRHhkFlFPyd1AKXT7_2_d1EJDptFmUtN5ppGZfpHr_2bVmKt6coVAbOo69_NCEgttxMG3Y">
+</div>
+<div class="flex-1 truncate">
+<p class="font-label-md text-on-surface font-bold truncate">John Doe</p>
+<p class="font-label-md text-on-surface-variant flex items-center gap-1 truncate text-[11px]">
+                         Administrator
+                         <span class="material-symbols-outlined text-[14px] text-primary" data-icon="verified_user">verified_user</span>
+</p>
+</div>
+<button class="text-on-surface-variant hover:bg-surface-container rounded-md p-1">
+<span class="material-symbols-outlined text-[18px]" data-icon="keyboard_double_arrow_left">keyboard_double_arrow_left</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- Main Content Area Container -->
+<div class="flex-1 ml-[240px] flex flex-col relative h-full w-[calc(100%-240px)]">
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-240px)] h-16 bg-surface-container-lowest flex justify-between items-center px-container-padding z-40 border-b border-surface-container-highest shadow-sm transition-colors duration-200">
+<div class="flex items-center gap-4 hidden">
+<!-- Brand Logo Space (Hidden per JSON) -->
+<span class="font-headline-md text-primary font-bold">Marketing Tracker Pro</span>
+</div>
+<div class="flex-1 flex justify-start pl-4 md:pl-0">
+<div class="relative w-full max-w-md hidden md:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-surface-container-highest rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-body-md text-on-surface transition-shadow duration-200" placeholder="Search staff, ID, or license..." type="text">
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-2 border border-surface-container-highest rounded-md text-body-md text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200 hidden md:flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="calendar_month">calendar_month</span>
+                Date Range
+            </button>
+<div class="flex items-center gap-2 relative">
+<button aria-label="notifications" class="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-all duration-200 scale-95 active:scale-90 relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 -mt-1 -mr-1 bg-status-alert text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">5</span>
+</button>
+<button aria-label="apps" class="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-all duration-200 scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button aria-label="apps" class="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-all duration-200 scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="apps">apps</span>
+</button>
+</div>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-surface-container-highest ml-2 flex-shrink-0">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A small, professional circular avatar portrait of a business user in a modern office setting. The lighting is bright and clear, reflecting a light-mode corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9COB-NEUhcAB6L8bw7aP6sALwsf7EdQJzpJ-o8atmzIIk4G7lUzylurIWxKLeCRm9Derz6F08u28eWfonmV7tx4TleYfJsuJCgiyLnrtLPrd_PJEqfh5RwNeyxybiKzPDl812I7ZDKu5cKXR_MjK2MRB0M9YX7-hCC13smK3kx48Oyy7Dp9jnTTBD3gPk2nYQmOlCumRHhkFlFPyd1AKXT7_2_d1EJDptFmUtN5ppGZfpHr_2bVmKt6coVAbOo69_NCEgttxMG3Y">
+</div>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<main class="flex-1 overflow-y-auto pt-16 bg-background relative w-full h-full">
+<div class="p-section-gap max-w-[1600px] mx-auto w-full">
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-section-gap">
+<div>
+<h2 class="font-headline-lg text-on-surface font-bold text-[20px]">Staff Management</h2>
+<p class="font-body-md text-status-offline mt-1">Manage field staff, monitor status, and track trip performance</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex bg-surface-container-low rounded-lg p-1 border border-surface-container-highest">
+<button class="px-4 py-1.5 rounded-md bg-surface-container-lowest shadow-sm text-on-surface font-label-md font-medium">All (24)</button>
+<button class="px-4 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface font-label-md font-medium transition-colors">On Duty</button>
+<button class="px-4 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface font-label-md font-medium transition-colors">Off Duty</button>
+<button class="px-4 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface font-label-md font-medium transition-colors">Suspended</button>
+</div>
+<button class="bg-primary hover:bg-[#1d4ed8] text-white px-5 py-2.5 rounded-lg font-label-md font-medium flex items-center gap-2 transition-colors shadow-sm min-w-[120px] justify-center" onclick="document.getElementById('slide-over').classList.remove('translate-x-full'); document.getElementById('slide-over-backdrop').classList.remove('hidden');">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                            Add Staff
+                        </button>
+</div>
+</div>
+<!-- Summary Stats (Bento-ish) -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-grid-gutter mb-section-gap">
+<!-- Total -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow duration-200 group h-32">
+<div class="flex justify-between items-start mb-4">
+<span class="font-label-md text-on-surface-variant font-medium uppercase tracking-wider">Total Staff</span>
+<div class="w-8 h-8 rounded-full bg-[#EFF6FF] flex items-center justify-center text-[#2563EB]">
+<span class="material-symbols-outlined text-[18px]">groups</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-xl text-on-surface">24</span>
+</div>
+</div>
+<!-- On Duty -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow duration-200 group h-32">
+<div class="flex justify-between items-start mb-4">
+<span class="font-label-md text-on-surface-variant font-medium uppercase tracking-wider">On Duty</span>
+<div class="w-8 h-8 rounded-full bg-status-running/10 flex items-center justify-center text-status-running">
+<span class="material-symbols-outlined text-[18px]">directions_car</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-xl text-on-surface">18</span>
+<span class="font-label-sm text-status-running flex items-center bg-status-running/10 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[12px] mr-1">trending_up</span> 75%
+                            </span>
+</div>
+</div>
+<!-- Off Duty -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow duration-200 group h-32">
+<div class="flex justify-between items-start mb-4">
+<span class="font-label-md text-on-surface-variant font-medium uppercase tracking-wider">Off Duty</span>
+<div class="w-8 h-8 rounded-full bg-status-offline/10 flex items-center justify-center text-status-offline">
+<span class="material-symbols-outlined text-[18px]">bed</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-xl text-on-surface">4</span>
+</div>
+</div>
+<!-- Suspended -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow duration-200 group h-32">
+<div class="flex justify-between items-start mb-4">
+<span class="font-label-md text-on-surface-variant font-medium uppercase tracking-wider">Suspended</span>
+<div class="w-8 h-8 rounded-full bg-status-alert/10 flex items-center justify-center text-status-alert">
+<span class="material-symbols-outlined text-[18px]">warning</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-headline-xl text-status-alert">2</span>
+<p class="text-on-surface-variant font-label-md text-[12px]">Action required</p>
+</div>
+</div>
+</div>
+<!-- Staff Table -->
+<div class="bg-surface-container-lowest rounded-xl border border-surface-container-highest overflow-hidden flex flex-col shadow-sm">
+<div class="overflow-x-auto w-full">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low border-b border-surface-container-highest">
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold w-12 text-center">
+<input class="rounded border-surface-container-highest text-primary focus:ring-primary h-4 w-4" type="checkbox">
+</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold">Staff Member</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold">Contact</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold">Status</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold w-48">Safety Score</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold text-right">Trips</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold text-right">On-Time</th><th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold text-right">Recent Trips</th>
+<th class="p-4 font-label-md text-on-surface-variant uppercase tracking-wider font-semibold text-center w-24">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-highest">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="p-4 text-center">
+<input class="rounded border-surface-container-highest text-primary focus:ring-primary h-4 w-4" type="checkbox">
+</td>
+<td class="p-4">
+<div class="flex items-center gap-3">
+<img alt="Somchai Rakdee" class="w-10 h-10 rounded-full object-cover border border-surface-container-highest" data-alt="A portrait of a Thai professional driver in a crisp corporate uniform. Light mode aesthetic, bright and clear. The subject exudes confidence and reliability, set against a subtle, clean white background. High fidelity corporate portrait style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAwAeZf5UzjkXK6YpjvSc_H2IRIRZIpAi9rVUotgWs0CYbCJkKwocsVUiF6o_6zGrMw1Enos_-LBlKLpbsPLZ38rOfjAfKO2dtOhIsnibCyHmdD54iUavFaRKreKRFC_p0U0tfXE0KRxn4lcB95T33l5xp688TsDL4xHo_tDy0BQgnf8P73t0Rgyak593xolba0gAzILrDmlx9obenSmtSLfORMHt8mHMv2zqy22doNE3njCcpCF5yvVtLSMagNCvmhs7x1mROV2SE">
+<div>
+<p class="font-body-md text-on-surface font-medium">Somchai Rakdee</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">ID: STF-0142 • Class D</p>
+</div>
+</div>
+</td>
+<td class="p-4">
+<p class="text-sm text-on-surface">somchai.r@fleet.com</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">+66 81 234 5678</p>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-status-running/10 text-status-running font-label-sm border border-status-running/20">
+<span class="w-1.5 h-1.5 rounded-full bg-status-running"></span> On Duty
+                                        </span>
+</td>
+<td class="p-4">
+<div class="flex items-center gap-2">
+<span class="font-label-md font-bold text-on-surface w-8">98</span>
+<div class="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-status-running rounded-full" style="width: 98%"></div>
+</div>
+</div>
+</td>
+<td class="p-4 text-right text-sm text-on-surface">1,245</td>
+<td class="p-4 text-right text-status-running font-label-md font-medium">99.2%</td><td class="p-4 text-right text-sm text-on-surface">
+<div class="flex flex-col items-end">
+<span class="">12 trips</span>
+<a class="text-[#2563EB] hover:underline text-[12px] hover:bg-primary-container/10 px-1 rounded transition-colors font-semibold bg-primary-container/10" href="#">View trips →</a>
+</div>
+</td>
+<td class="p-4 text-center">
+<div class="flex justify-center gap-2 transition-opacity"><button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">location_on</span></button>
+<button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">edit</span></button>
+<button class="hover:text-on-surface transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="p-4 text-center">
+<input class="rounded border-surface-container-highest text-primary focus:ring-primary h-4 w-4" type="checkbox">
+</td>
+<td class="p-4">
+<div class="flex items-center gap-3">
+<img alt="Anan Somsri" class="w-10 h-10 rounded-full object-cover border border-surface-container-highest" data-alt="A portrait of a Thai professional female driver in a neat corporate uniform. Light mode aesthetic, bright and clear. The subject exudes confidence and reliability, set against a subtle, clean white background. High fidelity corporate portrait style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAnlZuT03jimCaYK74-Eknn5i-kTamxzfu_vHu4QsXsJ23Rs3Qx_42l9MVpW80iYOVk4iRuF5RrKNLACskdL_xmtT09AT4iYtkpaWZvU4Ng0idUw4lIsRkAHiyZZ-xT0gZ2IsOIpQhAj4khBa0AnO18oRrS8qdq9mzd8CHWTf4MgBR-FWDqAp7JrjYd3fRC8kCPJ3ugHtMrVjctEgt5NaWfSIPLc1YZDW20sMm8V52QC9rFGE1XqPeX6B0ZOdTxGv689F1Qt8tYJ6E">
+<div>
+<p class="font-body-md text-on-surface font-medium">Anan Somsri</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">ID: STF-0189 • Class C</p>
+</div>
+</div>
+</td>
+<td class="p-4">
+<p class="text-sm text-on-surface">anan.s@fleet.com</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">+66 89 765 4321</p>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-status-offline/10 text-status-offline font-label-sm border border-status-offline/20">
+<span class="w-1.5 h-1.5 rounded-full bg-status-offline"></span> Off Duty
+                                        </span>
+</td>
+<td class="p-4">
+<div class="flex items-center gap-2">
+<span class="font-label-md font-bold text-on-surface w-8">85</span>
+<div class="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-status-idle rounded-full" style="width: 85%"></div>
+</div>
+</div>
+</td>
+<td class="p-4 text-right text-sm text-on-surface">892</td>
+<td class="p-4 text-right text-status-idle font-label-md font-medium">92.4%</td><td class="p-4 text-right text-sm text-on-surface">
+<div class="flex flex-col items-end">
+<span class="">8 trips</span>
+<a class="text-[#2563EB] hover:underline text-[12px] hover:bg-primary-container/10 px-1 rounded transition-colors font-semibold bg-primary-container/10" href="#">View trips →</a>
+</div>
+</td>
+<td class="p-4 text-center">
+<div class="flex justify-center gap-2 transition-opacity"><button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">location_on</span></button>
+<button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">edit</span></button>
+<button class="hover:text-on-surface transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="p-4 text-center">
+<input class="rounded border-surface-container-highest text-primary focus:ring-primary h-4 w-4" type="checkbox">
+</td>
+<td class="p-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-on-surface-variant font-label-md font-bold border border-surface-container-highest">
+                                                WP
+                                            </div>
+<div>
+<p class="font-body-md text-on-surface font-medium">Wichai Prasert</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">ID: STF-0201 • Class E</p>
+</div>
+</div>
+</td>
+<td class="p-4">
+<p class="text-sm text-on-surface">wichai.p@fleet.com</p>
+<p class="text-[12px] text-on-surface-variant mt-0.5">+66 84 555 1234</p>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-status-alert/10 text-status-alert font-label-sm border border-status-alert/20">
+<span class="w-1.5 h-1.5 rounded-full bg-status-alert"></span> Suspended
+                                        </span>
+</td>
+<td class="p-4">
+<div class="flex items-center gap-2">
+<span class="font-label-md font-bold text-on-surface w-8">62</span>
+<div class="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-status-alert rounded-full" style="width: 62%"></div>
+</div>
+</div>
+</td>
+<td class="p-4 text-right text-sm text-on-surface">415</td>
+<td class="p-4 text-right text-status-alert font-label-md font-medium">81.5%</td><td class="p-4 text-right text-sm text-on-surface">
+<div class="flex flex-col items-end">
+<span class="">5 trips</span>
+<a class="text-[#2563EB] hover:underline text-[12px] hover:bg-primary-container/10 px-1 rounded transition-colors font-semibold bg-primary-container/10" href="#">View trips →</a>
+</div>
+</td>
+<td class="p-4 text-center">
+<div class="flex justify-center gap-2 transition-opacity"><button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">location_on</span></button>
+<button class="hover:text-primary transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">edit</span></button>
+<button class="hover:text-on-surface transition-colors text-on-surface"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="p-4 border-t border-surface-container-highest bg-surface-container-lowest flex items-center justify-between">
+<p class="text-on-surface-variant text-sm">Showing <span class="font-medium text-on-surface">1-10</span> of <span class="font-medium text-on-surface">24</span> staff</p>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded border border-surface-container-highest text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-primary bg-primary-container/10 text-primary font-label-md font-medium">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-surface-container-highest text-on-surface hover:bg-surface-container transition-colors font-label-md font-medium">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-surface-container-highest text-on-surface hover:bg-surface-container transition-colors font-label-md font-medium">3</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-surface-container-highest text-on-surface-variant hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Slide-Over Backdrop -->
+<div class="fixed inset-0 bg-inverse-surface/40 backdrop-blur-sm z-40 transition-opacity hidden" id="slide-over-backdrop" onclick="document.getElementById('slide-over').classList.add('translate-x-full'); this.classList.add('hidden');"></div>
+<!-- Slide-Over Panel: Add Staff -->
+<div class="fixed top-0 right-0 h-full w-[480px] bg-surface-container-lowest border-l border-surface-container-highest shadow-[0px_4px_24px_rgba(0,0,0,0.1)] z-50 transform transition-transform duration-300 ease-in-out flex flex-col translate-x-full" id="slide-over">
+<!-- Header -->
+<div class="px-6 py-5 border-b border-surface-container-highest flex items-center justify-between bg-surface-container-lowest">
+<h3 class="font-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">person_add</span>
+                Add New Staff
+            </h3>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-full hover:bg-surface-container" onclick="document.getElementById('slide-over').classList.add('translate-x-full'); document.getElementById('slide-over-backdrop').classList.add('hidden');">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Form Content -->
+<div class="flex-1 overflow-y-auto p-6 bg-surface-container-lowest">
+<form class="space-y-6">
+<!-- Avatar Upload -->
+<div class="flex items-center gap-4 mb-2">
+<div class="w-16 h-16 rounded-full bg-surface-container-low border border-dashed border-surface-container-highest flex items-center justify-center text-on-surface-variant cursor-pointer hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined">add_a_photo</span>
+</div>
+<div>
+<p class="font-label-md text-on-surface font-medium">Profile Photo</p>
+<p class="text-[12px] text-on-surface-variant">PNG, JPG up to 2MB</p>
+</div>
+</div>
+<div class="grid grid-cols-1 gap-6">
+<!-- Full Name -->
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Full Name (English/Thai)</label>
+<input class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder-on-surface-variant bg-surface-bg" placeholder="e.g. Somsak Jaidee" type="text">
+</div>
+<!-- Contact Group -->
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Email</label>
+<input class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder-on-surface-variant bg-surface-bg" placeholder="email@fleet.com" type="email">
+</div>
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Phone</label>
+<input class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder-on-surface-variant bg-surface-bg" placeholder="+66 XX XXX XXXX" type="tel">
+</div>
+</div>
+<hr class="border-surface-container-highest">
+<!-- License Details -->
+<div class="grid grid-cols-2 gap-4">
+<div class="col-span-2">
+<label class="block font-label-md text-on-surface font-medium mb-2">License Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-[20px]">id_card</span>
+<input class="w-full border border-surface-container-highest rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder-on-surface-variant bg-surface-bg" placeholder="XXXXX-XX-XXXX" type="text">
+</div>
+</div>
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">License Class</label>
+<select class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface-bg text-on-surface appearance-none">
+<option value="b1">Class B1 (Light Vehicle)</option>
+<option value="b2">Class B2 (Heavy Vehicle)</option>
+<option value="c">Class C (Truck)</option>
+<option value="d">Class D (Trailer)</option>
+<option value="e">Class E (Specialized)</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Expiry Date</label>
+<input class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface-bg text-on-surface" type="date">
+</div>
+</div>
+<hr class="border-surface-container-highest">
+<!-- System Access -->
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">RFID Card Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-[20px]">contactless</span>
+<input class="w-full border border-surface-container-highest rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder-on-surface-variant bg-surface-bg" placeholder="Scan or enter manually" type="text">
+</div>
+</div>
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Initial Password</label>
+<div class="flex gap-2">
+<input class="w-full border border-surface-container-highest rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface-bg text-on-surface font-mono" readonly="" type="text" value="P@ssw0rd2024!">
+<button class="px-4 py-2.5 border border-surface-container-highest rounded-lg text-on-surface-variant font-label-md font-medium hover:bg-surface-container transition-colors flex items-center gap-1 bg-surface-container-lowest" type="button">
+<span class="material-symbols-outlined text-[18px]">autorenew</span>
+                                Generate
+                            </button>
+</div>
+</div>
+<div>
+<label class="block font-label-md text-on-surface font-medium mb-2">Initial Status</label>
+<div class="flex gap-4">
+<label class="flex items-center gap-2 cursor-pointer">
+<input checked="" class="text-primary focus:ring-primary border-surface-container-highest h-4 w-4" name="status" type="radio">
+<span class="text-sm text-on-surface">Off Duty</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer">
+<input class="text-primary focus:ring-primary border-surface-container-highest h-4 w-4" name="status" type="radio">
+<span class="text-sm text-on-surface">On Duty</span>
+</label>
+</div>
+</div>
+</div>
+</form>
+</div>
+<!-- Footer -->
+<div class="p-6 border-t border-surface-container-highest bg-surface-container-lowest flex justify-end gap-3">
+<button class="px-6 py-2.5 rounded-lg border border-surface-container-highest text-on-surface-variant font-label-md font-medium hover:bg-surface-container transition-colors min-w-[100px]" onclick="document.getElementById('slide-over').classList.add('translate-x-full'); document.getElementById('slide-over-backdrop').classList.add('hidden');">
+                Cancel
+            </button>
+<button class="px-6 py-2.5 rounded-lg bg-primary hover:bg-[#1d4ed8] text-white font-label-md font-medium transition-colors min-w-[120px] shadow-sm">
+                Save Staff
+            </button>
+</div>
+</div>
+
+
+</body></html>
