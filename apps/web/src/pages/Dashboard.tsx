@@ -65,9 +65,11 @@ export interface SpecialistActiveTrip {
 function MapFocusController({
   selectedSpecialist,
   soloId,
+  specialists,
 }: {
   selectedSpecialist: SpecialistActiveTrip | null;
   soloId: string | null;
+  specialists: SpecialistActiveTrip[];
 }) {
   const map = useMap();
 
@@ -83,8 +85,18 @@ function MapFocusController({
           { animate: true }
         );
       }
+    } else if (specialists.length > 0) {
+      const validPoints = specialists
+        .filter((s) => s.telemetry.lat && s.telemetry.lng)
+        .map((s) => [s.telemetry.lat, s.telemetry.lng] as [number, number]);
+      if (validPoints.length > 1) {
+        const bounds = L.latLngBounds(validPoints);
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
+      } else if (validPoints.length === 1) {
+        map.flyTo(validPoints[0], 13, { animate: true });
+      }
     }
-  }, [selectedSpecialist, soloId, map]);
+  }, [selectedSpecialist, soloId, specialists, map]);
 
   return null;
 }
@@ -201,7 +213,13 @@ export default function Dashboard() {
         });
 
         setSpecialists(mapped);
-        setSelectedId((prev) => prev || (mapped.length > 0 ? mapped[0].id : null));
+        const onlineSpec = mapped.find((s) => s.isOnline);
+        setSelectedId((prev) => {
+          if (!prev || !mapped.some((s) => s.id === prev)) {
+            return onlineSpec ? onlineSpec.id : (mapped.length > 0 ? mapped[0].id : null);
+          }
+          return prev;
+        });
       }
     } catch (err) {
       console.error('Error fetching live specialists:', err);
@@ -232,7 +250,7 @@ export default function Dashboard() {
       )
       .subscribe();
 
-    const interval = setInterval(fetchLiveSpecialists, 15000);
+    const interval = setInterval(fetchLiveSpecialists, 4000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -489,19 +507,57 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[720px]">
         {/* Left 7 Cols: Interactive Map Canvas */}
         <div className="lg:col-span-7 bg-surface-container-lowest rounded-2xl border border-outline-variant/60 overflow-hidden shadow-xs flex flex-col relative h-full">
-          {/* Floating Sub-Header inside Map */}
-          <div className="px-4 py-2.5 bg-white/95 backdrop-blur-xs border-b border-outline-variant/50 flex items-center justify-between z-10">
-            <div className="flex items-center gap-2">
+          {/* Floating Sub-Header inside Map with Direct Specialist Jump Buttons */}
+          <div className="px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2 z-10">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="material-symbols-outlined text-primary text-[18px]">
                 {soloId ? 'filter_center_focus' : 'location_on'}
               </span>
-              <span className="font-bold text-xs text-on-surface">
-                {soloSpecialist
-                  ? `${t('live_focus_single')}: ${soloSpecialist.name} (${soloSpecialist.nickname})`
-                  : selectedSpecialist
-                  ? `${selectedSpecialist.name} (${selectedSpecialist.nickname}) - ${selectedSpecialist.isOnline ? '🟢 Online' : '⚫ Offline'}`
-                  : t('live_show_all')}
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => {
+                    setSelectedId(null);
+                    setSoloId(null);
+                    showToast(t('live_show_all'));
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    !selectedId && !soloId
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  🌐 {t('live_show_all')}
+                </button>
+                {specialists.map((s) => {
+                  const isFocused = (selectedId === s.id && !soloId) || soloId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setSelectedId(s.id);
+                        showToast(`🎯 โฟกัสพิกัด ${s.name} (${s.nickname})`);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        isFocused
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : s.isOnline
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                          : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          s.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                        }`}
+                      ></span>
+                      <span>{s.nickname}</span>
+                      <span className="text-[10px] opacity-85">
+                        ({s.isOnline ? 'Online' : 'Offline'})
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Reset View Button */}
@@ -535,6 +591,7 @@ export default function Dashboard() {
               <MapFocusController
                 selectedSpecialist={selectedSpecialist}
                 soloId={soloId}
+                specialists={specialists}
               />
 
               {/* Draw Route Polyline if Specialist has active multi-drop route */}
