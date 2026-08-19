@@ -58,20 +58,26 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
   const initialOdo = params.startOdometer || params.odometer || '';
   const [startOdometer, setStartOdometer] = useState<string>(initialOdo);
 
-  const initialDrops = Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : [
-    { id: '1', name: 'TechCorp HQ (Sathorn)', address: '120 Innovation Drive, Sathorn', latitude: 13.7225, longitude: 100.5283, items: 'นำเสนอโปรเจกต์' },
-    { id: '2', name: 'Northside Retail (Pathum Wan)', address: '4500 Commerce Blvd, Pathum Wan', latitude: 13.7469, longitude: 100.5349, items: 'สรุปงบประมาณ' },
-  ];
+  const tripId = params.tripId;
+  const tripCode = params.tripCode;
+  const initialDrops = Array.isArray(params.drops) ? params.drops : [];
 
   const [drops, setDrops] = useState<any[]>(initialDrops);
   const [routeLegs, setRouteLegs] = useState<RouteLeg[]>([]);
-  const [distanceText, setDistanceText] = useState('45.2 km');
-  const [durationText, setDurationText] = useState('2h 15m');
+  const [distanceText, setDistanceText] = useState('0.0 km');
+  const [durationText, setDurationText] = useState('0m');
   const [loadingRoute, setLoadingRoute] = useState(true);
 
   // Fetch individual multi-colored road routing legs
   useEffect(() => {
     async function loadRoadRoute() {
+      if (drops.length === 0) {
+        setRouteLegs([]);
+        setDistanceText('0.0 km');
+        setDurationText('0m');
+        setLoadingRoute(false);
+        return;
+      }
       setLoadingRoute(true);
       const origin: Coordinates = {
         latitude: startLocation.latitude || 13.7563,
@@ -104,6 +110,8 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
 
       if (autoStartAfter && startOdometer.trim()) {
         navigation.navigate('ActiveTracker', {
+          tripId,
+          tripCode,
           tripTitle,
           selectedVehicle,
           startLocation: newStartLoc,
@@ -165,30 +173,15 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
         language === 'th' ? 'กรุณาระบุเลขไมล์เริ่มต้น ⚠️' : 'Start Odometer Required ⚠️',
         language === 'th'
           ? 'กรุณากรอกเลขไมล์เริ่มต้นของยานพาหนะก่อนออกเดินทาง เพื่อบันทึกระยะทางที่ถูกต้อง'
-          : 'Please enter starting odometer before starting the route for accurate distance logging.',
-        [
-          { text: language === 'th' ? 'กรอกเลขไมล์' : 'Enter Odometer', style: 'cancel' },
-          {
-            text: language === 'th' ? 'ใช้ค่าเริ่มต้น (45200)' : 'Use Default (45200)',
-            onPress: () => {
-              setStartOdometer('45200');
-              navigation.navigate('ActiveTracker', {
-                tripTitle,
-                selectedVehicle,
-                startLocation,
-                startOdometer: '45200',
-                drops,
-                routeLegs,
-              });
-            },
-          },
-        ]
+          : 'Please enter starting odometer before starting the route for accurate distance logging.'
       );
       return;
     }
 
     // Both GPS & Odo confirmed -> Launch Tracker!
     navigation.navigate('ActiveTracker', {
+      tripId,
+      tripCode,
       tripTitle,
       selectedVehicle,
       startLocation,

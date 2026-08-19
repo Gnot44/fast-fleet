@@ -8,6 +8,12 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["location", "fetch"],
+        "NSLocationWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งเพื่อบันทึกพิกัดขณะปฏิบัติงานและยืนยันการเข้าพบลูกค้า",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งในเบื้องหลังตลอดเวลาเพื่อบันทึกเส้นทางและสถานะงานแบบอัตโนมัติแม้ปิดหน้าจอ",
+        "NSLocationAlwaysUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งตลอดเวลาเพื่อติดตามการเดินทางของทีมการตลาด"
+      },
       "config": {
         "googleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
       }
@@ -19,6 +25,13 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
@@ -35,7 +48,11 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Marketing Tracker Pro to use your location for real-time delivery GPS tracking."
+          "locationWhenInUsePermission": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งเพื่อบันทึกพิกัดขณะปฏิบัติงานและยืนยันการเข้าพบลูกค้า",
+          "locationAlwaysAndWhenInUsePermission": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งในเบื้องหลังตลอดเวลาเพื่อบันทึกเส้นทางและสถานะงานแบบอัตโนมัติแม้ปิดหน้าจอ",
+          "locationAlwaysPermission": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งตลอดเวลาเพื่อติดตามการเดินทางของทีมการตลาด",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ]

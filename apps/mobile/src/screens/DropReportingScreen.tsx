@@ -67,7 +67,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
   const { t, language, expenseCategories, noteTemplates } = useLanguage();
   const params = route?.params || {};
   const isEditingFromSummary = !!params.isEditingFromSummary;
-  const drop = params.drop || { name: 'TechCorp HQ', address: '120 Innovation Drive', contact: 'Khun Thanawat' };
+  const drop = params.drop || { name: language === 'th' ? 'จุดเข้าพบลูกค้า' : 'Client Location', address: '', contact: '' };
   const dropIndex = typeof params.dropIndex === 'number' ? params.dropIndex : 0;
   const drops = Array.isArray(params.drops) ? params.drops : [];
   const totalDrops = drops.length > 0 ? drops.length : (typeof params.totalDrops === 'number' ? params.totalDrops : 1);
@@ -111,24 +111,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
       ? drop.expenses
       : Array.isArray(params.expenses) && params.expenses.length > 0
       ? params.expenses
-      : [
-          {
-            id: '1',
-            category: language === 'th' ? 'ค่าทางด่วน' : 'Toll Fee',
-            amount: '60.00',
-            receiptUri: 'https://images.unsplash.com/photo-1554415707-9e49016a3e06?w=600&auto=format&fit=crop&q=80',
-            receiptName: 'Slip-Toll-M9.jpg',
-            note: language === 'th' ? 'ทางพิเศษศรีรัช-ด่านอโศก' : 'Expressway Toll Gate',
-          },
-          {
-            id: '2',
-            category: language === 'th' ? 'ค่าอาหาร / เลี้ยงรับรอง' : 'Meals & Hospitality',
-            amount: '150.00',
-            receiptUri: 'https://images.unsplash.com/photo-1580828343064-fde4fc206bc6?w=600&auto=format&fit=crop&q=80',
-            receiptName: 'Receipt-Coffee.jpg',
-            note: language === 'th' ? 'เครื่องดื่มประชุมกับทีมลูกค้า' : 'Beverages with client team',
-          },
-        ]
+      : []
   );
 
   // Form State for Adding/Editing Expense
@@ -277,6 +260,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
     if (isEditingFromSummary) {
       navigation.navigate('TripSummary', {
+        tripId: params.tripId,
         updatedDropIndex: dropIndex,
         updatedDrop: updatedDrop,
       });
@@ -291,6 +275,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
         idx === dropIndex ? updatedDrop : d
       );
       navigation.navigate('TripSummary', {
+        tripId: params.tripId,
         drops: allUpdatedDrops,
         tripTitle: params.tripTitle,
         selectedVehicle: params.selectedVehicle,

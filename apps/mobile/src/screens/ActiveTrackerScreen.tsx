@@ -44,23 +44,20 @@ import {
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 
-const defaultInitialDrops = [
-  { id: '1', name: 'TechCorp HQ (Sathorn)', address: '120 Innovation Drive, Sathorn, Bangkok', recipient: 'Khun Thanawat', phone: '+66 89 111 2233', items: '2 Pallets', latitude: 13.7225, longitude: 100.5283 },
-  { id: '2', name: 'Northside Retail (Pathum Wan)', address: '4500 Commerce Blvd, Pathum Wan, Bangkok', recipient: 'Khun Supaporn', phone: '+66 82 555 8899', items: '5 Boxes', latitude: 13.7469, longitude: 100.5349 },
-  { id: '3', name: 'Mega Bangna Distribution', address: 'Bangna-Trad Km.8, Samut Prakan', recipient: 'Khun Nattapong', phone: '+66 84 999 1234', items: '4 Crates', latitude: 13.6472, longitude: 100.6811 },
-];
+const defaultInitialDrops: any[] = [];
 
 export default function ActiveTrackerScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const params = route?.params || {};
-  const tripTitle = params.tripTitle || 'Bangkok Central Express Route';
-  const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max (1กข-4452)';
+  const tripId = params.tripId;
+  const tripTitle = params.tripTitle || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
+  const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)';
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
-  const startOdometer = params.startOdometer || '45200';
+  const startOdometer = params.startOdometer || '';
 
   // Exact drops array passed from previous screens
   const [drops, setDrops] = useState<any[]>(
-    Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : defaultInitialDrops
+    Array.isArray(params.drops) ? params.drops : []
   );
   const [currentDropIndex, setCurrentDropIndex] = useState<number>(
     typeof params.dropIndex === 'number' ? params.dropIndex : 0
@@ -203,6 +200,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   // Handle Check-in strictly for the current sequential drop
   const handleCheckInDrop = () => {
     navigation.navigate('DropReporting', {
+      tripId,
       tripTitle,
       selectedVehicle,
       drop: activeDrop,
@@ -215,6 +213,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   // Open Edit Itinerary to reorder or add drops
   const handleOpenEditItinerary = () => {
     navigation.navigate('EditTripItinerary', {
+      tripId,
       drops,
       currentDropIndex,
       startLocation,
@@ -237,6 +236,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   // Handle Finish Entire Trip
   const handleFinishTrip = () => {
     navigation.navigate('TripSummary', {
+      tripId,
       totalDrops: drops.length,
       tripTitle,
       selectedVehicle,
@@ -306,15 +306,6 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             <Radio size={16} color="#1D4ED8" />
             <Text style={styles.telemetryValue}>GPS</Text>
             <Text style={styles.telemetrySub}>{gpsAccuracy}</Text>
-          </View>
-
-          <View style={styles.telemetryDivider} />
-
-          {/* Speed */}
-          <View style={styles.telemetryItem}>
-            <Gauge size={16} color="#D97706" />
-            <Text style={styles.telemetryValue}>{speed} km/h</Text>
-            <Text style={styles.telemetrySub}>{t('tracker_telemetry_speed')}</Text>
           </View>
 
           <View style={styles.telemetryDivider} />

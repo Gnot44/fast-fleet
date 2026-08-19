@@ -35,6 +35,7 @@ export interface SpecialistActiveTrip {
   territory: string;
   vehiclePlate: string;
   isOnline: boolean;
+  lastSeenRaw?: string | null;
   
   // Active Trip Info from Mobile
   hasActiveTrip: boolean;
@@ -46,10 +47,11 @@ export interface SpecialistActiveTrip {
   telemetry: {
     lat: number;
     lng: number;
+    hasGpsFix: boolean;
     currentAddress: string;
     speedKmH: number;
     speedText: string;
-    batteryPercent: number;
+    batteryPercent: number | null;
     isCharging: boolean;
     lastPing: string;
   };
@@ -59,6 +61,27 @@ export interface SpecialistActiveTrip {
   
   // Coordinates for Map Route Polyline
   routeCoordinates: [number, number][];
+}
+
+function formatRelativeTime(dateString: string | null, isOnline: boolean): string {
+  if (!dateString) {
+    return isOnline ? 'ออนไลน์ขณะนี้' : 'ออฟไลน์';
+  }
+  const date = new Date(dateString);
+  const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (diffSec < 15) {
+    return 'ออนไลน์ (สด)';
+  }
+  if (diffSec < 60) {
+    return `${diffSec} วิที่แล้ว`;
+  }
+  if (diffSec < 3600) {
+    return `${Math.floor(diffSec / 60)} นาทีที่แล้ว`;
+  }
+  if (diffSec < 86400) {
+    return `${Math.floor(diffSec / 3600)} ชม.ที่แล้ว`;
+  }
+  return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
 }
 
 // Smoothly focus and fit map bounds to the selected specialist's journey
@@ -74,7 +97,7 @@ function MapFocusController({
   const map = useMap();
 
   useEffect(() => {
-    if (selectedSpecialist) {
+    if (selectedSpecialist && selectedSpecialist.telemetry.hasGpsFix) {
       if (selectedSpecialist.routeCoordinates && selectedSpecialist.routeCoordinates.length > 1) {
         const bounds = L.latLngBounds(selectedSpecialist.routeCoordinates);
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15, animate: true });
@@ -87,7 +110,7 @@ function MapFocusController({
       }
     } else if (specialists.length > 0) {
       const validPoints = specialists
-        .filter((s) => s.telemetry.lat && s.telemetry.lng)
+        .filter((s) => s.telemetry.hasGpsFix && s.telemetry.lat && s.telemetry.lng)
         .map((s) => [s.telemetry.lat, s.telemetry.lng] as [number, number]);
       if (validPoints.length > 1) {
         const bounds = L.latLngBounds(validPoints);
@@ -110,10 +133,12 @@ export default function Dashboard() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistActiveTrip[]>([]);
   const [loading, setLoading] = useState(true);
+  const [countdown, setCountdown] = useState(60);
+  const [expandedDrops, setExpandedDrops] = useState<Record<string, boolean>>({});
 
   const fetchLiveSpecialists = async () => {
     try {
-      const { data: profiles } = await supabase
+      const { data: profiles, error } = await supabase
         .from('profiles')
         .select(`
           id,
@@ -132,9 +157,10 @@ export default function Dashboard() {
           staff (
             staff_id,
             territory,
-            assigned_vehicle
+            assigned_vehicle,
+            vehicle_plate
           ),
-          trips (
+          trips:trips!trips_staff_id_fkey (
             id,
             trip_code,
             title,
@@ -144,7 +170,10 @@ export default function Dashboard() {
               id,
               sequence_order,
               company_name,
+              customer_name,
               destination_address,
+              destination_lat,
+              destination_lng,
               agenda,
               status,
               confirmation_status
@@ -152,6 +181,10 @@ export default function Dashboard() {
           )
         `)
         .eq('role', 'specialist');
+
+      if (error) {
+        console.error('Error fetching live specialists from Supabase:', error);
+      }
 
       if (profiles && profiles.length > 0) {
         const mapped: SpecialistActiveTrip[] = profiles.map((p: any) => {
@@ -163,22 +196,46 @@ export default function Dashboard() {
           const hasActiveTrip = !!activeTrip && activeTrip.status !== 'completed';
           const appts = activeTrip?.appointments || [];
           
-          const drops: DropItem[] = appts.map((a: any, idx: number) => ({
-            dropNumber: a.sequence_order || idx + 1,
-            clientName: a.company_name || `ลูกค้ารายที่ ${idx + 1}`,
-            address: a.destination_address || 'กรุงเทพมหานคร',
-            agenda: a.agenda || 'เข้าพบและนำเสนอสินค้า',
-            lat: (p.current_lat || 13.7563) + (idx * 0.005) - 0.002,
-            lng: (p.current_lng || 100.5018) + (idx * 0.006) - 0.003,
-            isClosed: a.status === 'completed' || a.confirmation_status === true,
-          }));
+          const hasGps = typeof p.current_lat === 'number' && typeof p.current_lng === 'number' && p.current_lat !== 0;
+          const lat = hasGps ? p.current_lat : 13.7563;
+          const lng = hasGps ? p.current_lng : 100.5018;
 
-          const lat = p.current_lat || 13.7563;
-          const lng = p.current_lng || 100.5018;
+          const sortedAppts = [...appts].sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0));
+
+          const drops: DropItem[] = sortedAppts.map((a: any, idx: number) => {
+            const dropLat = typeof a.destination_lat === 'number' && a.destination_lat !== 0
+              ? a.destination_lat
+              : (hasGps ? lat : 13.7563);
+            const dropLng = typeof a.destination_lng === 'number' && a.destination_lng !== 0
+              ? a.destination_lng
+              : (hasGps ? lng : 100.5018);
+
+            return {
+              dropNumber: a.sequence_order || idx + 1,
+              clientName: a.company_name || a.customer_name || `ลูกค้ารายที่ ${idx + 1}`,
+              address: a.destination_address || 'กรุงเทพมหานคร',
+              agenda: a.agenda || 'เข้าพบและนำเสนอสินค้า',
+              lat: dropLat,
+              lng: dropLng,
+              isClosed: a.status === 'completed' || a.confirmation_status === true,
+            };
+          });
 
           const routeCoords: [number, number][] = drops.length > 0
             ? drops.map((d) => [d.lat, d.lng] as [number, number])
-            : [[lat, lng]];
+            : (hasGps ? [[lat, lng]] : []);
+
+          const realBattery = typeof p.battery_level === 'number' && p.battery_level >= 0
+            ? Math.round(p.battery_level)
+            : (p.is_online ? 100 : null);
+
+          const speedVal = typeof p.current_speed === 'number' ? Math.round(p.current_speed) : 0;
+          const speedText = speedVal > 0 ? `${speedVal} km/h (กำลังเดินทาง)` : '0 km/h (จอด/อยู่กับที่)';
+          const currentAddress = hasGps
+            ? (p.current_address || `พิกัด: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+            : 'ยังไม่ได้รับสัญญาณ GPS จากอุปกรณ์';
+
+          const relativePing = formatRelativeTime(p.last_seen_at, p.is_online);
 
           return {
             id: p.id,
@@ -190,9 +247,10 @@ export default function Dashboard() {
               ? p.full_name.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
               : 'MK',
             department: p.department || 'Key Accounts & Enterprise',
-            territory: staffObj?.territory || 'Bangkok Central (B2B)',
-            vehiclePlate: staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
+            territory: staffObj?.territory || p.department || 'Wat Donmuang',
+            vehiclePlate: staffObj?.vehicle_plate || p.assigned_vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)',
             isOnline: p.is_online === true,
+            lastSeenRaw: p.last_seen_at,
             hasActiveTrip,
             tripCode: activeTrip?.trip_code || 'STANDBY',
             tripTitle: activeTrip?.title || 'พร้อมปฏิบัติงาน (Standby)',
@@ -200,12 +258,13 @@ export default function Dashboard() {
             telemetry: {
               lat,
               lng,
-              currentAddress: p.current_address || 'กรุงเทพมหานคร',
-              speedKmH: p.current_speed || 0,
-              speedText: (p.current_speed || 0) > 0 ? `${p.current_speed} km/h` : '0 km/h (จอด/อยู่กับที่)',
-              batteryPercent: p.battery_level || 95,
+              hasGpsFix: hasGps,
+              currentAddress,
+              speedKmH: speedVal,
+              speedText,
+              batteryPercent: realBattery,
               isCharging: false,
-              lastPing: p.is_online ? 'ออนไลน์ขณะนี้' : (p.last_seen_at ? new Date(p.last_seen_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : 'ออฟไลน์'),
+              lastPing: relativePing,
             },
             drops,
             routeCoordinates: routeCoords,
@@ -231,12 +290,26 @@ export default function Dashboard() {
   useEffect(() => {
     fetchLiveSpecialists();
 
-    // Set up Realtime subscriptions for profiles presence changes
+    // Set up Realtime subscriptions for profiles, trips, and appointments changes
     const channel = supabase
       .channel('live-specialists-presence-room')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          fetchLiveSpecialists();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        () => {
+          fetchLiveSpecialists();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trips' },
         () => {
           fetchLiveSpecialists();
         }
@@ -250,7 +323,16 @@ export default function Dashboard() {
       )
       .subscribe();
 
-    const interval = setInterval(fetchLiveSpecialists, 4000);
+    // 1-second interval to update countdown and refresh data every 60 seconds
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          fetchLiveSpecialists();
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -267,12 +349,27 @@ export default function Dashboard() {
   }, [specialists, soloId]);
 
   const getDerivedStatus = (spec: SpecialistActiveTrip) => {
-    if (!spec.isOnline) {
+    const isStale = spec.lastSeenRaw
+      ? Date.now() - new Date(spec.lastSeenRaw).getTime() > 90000 // > 90 seconds without ping
+      : true;
+
+    if (!spec.isOnline || (isStale && !spec.lastSeenRaw)) {
       return {
         status: 'Offline',
         label: '⚫ ออฟไลน์ (Offline)',
         badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
         dotClass: 'bg-slate-400',
+        isMoving: false,
+      };
+    }
+
+    // If marked online in DB but no location ping received for > 90s (GPS turned off / permission revoked)
+    if (spec.isOnline && isStale) {
+      return {
+        status: 'SignalLost',
+        label: '⚠️ สัญญาณขาดหาย / ปิด GPS',
+        badgeClass: 'bg-amber-50 text-amber-800 border-amber-300',
+        dotClass: 'bg-amber-500 animate-pulse',
         isMoving: false,
       };
     }
@@ -416,32 +513,49 @@ export default function Dashboard() {
 
   const createDropPin = (drop: DropItem, isNext: boolean) => {
     const isClosed = drop.isClosed;
-    const bg = isClosed ? '#059669' : isNext ? '#2563EB' : '#64748B';
+    const bg = isClosed ? '#10B981' : isNext ? '#2563EB' : '#475569';
     const label = isClosed ? '✓' : drop.dropNumber.toString();
+    const pinSize = isNext ? 32 : 26;
+    const totalHeight = isNext ? 40 : 34;
 
     return L.divIcon({
       className: 'clean-drop-pin',
       html: `
         <div style="
-          background: ${bg};
-          color: white;
-          width: ${isNext ? '28px' : '22px'};
-          height: ${isNext ? '28px' : '22px'};
-          border-radius: 50%;
           display: flex;
+          flex-direction: column;
           align-items: center;
-          justify-content: center;
-          font-weight: 800;
-          font-size: ${isNext ? '12px' : '10px'};
-          border: 2px solid white;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-          ${isNext ? 'animation: pulse 2s infinite;' : ''}
+          filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
         ">
-          ${label}
+          <div style="
+            background: ${bg};
+            color: white;
+            width: ${pinSize}px;
+            height: ${pinSize}px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: ${isNext ? '13px' : '11px'};
+            border: 2.5px solid white;
+            ${isNext ? 'box-shadow: 0 0 0 3px rgba(37,99,235,0.4);' : ''}
+          ">
+            ${label}
+          </div>
+          <div style="
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid ${bg};
+            margin-top: -1px;
+          "></div>
         </div>
       `,
-      iconSize: [isNext ? 28 : 22, isNext ? 28 : 22],
-      iconAnchor: [isNext ? 14 : 11, isNext ? 14 : 11],
+      iconSize: [pinSize, totalHeight],
+      iconAnchor: [pinSize / 2, totalHeight],
+      popupAnchor: [0, -totalHeight],
     });
   };
 
@@ -471,6 +585,18 @@ export default function Dashboard() {
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               {specialists.filter((s) => s.isOnline).length} {t('live_badge')} Online
             </span>
+            <button
+              onClick={() => {
+                fetchLiveSpecialists();
+                setCountdown(60);
+                showToast('🔄 อัปเดตพิกัดสดล่าสุดเรียบร้อยแล้ว');
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer"
+              title="คลิกเพื่อรีเฟรชพิกัดสดทันที"
+            >
+              <span className="material-symbols-outlined text-[13px] text-primary">sync</span>
+              <span>รีเฟรชใน <strong className="text-primary font-black">{countdown}s</strong></span>
+            </button>
           </div>
           <p className="text-on-surface-variant text-xs mt-0.5">
             {t('live_subtitle')}
@@ -594,13 +720,16 @@ export default function Dashboard() {
                 specialists={specialists}
               />
 
-              {/* Draw Route Polyline if Specialist has active multi-drop route */}
-              {selectedSpecialist && selectedSpecialist.hasActiveTrip && selectedSpecialist.routeCoordinates.length > 1 && (
+              {/* Draw Route Polyline from Specialist Position -> Drop 1 -> Drop 2 -> Drop 3 */}
+              {selectedSpecialist && selectedSpecialist.hasActiveTrip && selectedSpecialist.drops.length > 0 && (
                 <Polyline
-                  positions={selectedSpecialist.routeCoordinates}
+                  positions={[
+                    ...(selectedSpecialist.telemetry.hasGpsFix ? [[selectedSpecialist.telemetry.lat, selectedSpecialist.telemetry.lng] as [number, number]] : []),
+                    ...selectedSpecialist.drops.map((d) => [d.lat, d.lng] as [number, number]),
+                  ]}
                   color="#2563EB"
                   weight={4}
-                  opacity={0.8}
+                  opacity={0.85}
                   dashArray="6, 6"
                 />
               )}
@@ -617,33 +746,42 @@ export default function Dashboard() {
                     icon={createDropPin(drop, isNext)}
                   >
                     <Popup>
-                      <div className="p-1 space-y-1 font-sans text-xs">
-                        <div className="font-bold text-slate-900">
-                          Drop #{drop.dropNumber}: {drop.clientName}
+                      <div className="p-1 space-y-1.5 font-sans text-xs min-w-[210px]">
+                        <div className="font-bold text-slate-900 flex items-center justify-between gap-2">
+                          <span className="text-[13px]">Drop #{drop.dropNumber}: {drop.clientName}</span>
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                              drop.isClosed
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isNext
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {drop.isClosed ? '✓ เสร็จแล้ว' : isNext ? 'กำลังเข้าพบ' : 'รอคิว'}
+                          </span>
                         </div>
-                        <div className="text-slate-600 text-[11px]">
-                          {drop.address}
+                        <div className="text-slate-600 text-[11px] leading-tight">
+                          📍 {drop.address}
                         </div>
                         <div className="text-blue-700 font-medium text-[11px]">
-                          วัตถุประสงค์: {drop.agenda}
+                          📋 {drop.agenda}
                         </div>
-                        <div className="text-[10px] font-bold mt-1">
-                          สถานะ:{' '}
-                          <span
-                            className={
-                              drop.isClosed
-                                ? 'text-emerald-700'
-                                : isNext
-                                ? 'text-blue-700'
-                                : 'text-slate-500'
-                            }
-                          >
-                            {drop.isClosed
-                              ? `✓ เสร็จสิ้น (${drop.closedAt || 'เรียบร้อย'})`
-                              : isNext
-                              ? '⏳ กำลังเดินทางเข้าพบ (Next Drop)'
-                              : 'ยังไม่ถึงคิว'}
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {drop.lat.toFixed(5)}, {drop.lng.toFixed(5)}
                           </span>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${drop.lat},${drop.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 hover:border-blue-300 transition-all shadow-2xs"
+                            title="เปิดใน Google Maps"
+                          >
+                            <span className="material-symbols-outlined text-[13px] text-blue-600">map</span>
+                            <span>Google Maps</span>
+                            <span className="material-symbols-outlined text-[10px] opacity-60">open_in_new</span>
+                          </a>
                         </div>
                       </div>
                     </Popup>
@@ -671,15 +809,19 @@ export default function Dashboard() {
                         <span>ความเร็ว: <strong>{spec.telemetry.speedText}</strong></span>
                         <span>แบตเตอรี่: <strong>{spec.telemetry.batteryPercent}%</strong></span>
                       </div>
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
-                      >
-                        <span>🗺️ เปิดพิกัดสดบน Google Maps</span>
-                        <span className="material-symbols-outlined text-[13px]">open_in_new</span>
-                      </a>
+                      <div className="pt-1 flex justify-end">
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 hover:border-blue-300 transition-all"
+                          title="เปิดพิกัดสดบน Google Maps"
+                        >
+                          <span className="material-symbols-outlined text-[13px] text-blue-600">map</span>
+                          <span>Google Maps</span>
+                          <span className="material-symbols-outlined text-[10px] opacity-60">open_in_new</span>
+                        </a>
+                      </div>
                     </div>
                   </Popup>
                 </Marker>
@@ -731,9 +873,7 @@ export default function Dashboard() {
                 const totalDropsCount = spec.drops.length;
                 const closedDrops = spec.drops.filter((d) => d.isClosed);
                 const closedCount = closedDrops.length;
-                const lastClosedDrop = closedDrops[closedDrops.length - 1];
                 const nextDrop = spec.drops.find((d) => !d.isClosed);
-                const remainingDrops = spec.drops.filter((d) => !d.isClosed && d !== nextDrop);
 
                 return (
                   <div
@@ -818,74 +958,135 @@ export default function Dashboard() {
                           <span className="truncate"><strong>{t('live_current_location')}</strong> {spec.telemetry.currentAddress}</span>
                         </div>
 
-                        {/* Google Maps External Link */}
-                        <a
-                          href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline shrink-0 bg-blue-50/80 px-1.5 py-0.5 rounded border border-blue-200"
-                          title={t('live_open_google_maps')}
-                        >
-                          <span className="material-symbols-outlined text-[12px]">open_in_new</span>
-                          Maps
-                        </a>
+                        {/* Google Maps External Link (Icon Only) */}
+                        {spec.telemetry.hasGpsFix ? (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 border border-slate-200/80 hover:border-blue-300 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                            title={t('live_open_google_maps')}
+                          >
+                            <span className="material-symbols-outlined text-[13px]">map</span>
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium shrink-0 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            รอพิกัด
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-100 text-slate-600">
                         <span>{t('live_speed')} <strong className="text-blue-700">{spec.telemetry.speedText}</strong></span>
-                        <span className="flex items-center gap-0.5 font-bold text-emerald-700">
-                          <span className="material-symbols-outlined text-[11px]">
-                            {spec.telemetry.isCharging ? 'battery_charging_full' : 'battery_full'}
+                        {spec.telemetry.batteryPercent !== null ? (
+                          <span className="flex items-center gap-0.5 font-bold text-emerald-700">
+                            <span className="material-symbols-outlined text-[11px]">
+                              {spec.telemetry.isCharging ? 'battery_charging_full' : 'battery_full'}
+                            </span>
+                            {spec.telemetry.batteryPercent}% ({spec.telemetry.lastPing})
                           </span>
-                          {spec.telemetry.batteryPercent}% ({spec.telemetry.lastPing})
-                        </span>
+                        ) : (
+                          <span className="text-slate-500 font-medium">
+                            ({spec.telemetry.lastPing})
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Drop Sequence if active trip */}
-                    {spec.hasActiveTrip && (
-                      <div className="space-y-1 text-xs">
-                        {/* Closed Drop */}
-                        {lastClosedDrop && (
-                          <div className="flex items-center gap-1 text-[11px] text-emerald-800 bg-emerald-50/70 px-2 py-1 rounded-lg border border-emerald-200 truncate">
-                            <span className="material-symbols-outlined text-[13px] text-emerald-600 shrink-0">check_circle</span>
-                            <span className="truncate">
-                              Drop {lastClosedDrop.dropNumber}: {lastClosedDrop.clientName} ({lastClosedDrop.closedAt || 'เสร็จสิ้น'})
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Next Drop (Highlight Box) */}
-                        {nextDrop ? (
-                          <div className="flex items-center justify-between gap-1 text-[11px] text-blue-900 bg-blue-50/80 px-2 py-1 rounded-lg border border-blue-200 truncate">
-                            <div className="flex items-center gap-1 truncate min-w-0">
-                              <span className="w-3.5 h-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-bold shrink-0">
-                                {nextDrop.dropNumber}
-                              </span>
-                              <span className="truncate font-bold">
-                                {t('live_next_drop')} {nextDrop.clientName}
-                              </span>
+                    {/* Collapsible Drop Sequence & Minimalist Icon-Only Maps Link */}
+                    {spec.hasActiveTrip && spec.drops.length > 0 && (() => {
+                      const isExpanded = !!expandedDrops[spec.id];
+                      return (
+                        <div className="space-y-1 text-xs pt-1 border-t border-slate-200/60">
+                          {/* Collapsible Header Accordion */}
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedDrops((prev) => ({
+                                ...prev,
+                                [spec.id]: !prev[spec.id],
+                              }));
+                            }}
+                            className="flex items-center justify-between text-[11px] font-bold text-slate-700 cursor-pointer hover:text-primary transition-colors py-0.5 select-none"
+                          >
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="material-symbols-outlined text-[13px] text-primary shrink-0">route</span>
+                              <span className="shrink-0">จุดนัดหมาย ({spec.drops.length} จุด)</span>
+                              {!isExpanded && nextDrop && (
+                                <span className="text-[10px] font-normal text-blue-600 ml-1 truncate max-w-[130px]">
+                                  • ถัดไป: #{nextDrop.dropNumber} {nextDrop.clientName}
+                                </span>
+                              )}
                             </div>
-                            <span className="text-[10px] text-blue-700 shrink-0">
-                              {nextDrop.agenda}
+                            <span className="flex items-center gap-0.5 text-[10px] text-slate-500 font-medium bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md border border-slate-200/70 shrink-0 transition-all">
+                              <span>{isExpanded ? 'ย่อ' : 'ขยาย'}</span>
+                              <span className={`material-symbols-outlined text-[14px] transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                                expand_more
+                              </span>
                             </span>
                           </div>
-                        ) : (
-                          <div className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded-lg border border-purple-200 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[13px]">task_alt</span>
-                            {t('live_status_complete')}
-                          </div>
-                        )}
 
-                        {/* Remaining Drops */}
-                        {remainingDrops.length > 0 && (
-                          <div className="text-[10px] text-on-surface-variant pl-5 truncate">
-                            ➔ {remainingDrops.map((d) => d.clientName).join(' ➔ ')}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          {/* Expanded Drop List (Only shown when expanded) */}
+                          {isExpanded && (
+                            <div className="space-y-1 pt-1 animate-fade-in">
+                              {spec.drops.map((d) => {
+                                const isCurrentNext = nextDrop?.dropNumber === d.dropNumber;
+                                return (
+                                  <div
+                                    key={d.dropNumber}
+                                    className={`flex items-center justify-between gap-2 p-1.5 rounded-xl border text-[11px] transition-all ${
+                                      d.isClosed
+                                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                                        : isCurrentNext
+                                        ? 'bg-blue-50/90 border-blue-300 text-blue-900 font-semibold ring-1 ring-blue-400/40 shadow-2xs'
+                                        : 'bg-white/80 border-slate-200/80 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-1.5 truncate min-w-0">
+                                      <span
+                                        className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black shrink-0 ${
+                                          d.isClosed
+                                            ? 'bg-emerald-600 text-white'
+                                            : isCurrentNext
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-slate-400 text-white'
+                                        }`}
+                                      >
+                                        {d.isClosed ? '✓' : d.dropNumber}
+                                      </span>
+                                      <div className="truncate min-w-0">
+                                        <div className="truncate font-bold flex items-center gap-1">
+                                          <span className="truncate">{d.clientName}</span>
+                                          {isCurrentNext && (
+                                            <span className="text-[8.5px] px-1 py-0.2 bg-blue-600 text-white rounded font-black shrink-0">
+                                              ถัดไป
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-[9.5px] opacity-75 truncate">{d.address}</div>
+                                      </div>
+                                    </div>
+
+                                    {/* Icon-Only Google Maps Link Button */}
+                                    <a
+                                      href={`https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-5 h-5 rounded-md bg-white hover:bg-blue-50 text-slate-400 hover:text-blue-600 border border-slate-200 hover:border-blue-300 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                                      title={`เปิด Google Maps: ${d.clientName}`}
+                                    >
+                                      <span className="material-symbols-outlined text-[13px]">map</span>
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })

@@ -48,6 +48,7 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { supabase } from '../lib/supabase';
 
 interface DropItem {
   id: string;
@@ -366,17 +367,82 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   };
 
   // Apply Changes & Go Back to Tracker
-  const handleApplyChanges = () => {
+  const handleApplyChanges = async () => {
+    const tripId = params.tripId;
+
+    try {
+      if (tripId) {
+        // Fetch existing appointments in Supabase
+        const { data: existingAppts } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('trip_id', tripId);
+
+        const currentIds = (existingAppts || []).map((a: any) => a.id);
+        const keptIds = drops.map((d) => d.id).filter(Boolean);
+        const toDeleteIds = currentIds.filter((id: string) => !keptIds.includes(id));
+
+        // 1. Delete removed appointments
+        if (toDeleteIds.length > 0) {
+          await supabase
+            .from('appointments')
+            .delete()
+            .in('id', toDeleteIds);
+        }
+
+        // 2. Update sequence_order for remaining / newly added drops
+        for (let idx = 0; idx < drops.length; idx++) {
+          const d = drops[idx];
+          const seq = idx + 1;
+
+          if (d.id && currentIds.includes(d.id)) {
+            await (supabase.from('appointments' as any) as any)
+              .update({
+                sequence_order: seq,
+                company_name: d.name,
+                destination_address: d.address,
+                destination_lat: d.latitude,
+                destination_lng: d.longitude,
+                agenda: d.items || 'เข้าพบและนำเสนอสินค้า',
+              })
+              .eq('id', d.id);
+          } else {
+            await (supabase.from('appointments' as any) as any)
+              .insert({
+                trip_id: tripId,
+                sequence_order: seq,
+                company_name: d.name,
+                customer_name: d.recipient || d.name,
+                destination_address: d.address,
+                destination_lat: d.latitude || 13.7563,
+                destination_lng: d.longitude || 100.5018,
+                agenda: d.items || 'เข้าพบและนำเสนอสินค้า',
+                status: 'pending',
+                confirmation_status: false,
+              });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error syncing reordered itinerary to Supabase:', err);
+    }
+
     if (route.params?.onUpdateDrops) {
       route.params.onUpdateDrops(drops);
     }
 
-    Alert.alert('อัปเดตแผนการเดินทางสำเร็จ', 'ระบบได้ปรับเปลี่ยนลำดับการเข้าพบลูกค้าตามที่คุณกำหนดเรียบร้อยแล้ว', [
-      {
-        text: 'กลับไปหน้าติดตามการเดินทาง',
-        onPress: () => navigation.goBack(),
-      },
-    ]);
+    Alert.alert(
+      language === 'th' ? 'อัปเดตแผนการเดินทางสำเร็จ' : 'Itinerary Updated',
+      language === 'th'
+        ? 'ระบบได้ปรับเปลี่ยนลำดับการเข้าพบลูกค้าและซิงค์ข้อมูลกับ Live Map เรียบร้อยแล้ว'
+        : 'The client visit sequence has been updated and synchronized with the Live Map.',
+      [
+        {
+          text: language === 'th' ? 'กลับไปหน้าติดตามการเดินทาง' : 'Back to Tracker',
+          onPress: () => navigation.goBack(),
+        },
+      ]
+    );
   };
 
   const remainingDropsCount = Math.max(0, drops.length - currentDropIndex);

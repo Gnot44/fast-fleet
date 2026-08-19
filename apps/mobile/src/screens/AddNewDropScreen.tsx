@@ -51,17 +51,17 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   const [fetchingGps, setFetchingGps] = useState(false);
   const [customerName, setCustomerName] = useState(initialDrop.recipient || '');
   const [phoneNumber, setPhoneNumber] = useState(initialDrop.phone || '');
-  const [companyName, setCompanyName] = useState(initialDrop.name || (isEditing ? '' : 'TechCorp HQ'));
+  const [companyName, setCompanyName] = useState(initialDrop.name || '');
   
   // Visit Agenda State
-  const defaultAgenda = initialDrop.items || (isEditing ? '' : 'นำเสนอโปรเจกต์ (Pitch & Proposal)');
+  const defaultAgenda = initialDrop.items || '';
   const [meetingAgenda, setMeetingAgenda] = useState(defaultAgenda);
   const [selectedAgendaKey, setSelectedAgendaKey] = useState<string>(() => {
-    if (defaultAgenda.includes('นำเสนอ')) return 'pitch';
-    if (defaultAgenda.includes('ต่อสัญญา')) return 'renewal';
-    if (defaultAgenda.includes('ตรวจระบบ')) return 'healthcheck';
-    if (defaultAgenda.includes('แนะนำสินค้า') || defaultAgenda.includes('เดโม')) return 'demo';
-    if (defaultAgenda.startsWith('อื่นๆ')) return 'other';
+    if (defaultAgenda.includes('นำเสนอ') || defaultAgenda.toLowerCase().includes('pitch')) return 'pitch';
+    if (defaultAgenda.includes('ต่อสัญญา') || defaultAgenda.toLowerCase().includes('renewal')) return 'renewal';
+    if (defaultAgenda.includes('ตรวจระบบ') || defaultAgenda.toLowerCase().includes('health')) return 'healthcheck';
+    if (defaultAgenda.includes('แนะนำสินค้า') || defaultAgenda.toLowerCase().includes('demo')) return 'demo';
+    if (defaultAgenda.startsWith('อื่นๆ') || defaultAgenda.toLowerCase().startsWith('other')) return 'other';
     return 'pitch';
   });
   const [customAgendaText, setCustomAgendaText] = useState(

@@ -35,6 +35,7 @@ export const translations = {
 
     // Sidebar & Navigation (Pure Thai)
     nav_dashboard: 'ติดตามพิกัดสด',
+    nav_playback: 'ดูเส้นทางย้อนหลัง',
     nav_schedule: 'ปฏิทินแผนงาน',
     nav_history: 'ตรวจรับรายงาน',
     nav_drivers: 'ทีมการตลาด',
@@ -259,6 +260,7 @@ export const translations = {
 
     // Sidebar & Navigation (Pure English)
     nav_dashboard: 'Live Tracking',
+    nav_playback: 'Route Playback',
     nav_schedule: 'Trip Schedules',
     nav_history: 'Trip Approvals',
     nav_drivers: 'Marketing Specialists',
@@ -497,22 +499,71 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const useLanguage = () => useContext(LanguageContext);
 
 /**
- * Modern, clean Language Switcher Toggle Pill for Header
+ * Vector SVG Flag of Thailand (100% OS-Independent)
+ */
+export const ThaiFlagIcon = ({ className = 'w-4 h-3' }: { className?: string }) => (
+  <svg className={`${className} rounded-[2px] shadow-2xs shrink-0 overflow-hidden border border-slate-200/60`} viewBox="0 0 900 600">
+    <rect fill="#A51931" width="900" height="600" />
+    <rect fill="#F4F5F8" y="100" width="900" height="400" />
+    <rect fill="#2D2A4A" y="200" width="900" height="200" />
+  </svg>
+);
+
+/**
+ * Vector SVG Flag of United Kingdom / Great Britain (100% OS-Independent)
+ */
+export const UkFlagIcon = ({ className = 'w-4 h-3' }: { className?: string }) => (
+  <svg className={`${className} rounded-[2px] shadow-2xs shrink-0 overflow-hidden border border-slate-200/60`} viewBox="0 0 60 30">
+    <clipPath id="uk-flag-svg-clip">
+      <path d="M0 0 v30 h60 v-30 z" />
+    </clipPath>
+    <g clipPath="url(#uk-flag-svg-clip)">
+      <path d="M0 0 v30 h60 v-30 z" fill="#012169" />
+      <path d="M0 0 L60 30 M60 0 L0 30" stroke="#fff" strokeWidth="6" />
+      <path d="M0 0 L60 30 M60 0 L0 30" stroke="#C8102E" strokeWidth="4" />
+      <path d="M30 0 v30 M0 15 h60" stroke="#fff" strokeWidth="10" />
+      <path d="M30 0 v30 M0 15 h60" stroke="#C8102E" strokeWidth="6" />
+    </g>
+  </svg>
+);
+
+/**
+ * Modern, clean Language Switcher Toggle Pill with Real SVG Vector Flags
  */
 export const LanguageTogglePill = ({ className }: { className?: string }) => {
-  const { language, toggleLanguage } = useLanguage();
+  const { language, setLanguage } = useLanguage();
 
   return (
-    <button
-      type="button"
-      onClick={toggleLanguage}
-      className={`flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-extrabold border border-slate-200 dark:border-slate-700 transition-all ${className || ''}`}
-      title={language === 'th' ? 'Switch to English' : 'เปลี่ยนเป็นภาษาไทย'}
+    <div
+      className={`inline-flex items-center p-0.5 bg-slate-100/90 border border-slate-200 rounded-xl shadow-2xs ${className || ''}`}
     >
-      <span className="text-sm">{language === 'th' ? '🇹🇭' : '🇬🇧'}</span>
-      <span className="font-mono">{language.toUpperCase()}</span>
-      <span className="text-slate-400 dark:text-slate-500 text-[10px]">/</span>
-      <span className="text-slate-400 dark:text-slate-500 font-mono text-[10px]">{language === 'th' ? 'EN' : 'TH'}</span>
-    </button>
+      <button
+        type="button"
+        onClick={() => setLanguage('th')}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+          language === 'th'
+            ? 'bg-white text-primary shadow-xs ring-1 ring-slate-200/80 scale-100'
+            : 'text-slate-500 hover:text-slate-900 opacity-60 hover:opacity-100'
+        }`}
+        title="เปลี่ยนเป็นภาษาไทย (TH)"
+      >
+        <ThaiFlagIcon className="w-4 h-2.5" />
+        <span className="text-[11px] font-extrabold">TH</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setLanguage('en')}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+          language === 'en'
+            ? 'bg-white text-primary shadow-xs ring-1 ring-slate-200/80 scale-100'
+            : 'text-slate-500 hover:text-slate-900 opacity-60 hover:opacity-100'
+        }`}
+        title="Switch to English (EN)"
+      >
+        <UkFlagIcon className="w-4 h-2.5" />
+        <span className="text-[11px] font-extrabold">EN</span>
+      </button>
+    </div>
   );
 };

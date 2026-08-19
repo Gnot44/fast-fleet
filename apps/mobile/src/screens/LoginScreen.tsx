@@ -22,8 +22,9 @@ import {
   Briefcase,
   ShieldCheck,
 } from 'lucide-react-native';
+import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
-import { sendLocationPing } from '../lib/presenceService';
+import { startLivePresenceTracking } from '../lib/presenceService';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -63,10 +64,10 @@ export default function LoginScreen({ navigation }: any) {
             : (error.message || 'Invalid email or password. Please check your credentials.')
         );
       } else {
-        sendLocationPing(true);
+        // Direct every login to PrivacyConsent to review terms and consent
         navigation.reset({
           index: 0,
-          routes: [{ name: 'Dashboard' }],
+          routes: [{ name: 'PrivacyConsent' }],
         });
       }
     } catch (err: any) {

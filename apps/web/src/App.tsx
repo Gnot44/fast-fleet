@@ -9,6 +9,7 @@ import SystemSettings from './pages/SystemSettings';
 import ReportsAnalytics from './pages/ReportsAnalytics';
 import SpecialistScheduleCalendar from './pages/SpecialistScheduleCalendar';
 import AdminProfile from './pages/AdminProfile';
+import RoutePlayback from './pages/RoutePlayback';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="playback" element={<RoutePlayback />} />
           <Route path="schedule" element={<SpecialistScheduleCalendar />} />
           <Route path="history" element={<VisitHistory />} />
           <Route path="drivers" element={<DriverManagement />} />

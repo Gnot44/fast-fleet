@@ -42,6 +42,7 @@ import {
   Zap,
   Phone,
 } from 'lucide-react-native';
+import { supabase } from '../lib/supabase';
 import {
   getLiveDeviceLocation,
   reverseGeocodeGoogle,
@@ -64,30 +65,10 @@ interface StopItem {
   items?: string;
   latitude?: number;
   longitude?: number;
+  appointmentId?: string;
 }
 
-const initialStops: StopItem[] = [
-  {
-    id: 'stop-1',
-    name: 'TechCorp HQ (Sathorn)',
-    address: '120 Innovation Drive, Sathorn, Bangkok',
-    recipient: 'Khun Thanawat (Procurement Lead)',
-    phone: '+66 89 111 2233',
-    items: 'นำเสนอโปรเจกต์ Enterprise ERP & โบรชัวร์',
-    latitude: 13.7225,
-    longitude: 100.5283,
-  },
-  {
-    id: 'stop-2',
-    name: 'Northside Retail Chain',
-    address: '4500 Commerce Blvd, Pathum Wan, Bangkok',
-    recipient: 'Khun Supaporn (Marketing Director)',
-    phone: '+66 82 555 8899',
-    items: 'ประชุมสรุปแผน Co-Marketing Q3 & Demo',
-    latitude: 13.7469,
-    longitude: 100.5349,
-  },
-];
+const initialStops: StopItem[] = [];
 
 const MONTH_NAMES_TH = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -106,7 +87,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   const [tabMode, setTabMode] = useState<'startNow' | 'planLater'>('startNow');
 
   // Start Location State
-  const [odometer, setOdometer] = useState('45200');
+  const [odometer, setOdometer] = useState('');
   const [startLocationCoord, setStartLocationCoord] = useState({
     latitude: DEFAULT_BANGKOK_LOCATION.latitude,
     longitude: DEFAULT_BANGKOK_LOCATION.longitude,
@@ -115,6 +96,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   });
   const [isStartSubmitted, setIsStartSubmitted] = useState(false);
   const [fetchingGps, setFetchingGps] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Search & Map for Start Location
   const [startSearchQuery, setStartSearchQuery] = useState('');
@@ -125,7 +107,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   const isSelectingStartRef = useRef<boolean>(false);
 
   // Plan Later & Trip Info State
-  const [tripName, setTripName] = useState('Q3 Commercial Client Visits');
+  const [tripName, setTripName] = useState('');
   
   // Date & Time Picker Modal State
   const [showDateTimePicker, setShowDateTimePicker] = useState(false);
@@ -427,7 +409,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
     );
   };
 
-  const handleStartTracking = () => {
+  const handleStartTracking = async () => {
     // 1. Mandatory Live GPS Confirmation
     if (!isStartSubmitted) {
       Alert.alert(
@@ -468,21 +450,102 @@ export default function NewAppointmentScreen({ navigation }: any) {
       return;
     }
 
-    navigation.navigate('RoutePreview', {
-      tripTitle: tripName || 'Bangkok Immediate Dispatch',
-      scheduledDate: 'Now',
-      selectedVehicle: 'Isuzu D-Max (1กข-4452)',
-      startLocation: {
-        ...startLocationCoord,
-        isGpsConfirmed: true,
-      },
-      startOdometer: odometer.trim(),
-      drops: stops,
-      roadPolyline: optimizedRoadPolyline,
-    });
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert(language === 'th' ? 'ข้อผิดพลาด' : 'Error', language === 'th' ? 'ไม่พบข้อมูลผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่' : 'User not found');
+        setIsSaving(false);
+        return;
+      }
+
+      const tripCode = `TRP-${Date.now().toString().slice(-6)}`;
+      const finalTripTitle = tripName.trim() || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
+      const startOdoNum = parseInt(odometer.trim(), 10);
+
+      // Create in_progress trip in Supabase
+      const { data: createdTrip, error: tripErr } = await supabase
+        .from('trips')
+        .insert({
+          type: 'marketing',
+          trip_code: tripCode,
+          staff_id: user.id,
+          title: finalTripTitle,
+          trip_date: new Date().toISOString().split('T')[0],
+          status: 'in_progress',
+          approval_status: 'pending',
+          start_odometer: startOdoNum,
+          started_at: new Date().toISOString(),
+          start_location: {
+            name: startLocationCoord.name,
+            address: startLocationCoord.address,
+            latitude: startLocationCoord.latitude,
+            longitude: startLocationCoord.longitude,
+          },
+        })
+        .select()
+        .single();
+
+      if (tripErr || !createdTrip) {
+        throw tripErr || new Error('Failed to start trip in database');
+      }
+
+      // Insert appointments
+      const apptInserts = stops.map((stop, idx) => ({
+        type: 'appointment',
+        trip_id: createdTrip.id,
+        staff_id: user.id,
+        company_name: stop.name,
+        customer_name: stop.recipient || stop.name,
+        recipient_name: stop.recipient || '',
+        recipient_phone: stop.phone || '',
+        destination_address: stop.address,
+        destination_lat: stop.latitude || null,
+        destination_lng: stop.longitude || null,
+        sequence_order: idx + 1,
+        agenda: stop.items || '',
+        status: 'pending',
+        confirmation_status: false,
+      }));
+
+      const { data: createdAppts } = await supabase
+        .from('appointments')
+        .insert(apptInserts)
+        .select();
+
+      const formattedDrops = stops.map((stop, idx) => ({
+        ...stop,
+        appointmentId: createdAppts?.[idx]?.id || stop.id,
+        id: createdAppts?.[idx]?.id || stop.id,
+      }));
+
+      setIsSaving(false);
+
+      navigation.navigate('RoutePreview', {
+        tripId: createdTrip.id,
+        tripCode: createdTrip.trip_code,
+        tripTitle: finalTripTitle,
+        scheduledDate: 'Now',
+        selectedVehicle: 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)',
+        startLocation: {
+          ...startLocationCoord,
+          isGpsConfirmed: true,
+        },
+        startOdometer: odometer.trim(),
+        drops: formattedDrops,
+        roadPolyline: optimizedRoadPolyline,
+      });
+    } catch (err: any) {
+      setIsSaving(false);
+      console.error('Start trip error:', err);
+      Alert.alert(
+        language === 'th' ? 'เริ่มต้นเดินทางไม่สำเร็จ' : 'Start Trip Failed',
+        err.message || 'Error creating trip in database'
+      );
+    }
   };
 
-  const handleSaveTrip = () => {
+  const handleSaveTrip = async () => {
     if (!isStartSubmitted) {
       Alert.alert(
         language === 'th' ? 'ยังไม่ได้ยืนยันจุดเริ่มต้น' : 'Start Location Pending',
@@ -503,22 +566,97 @@ export default function NewAppointmentScreen({ navigation }: any) {
       return;
     }
 
-    Alert.alert(
-      language === 'th' ? 'บันทึกแผนงานสำเร็จ 📅' : 'Visit Plan Saved 📅',
-      language === 'th'
-        ? `แผนงาน "${tripName}" ถูกบันทึกลงในตารางงาน (${scheduledDisplay}) เรียบร้อยแล้ว\n\n💡 ในวันเดินทางจริง ที่หน้า Route Preview สามารถกดดึง GPS ปัจจุบันเพื่อเปลี่ยนจุดเริ่มตามตำแหน่งจริง และระบุเลขไมล์เริ่มต้นก่อนออกเดินทางได้`
-        : `Plan "${tripName}" has been saved to your schedule (${scheduledDisplay}).\n\n💡 On departure day, you can fetch live GPS in Route Preview to update origin and enter start odometer before departure.`,
-      [
-        {
-          text: language === 'th' ? 'ดูตารางงาน (Schedule)' : 'View Schedule',
-          onPress: () => navigation.navigate('TripSchedule'),
-        },
-        {
-          text: language === 'th' ? 'ตกลง' : 'OK',
-          style: 'default',
-        }
-      ]
-    );
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert(language === 'th' ? 'ข้อผิดพลาด' : 'Error', language === 'th' ? 'ไม่พบข้อมูลผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่' : 'User not found. Please log in again.');
+        setIsSaving(false);
+        return;
+      }
+
+      const tripCode = `TRP-${Date.now().toString().slice(-6)}`;
+      const finalTripTitle = tripName.trim() || (language === 'th' ? 'แผนงานเข้าพบลูกค้า' : 'Client Visit Plan');
+      const dateStr = selectedDate.toISOString().split('T')[0];
+
+      // 1. Insert into trips table
+      const { data: createdTrip, error: tripErr } = await supabase
+        .from('trips')
+        .insert({
+          type: 'marketing',
+          trip_code: tripCode,
+          staff_id: user.id,
+          title: finalTripTitle,
+          trip_date: dateStr,
+          status: 'scheduled',
+          approval_status: 'pending',
+          start_odometer: odometer.trim() ? parseInt(odometer.trim(), 10) : null,
+          start_location: {
+            name: startLocationCoord.name,
+            address: startLocationCoord.address,
+            latitude: startLocationCoord.latitude,
+            longitude: startLocationCoord.longitude,
+          },
+        })
+        .select()
+        .single();
+
+      if (tripErr || !createdTrip) {
+        throw tripErr || new Error('Failed to create trip');
+      }
+
+      // 2. Insert stops into appointments table
+      const apptInserts = stops.map((stop, idx) => ({
+        type: 'appointment',
+        trip_id: createdTrip.id,
+        staff_id: user.id,
+        company_name: stop.name,
+        customer_name: stop.recipient || stop.name,
+        recipient_name: stop.recipient || '',
+        recipient_phone: stop.phone || '',
+        destination_address: stop.address,
+        destination_lat: stop.latitude || null,
+        destination_lng: stop.longitude || null,
+        sequence_order: idx + 1,
+        agenda: stop.items || '',
+        status: 'scheduled',
+        confirmation_status: false,
+      }));
+
+      const { error: apptErr } = await supabase
+        .from('appointments')
+        .insert(apptInserts);
+
+      if (apptErr) {
+        console.warn('Error inserting appointments:', apptErr);
+      }
+
+      setIsSaving(false);
+
+      Alert.alert(
+        language === 'th' ? 'บันทึกแผนงานสำเร็จ 📅' : 'Visit Plan Saved 📅',
+        language === 'th'
+          ? `แผนงาน "${finalTripTitle}" รหัส ${tripCode} ถูกบันทึกลงระบบ (${scheduledDisplay}) เรียบร้อยแล้ว`
+          : `Plan "${finalTripTitle}" (${tripCode}) has been saved to the database (${scheduledDisplay}).`,
+        [
+          {
+            text: language === 'th' ? 'ดูตารางงาน (Schedule)' : 'View Schedule',
+            onPress: () => navigation.navigate('TripSchedule'),
+          },
+          {
+            text: language === 'th' ? 'หน้าหลัก (Dashboard)' : 'Dashboard',
+            onPress: () => navigation.navigate('Dashboard'),
+          }
+        ]
+      );
+    } catch (err: any) {
+      setIsSaving(false);
+      console.error('Save trip error:', err);
+      Alert.alert(
+        language === 'th' ? 'บันทึกไม่สำเร็จ' : 'Save Failed',
+        err.message || 'Error saving trip to database'
+      );
+    }
   };
 
   // Calendar Navigation
@@ -1011,6 +1149,18 @@ export default function NewAppointmentScreen({ navigation }: any) {
                   </View>
                 );
               })}
+
+              {stops.length === 0 && (
+                <View style={styles.emptyStopsPlaceholder}>
+                  <MapPin size={28} color="#94A3B8" />
+                  <Text style={styles.emptyStopsTitle}>
+                    {language === 'th' ? 'ยังไม่มีรายการจุดเข้าพบลูกค้า' : 'No clients added yet'}
+                  </Text>
+                  <Text style={styles.emptyStopsSub}>
+                    {language === 'th' ? 'กดปุ่ม "+ เพิ่มจุดลูกค้า" ด้านล่างเพื่อค้นหาสถานที่ หรือระบุพิกัด' : 'Tap "+ Add Destination" below to add clients to this visit plan'}
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Add Stop & Optimize Buttons */}
@@ -2429,5 +2579,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1E40AF',
     flex: 1,
+  },
+  emptyStopsPlaceholder: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginVertical: 4,
+  },
+  emptyStopsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  emptyStopsSub: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    maxWidth: 280,
+    lineHeight: 18,
   },
 });

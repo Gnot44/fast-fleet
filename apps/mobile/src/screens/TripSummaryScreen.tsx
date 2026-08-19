@@ -60,67 +60,19 @@ export default function TripSummaryScreen({ navigation, route }: any) {
   const [isEditStartOdoOpen, setIsEditStartOdoOpen] = useState(false);
   const [editingOdoValue, setEditingOdoValue] = useState(params.startOdometer || '45200');
 
-  const rawDrops = Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : [
-    { id: '1', name: 'TechCorp HQ (Sathorn)', address: '120 Innovation Drive, Sathorn' },
-    { id: '2', name: 'Northside Retail (Pathum Wan)', address: '4500 Commerce Blvd, Pathum Wan' },
-    { id: '3', name: 'Mega Bangna Distribution', address: 'Bangna-Trad Km.8, Samut Prakan' },
-  ];
+  const rawDrops = Array.isArray(params.drops) ? params.drops : [];
 
   const initialNoteText =
     params.note ||
     (typeof params.meetingMinutes === 'string'
       ? params.meetingMinutes
       : params.meetingMinutes?.notes) ||
-    'ส่งมอบสินค้าตาม PO ครบ 2 พาเลท สภาพสินค้าสมบูรณ์ 100% เอกสารลงนามครบถ้วน';
+    '';
 
   // Default expense generator per drop if not yet entered
-  const getDropExpenses = (dropItem: any, index: number): any[] => {
-    if (Array.isArray(dropItem.expenses) && dropItem.expenses.length > 0) {
+  const getDropExpenses = (dropItem: any, _index: number): any[] => {
+    if (Array.isArray(dropItem.expenses)) {
       return dropItem.expenses;
-    }
-    if (index === 0) {
-      return [
-        {
-          id: 'exp-0-1',
-          category: language === 'th' ? 'ค่าทางด่วน' : 'Toll Fee',
-          amount: '60.00',
-          receiptUri: 'https://images.unsplash.com/photo-1554415707-9e49016a3e06?w=600&auto=format&fit=crop&q=80',
-          receiptName: 'Slip-Toll-M9.jpg',
-          note: language === 'th' ? 'ทางพิเศษศรีรัช' : 'Expressway',
-        },
-        {
-          id: 'exp-0-2',
-          category: language === 'th' ? 'ค่าที่จอดรถ' : 'Parking Fee',
-          amount: '80.00',
-          receiptUri: 'https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=600&auto=format&fit=crop&q=80',
-          receiptName: 'Parking-Sathorn.jpg',
-          note: language === 'th' ? 'อาคารสาทรซิตี้' : 'Sathorn City Tower',
-        },
-      ];
-    }
-    if (index === 1) {
-      return [
-        {
-          id: 'exp-1-1',
-          category: language === 'th' ? 'ค่าอาหาร / รับรองลูกค้า' : 'Client Meals',
-          amount: '150.00',
-          receiptUri: 'https://images.unsplash.com/photo-1580828343064-fde4fc206bc6?w=600&auto=format&fit=crop&q=80',
-          receiptName: 'Receipt-Coffee-Meeting.jpg',
-          note: language === 'th' ? 'เครื่องดื่มประชุม' : 'Meeting Drinks',
-        },
-      ];
-    }
-    if (index === 2) {
-      return [
-        {
-          id: 'exp-2-1',
-          category: language === 'th' ? 'ค่าน้ำมัน' : 'Fuel',
-          amount: '350.00',
-          receiptUri: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=600&auto=format&fit=crop&q=80',
-          receiptName: 'Slip-Fuel-PTT.jpg',
-          note: language === 'th' ? 'ปั๊ม ปตท. บางนา' : 'PTT Gas Station',
-        },
-      ];
     }
     return [];
   };

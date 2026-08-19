@@ -31,6 +31,7 @@ import {
   ChevronRight,
   RefreshCw,
 } from 'lucide-react-native';
+import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { startLivePresenceTracking } from '../lib/presenceService';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
@@ -44,8 +45,8 @@ export default function DashboardScreen({ navigation }: any) {
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
     role: 'Field Marketing Specialist',
-    avatar:
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+    initials: 'MK',
+    avatar: null,
   });
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unconfirmed' | 'scheduled'>('all');
@@ -68,10 +69,16 @@ export default function DashboardScreen({ navigation }: any) {
         .eq('id', user.id)
         .single();
 
+      const fullName = prof?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด';
+      const initials = fullName
+        ? fullName.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
+        : 'MK';
+
       setProfile({
-        name: prof?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด',
+        name: fullName,
         role: prof?.position || (prof?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
-        avatar: prof?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+        initials,
+        avatar: prof?.avatar_url || null,
       });
 
       // 2. Fetch Real Trips for this Specialist
@@ -160,11 +167,41 @@ export default function DashboardScreen({ navigation }: any) {
   };
 
   useEffect(() => {
-    startLivePresenceTracking();
-    fetchDashboardData();
-    const unsubscribe = navigation.addListener('focus', () => {
+    const ensurePermissionsAndFetch = async () => {
+      try {
+        const fg = await Location.getForegroundPermissionsAsync();
+        let bgStatus = Location.PermissionStatus.UNDETERMINED;
+        if (Platform.OS === 'android') {
+          try {
+            const bg = await Location.getBackgroundPermissionsAsync();
+            bgStatus = bg.status;
+          } catch (e) {}
+        } else {
+          bgStatus = fg.status;
+        }
+
+        const isPermitted = Platform.OS === 'ios'
+          ? (fg.status === 'granted')
+          : (fg.status === 'granted' && bgStatus === 'granted');
+
+        if (!isPermitted) {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'PrivacyConsent' }],
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('Error checking permissions in Dashboard:', err);
+      }
+
       startLivePresenceTracking();
       fetchDashboardData();
+    };
+
+    ensurePermissionsAndFetch();
+    const unsubscribe = navigation.addListener('focus', () => {
+      ensurePermissionsAndFetch();
     });
     return unsubscribe;
   }, [navigation]);
@@ -196,7 +233,13 @@ export default function DashboardScreen({ navigation }: any) {
             onPress={() => navigation.navigate('UserProfile')}
             activeOpacity={0.8}
           >
-            <Image source={{ uri: profile.avatar }} style={[styles.avatarImage, { borderColor: colors.border }]} />
+            {profile.avatar ? (
+              <Image source={{ uri: profile.avatar }} style={[styles.avatarImage, { borderColor: colors.border }]} />
+            ) : (
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}>
+                <Text style={[styles.avatarInitials, { color: colors.primary }]}>{profile.initials || 'MK'}</Text>
+              </View>
+            )}
             <View>
               <Text style={[styles.greetingText, { color: colors.textSecondary }]}>{profile.role || t('role_marketing')}</Text>
               <Text style={[styles.userNameText, { color: colors.text }]}>{profile.name}</Text>
@@ -652,6 +695,18 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 2,
     borderColor: '#DBEAFE',
+  },
+  avatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 15,
+    fontWeight: '800',
   },
   greetingText: {
     fontSize: 11,

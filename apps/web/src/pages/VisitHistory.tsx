@@ -97,7 +97,7 @@ export default function VisitHistory() {
     async function loadTrips() {
       try {
         setLoading(true);
-        const { data: trips } = await supabase
+        const { data: trips, error } = await supabase
           .from('trips')
           .select(`
             id,
@@ -110,7 +110,7 @@ export default function VisitHistory() {
             trip_date,
             created_at,
             manager_feedback,
-            profiles (
+            profiles:profiles!trips_staff_id_fkey (
               id,
               full_name,
               nickname,
@@ -153,6 +153,10 @@ export default function VisitHistory() {
             )
           `)
           .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching visit trips from Supabase:', error);
+        }
 
         if (trips && trips.length > 0) {
           const mapped: MarketingTripApprovalRecord[] = trips.map((t: any) => {

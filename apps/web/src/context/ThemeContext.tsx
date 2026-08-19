@@ -75,14 +75,14 @@ export const ThemeTogglePill = ({ className }: { className?: string }) => {
     <button
       type="button"
       onClick={toggleTheme}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
         isDark
           ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
-          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
       } ${className || ''}`}
       title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
     >
-      <span className="material-symbols-outlined text-[16px]">
+      <span className={`material-symbols-outlined text-[16px] ${isDark ? 'text-amber-300' : 'text-amber-500'}`}>
         {isDark ? 'dark_mode' : 'light_mode'}
       </span>
       <span>{isDark ? 'Dark' : 'Light'}</span>

@@ -8,10 +8,28 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(new Date());
+  const [countdownSeconds, setCountdownSeconds] = useState(60);
   const location = useLocation();
+
+  // 60-second live countdown timer for automatic data refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdownSeconds((prev) => {
+        if (prev <= 1) {
+          setLastRefreshedAt(new Date());
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const navItems = [
     { icon: 'dashboard', label: t('nav_dashboard'), path: '/admin/dashboard' },
+    { icon: 'route', label: t('nav_playback'), path: '/admin/playback' },
     { icon: 'calendar_month', label: t('nav_schedule'), path: '/admin/schedule' },
     { icon: 'task_alt', label: t('nav_history'), path: '/admin/history' },
     { icon: 'groups', label: t('nav_drivers'), path: '/admin/drivers' },
@@ -164,28 +182,29 @@ export default function AdminLayout() {
           </div>
 
           {/* Right Header Controls with Global Language & Theme Toggles */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-2.5">
             {/* Global Language Toggle Switcher */}
             <LanguageTogglePill />
 
             {/* Global Dark/Light Mode Switcher */}
             <ThemeTogglePill />
 
+            {/* Global Schedule Navigation Button */}
             <button
-              onClick={() => (window.location.href = '/admin/schedule')}
-              className="hidden lg:flex items-center gap-1.5 text-slate-700 dark:text-slate-200 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-700 transition-all"
+              onClick={() => navigate('/admin/schedule')}
+              className="hidden lg:flex items-center gap-1.5 text-slate-800 font-bold text-xs bg-slate-50 hover:bg-blue-50 hover:text-primary rounded-xl px-3 py-1.5 border border-slate-200 hover:border-blue-300 shadow-2xs transition-all cursor-pointer"
             >
-              <span className="material-symbols-outlined text-primary text-[16px]">calendar_month</span>
-              {t('header_calendar_btn')}
+              <span className="material-symbols-outlined text-primary text-[17px]">calendar_month</span>
+              <span>{t('header_calendar_btn')}</span>
             </button>
 
             {/* Notifications */}
             <button
-              className="text-slate-600 hover:bg-slate-100 rounded-xl p-2 transition-all relative"
-              title="Notifications"
+              className="text-slate-600 hover:text-primary hover:bg-blue-50/70 border border-slate-200 hover:border-blue-200 rounded-xl p-1.5 transition-all relative cursor-pointer shadow-2xs"
+              title="การแจ้งเตือน (Notifications)"
             >
-              <span className="material-symbols-outlined text-[20px]">notifications</span>
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
+              <span className="material-symbols-outlined text-[18px]">notifications</span>
+              <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full ring-1 ring-white"></span>
             </button>
 
             {/* Profile Avatar */}
@@ -209,9 +228,14 @@ export default function AdminLayout() {
             isSidebarCollapsed ? 'md:w-[calc(100%-72px)]' : 'md:w-[calc(100%-240px)]'
           } w-full text-[11px]`}
         >
-          <span className="text-slate-500 font-medium truncate">
-            {t('brand_title')} • {t('data_refresh')} {new Date().toLocaleTimeString()}
-          </span>
+          <div className="flex items-center gap-2 text-slate-500 font-medium truncate">
+            <span className="truncate">
+              {t('brand_title')} • {t('data_refresh')} {lastRefreshedAt.toLocaleTimeString()}
+            </span>
+            <span className="text-[10px] font-extrabold text-primary bg-blue-50 px-2 py-0.2 rounded-md border border-blue-200 shrink-0">
+              {language === 'th' ? `(รีเฟรชใน ${countdownSeconds}s)` : `(Next refresh in ${countdownSeconds}s)`}
+            </span>
+          </div>
           <div className="flex items-center gap-2 font-bold text-emerald-700 shrink-0">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>{t('connected_status')}</span>

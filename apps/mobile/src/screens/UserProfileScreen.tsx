@@ -8,6 +8,7 @@ import {
   Platform,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -21,6 +22,8 @@ import {
   Moon,
   Sun,
   Globe,
+  User,
+  ShieldCheck,
 } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { stopLivePresenceTracking } from '../lib/presenceService';
@@ -31,25 +34,29 @@ import FloatingBottomNav from '../components/FloatingBottomNav';
 export default function UserProfileScreen({ navigation }: any) {
   const { t, language, setLanguage } = useLanguage();
   const { theme, setTheme, colors, isDark } = useTheme();
+
+  const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
-    staffId: '...',
+    initials: 'MK',
+    staffId: '-',
     role: 'Field Marketing Specialist',
     department: 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-    email: '',
-    phone: '',
-    vehicle: 'Isuzu D-Max (1กข-4452)',
+    territory: 'Bangkok Central (B2B)',
+    email: '-',
+    phone: '-',
+    vehicle: '-',
     licenseClass: 'Corporate Transport Class B',
     safetyScore: 98,
-    rating: 4.9,
+    rating: 5.0,
     tripsCompleted: 0,
-    avatar:
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+    avatar: null,
   });
 
   useEffect(() => {
     async function loadUserProfile() {
       try {
+        setLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: profData } = await (supabase
@@ -59,25 +66,32 @@ export default function UserProfileScreen({ navigation }: any) {
             .single();
 
           const staffObj = Array.isArray(profData?.staff) ? profData.staff[0] : profData?.staff;
+          const fullName = profData?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด';
+          const initials = fullName
+            ? fullName.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
+            : 'MK';
 
           setProfile({
-            name: profData?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด',
-            staffId: staffObj?.staff_id || user.user_metadata?.staff_id || 'AITS10002772',
+            name: fullName,
+            initials,
+            staffId: staffObj?.staff_id || user.user_metadata?.staff_id || 'FM-SPECIALIST',
             role: profData?.position || staffObj?.position || (profData?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
             department: profData?.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
             territory: staffObj?.territory || 'Bangkok Central (B2B)',
             email: profData?.email || user.email,
-            phone: profData?.phone || '081-000-0000',
-            vehicle: staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
+            phone: profData?.phone || '-',
+            vehicle: staffObj?.assigned_vehicle || profData?.assigned_vehicle_plate || 'ยานพาหนะประจำการ',
             licenseClass: 'Corporate Transport Class B',
             safetyScore: staffObj?.safety_score || 98,
-            rating: staffObj?.rating || 4.9,
+            rating: staffObj?.rating || 5.0,
             tripsCompleted: staffObj?.total_trips || 0,
-            avatar: profData?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+            avatar: profData?.avatar_url || null,
           });
         }
       } catch (err) {
         console.error('Error fetching user profile:', err);
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -98,7 +112,7 @@ export default function UserProfileScreen({ navigation }: any) {
         text: t('profile_sign_out'),
         style: 'destructive',
         onPress: async () => {
-          stopLivePresenceTracking();
+          await stopLivePresenceTracking();
           await supabase.auth.signOut();
           navigation.reset({
             index: 0,
@@ -127,7 +141,14 @@ export default function UserProfileScreen({ navigation }: any) {
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollInner} showsVerticalScrollIndicator={false}>
         {/* Profile Card */}
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Image source={{ uri: profile.avatar }} style={[styles.avatarImage, { borderColor: colors.border }]} />
+          {profile.avatar ? (
+            <Image source={{ uri: profile.avatar }} style={[styles.avatarImage, { borderColor: colors.border }]} />
+          ) : (
+            <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}>
+              <Text style={[styles.avatarInitials, { color: colors.primary }]}>{profile.initials || 'MK'}</Text>
+            </View>
+          )}
+
           <View style={styles.profileMeta}>
             <Text style={[styles.profileName, { color: colors.text }]}>{profile.name}</Text>
             <Text style={[styles.profileRole, { color: colors.textSecondary }]}>{profile.role}</Text>
@@ -218,46 +239,23 @@ export default function UserProfileScreen({ navigation }: any) {
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
                 onPress={() => setLanguage('th')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 14,
-                  borderWidth: 1.5,
-                  borderColor: language === 'th' ? colors.primary : colors.border,
-                  backgroundColor: language === 'th' ? colors.primaryLight : colors.surfaceSubtle,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
+                style={[
+                  styles.prefSegmentBtn,
+                  { borderColor: language === 'th' ? colors.primary : colors.border },
+                  language === 'th' && { backgroundColor: colors.primaryLight },
+                ]}
               >
-                <Text style={{ fontSize: 16 }}>🇹🇭</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: language === 'th' ? colors.primary : colors.textSecondary }}>
-                  ภาษาไทย (TH)
-                </Text>
+                <Text style={[styles.prefSegmentText, { color: language === 'th' ? colors.primary : colors.text }]}>🇹🇭 ภาษาไทย</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 onPress={() => setLanguage('en')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 14,
-                  borderWidth: 1.5,
-                  borderColor: language === 'en' ? colors.primary : colors.border,
-                  backgroundColor: language === 'en' ? colors.primaryLight : colors.surfaceSubtle,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
+                style={[
+                  styles.prefSegmentBtn,
+                  { borderColor: language === 'en' ? colors.primary : colors.border },
+                  language === 'en' && { backgroundColor: colors.primaryLight },
+                ]}
               >
-                <Text style={{ fontSize: 16 }}>🇬🇧</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: language === 'en' ? colors.primary : colors.textSecondary }}>
-                  English (EN)
-                </Text>
+                <Text style={[styles.prefSegmentText, { color: language === 'en' ? colors.primary : colors.text }]}>🇬🇧 English</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -265,85 +263,71 @@ export default function UserProfileScreen({ navigation }: any) {
           {/* Theme Mode Selector */}
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Moon size={16} color={colors.primary} />
+              {isDark ? <Moon size={16} color={colors.primary} /> : <Sun size={16} color={colors.primary} />}
               <Text style={[styles.infoLabel, { color: colors.textSecondary, fontWeight: '700' }]}>
-                {language === 'th' ? 'ธีมการแสดงผล' : 'Appearance Theme'}
+                {language === 'th' ? 'ธีมการแสดงผล' : 'Color Theme'}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
                 onPress={() => setTheme('light')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1.5,
-                  borderColor: theme === 'light' ? colors.primary : colors.border,
-                  backgroundColor: theme === 'light' ? colors.primaryLight : colors.surfaceSubtle,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 4,
-                }}
+                style={[
+                  styles.prefSegmentBtn,
+                  { borderColor: theme === 'light' ? colors.primary : colors.border },
+                  theme === 'light' && { backgroundColor: colors.primaryLight },
+                ]}
               >
-                <Sun size={15} color={theme === 'light' ? colors.primary : colors.textSecondary} />
-                <Text style={{ fontSize: 12, fontWeight: '700', color: theme === 'light' ? colors.primary : colors.textSecondary }}>
-                  {language === 'th' ? 'สว่าง' : 'Light'}
+                <Sun size={14} color={theme === 'light' ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.prefSegmentText, { color: theme === 'light' ? colors.primary : colors.text }]}>
+                  {language === 'th' ? 'โหมดสว่าง' : 'Light Mode'}
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 onPress={() => setTheme('dark')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1.5,
-                  borderColor: theme === 'dark' ? colors.primary : colors.border,
-                  backgroundColor: theme === 'dark' ? colors.primaryLight : colors.surfaceSubtle,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 4,
-                }}
+                style={[
+                  styles.prefSegmentBtn,
+                  { borderColor: theme === 'dark' ? colors.primary : colors.border },
+                  theme === 'dark' && { backgroundColor: colors.primaryLight },
+                ]}
               >
-                <Moon size={15} color={theme === 'dark' ? colors.primary : colors.textSecondary} />
-                <Text style={{ fontSize: 12, fontWeight: '700', color: theme === 'dark' ? colors.primary : colors.textSecondary }}>
-                  {language === 'th' ? 'มืด' : 'Dark'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setTheme('system')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1.5,
-                  borderColor: theme === 'system' ? colors.primary : colors.border,
-                  backgroundColor: theme === 'system' ? colors.primaryLight : colors.surfaceSubtle,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 4,
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: theme === 'system' ? colors.primary : colors.textSecondary }}>
-                  {language === 'th' ? 'ตามระบบ' : 'System'}
+                <Moon size={14} color={theme === 'dark' ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.prefSegmentText, { color: theme === 'dark' ? colors.primary : colors.text }]}>
+                  {language === 'th' ? 'โหมดมืด' : 'Dark Mode'}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-          <LogOut size={18} color="#EF4444" />
-          <Text style={styles.logoutButtonText}>{t('profile_sign_out')}</Text>
-        </TouchableOpacity>
+        {/* Section 4: Privacy & Presence System */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.cardSectionTitle, { color: colors.text }]}>
+            {language === 'th' ? 'ระบบความปลอดภัย & การติดตาม' : 'Safety & Tracking System'}
+          </Text>
+
+          <View style={styles.presenceInfoBox}>
+            <ShieldCheck size={20} color={colors.success} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.presenceTitle, { color: colors.text }]}>
+                {language === 'th' ? 'ระบบส่งพิกัดการทำงานแบบเรียลไทม์' : 'Real-time Presence System'}
+              </Text>
+              <Text style={[styles.presenceDesc, { color: colors.textSecondary }]}>
+                {language === 'th'
+                  ? 'ระบบจะส่งพิกัดอย่างต่อเนื่องเพื่อความปลอดภัยและการคำนวณเบี้ยเลี้ยง และจะหยุดส่งทันทีเมื่อกดออกจากระบบ'
+                  : 'Continuous GPS telemetry active for safety and route analytics. Stops automatically upon signing out.'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Section 5: App Version Info */}
+        <View style={styles.versionContainer}>
+          <Text style={[styles.versionText, { color: colors.textSecondary }]}>Fleet Marketing Specialist Pro v1.2.0 (Production Build)</Text>
+          <Text style={[styles.versionSub, { color: colors.textSecondary }]}>Connected to Secure Supabase Cloud DB</Text>
+        </View>
       </ScrollView>
 
-      {/* Floating Bottom Navigation Bar */}
+      {/* Floating Bottom Nav */}
       <FloatingBottomNav activeTab="profile" navigation={navigation} />
     </SafeAreaView>
   );
@@ -352,36 +336,30 @@ export default function UserProfileScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F9FC',
   },
   header: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
-    paddingBottom: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E3E6',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F2F4F7',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#03246B',
   },
   logoutIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
@@ -391,164 +369,165 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     padding: 16,
-    gap: 16,
     paddingBottom: 110,
+    gap: 14,
+    maxWidth: 500,
+    alignSelf: 'center',
+    width: '100%',
   },
   profileCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
-    alignItems: 'center',
+    flexDirection: 'row',
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E0E3E6',
-    gap: 12,
+    gap: 14,
+    alignItems: 'center',
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#F2F4F7',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
-    borderColor: '#E0E3E6',
+  },
+  avatarPlaceholder: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 22,
+    fontWeight: '800',
   },
   profileMeta: {
-    alignItems: 'center',
-    gap: 4,
+    flex: 1,
   },
   profileName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#03246B',
+    fontSize: 17,
+    fontWeight: '800',
   },
   profileRole: {
     fontSize: 12,
-    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 2,
+    marginBottom: 8,
   },
   badgeRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
+    gap: 6,
+    flexWrap: 'wrap',
   },
   staffIdBadge: {
-    backgroundColor: '#F2F4F7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 8,
   },
   staffIdText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#03246B',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontSize: 10.5,
+    fontWeight: '800',
   },
   safetyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 8,
   },
   safetyBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#166534',
+    fontSize: 10.5,
+    fontWeight: '800',
   },
   statsRow: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E0E3E6',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   statBox: {
+    flex: 1,
     alignItems: 'center',
   },
   statBoxLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '500',
     marginBottom: 4,
   },
   statBoxValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#03246B',
-  },
-  statBoxSub: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 2,
+    fontSize: 15,
+    fontWeight: '800',
   },
   statBoxDivider: {
     width: 1,
-    height: 32,
-    backgroundColor: '#E0E3E6',
+    height: '70%',
+    alignSelf: 'center',
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
     padding: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E0E3E6',
-    gap: 14,
+    gap: 12,
   },
   cardSectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#03246B',
+    fontSize: 13.5,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 4,
   },
   infoLabel: {
     fontSize: 11,
-    color: '#64748B',
+    fontWeight: '500',
   },
   infoValue: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#03246B',
+    fontWeight: '700',
     marginTop: 2,
   },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  switchLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#03246B',
-  },
-  switchSub: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  logoutButton: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: 20,
-    paddingVertical: 14,
+  prefSegmentBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    marginTop: 8,
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
   },
-  logoutButtonText: {
-    fontSize: 14,
+  prefSegmentText: {
+    fontSize: 12.5,
     fontWeight: '700',
-    color: '#EF4444',
+  },
+  presenceInfoBox: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  presenceTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  presenceDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  versionContainer: {
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 10,
+  },
+  versionText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  versionSub: {
+    fontSize: 10,
   },
 });
