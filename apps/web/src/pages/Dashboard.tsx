@@ -350,8 +350,8 @@ export default function Dashboard() {
 
   const getDerivedStatus = (spec: SpecialistActiveTrip) => {
     const isStale = spec.lastSeenRaw
-      ? Date.now() - new Date(spec.lastSeenRaw).getTime() > 90000 // > 90 seconds without ping
-      : true;
+      ? Date.now() - new Date(spec.lastSeenRaw).getTime() > 240000 // > 4 minutes without ping
+      : false;
 
     if (!spec.isOnline || (isStale && !spec.lastSeenRaw)) {
       return {
@@ -363,7 +363,7 @@ export default function Dashboard() {
       };
     }
 
-    // If marked online in DB but no location ping received for > 90s (GPS turned off / permission revoked)
+    // If marked online in DB but no location ping received for > 4 mins (GPS turned off / permission revoked)
     if (spec.isOnline && isStale) {
       return {
         status: 'SignalLost',
