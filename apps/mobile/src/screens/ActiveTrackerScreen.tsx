@@ -10,14 +10,13 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Battery from 'expo-battery';
 import {
   ArrowLeft,
   Navigation,
   CheckCircle2,
-  Edit,
   Edit3,
   AlertTriangle,
   BatteryCharging,
@@ -32,8 +31,12 @@ import {
   Check,
   Zap,
   Flag,
-  Share2,
   ExternalLink,
+  Home,
+  Calendar,
+  Eye,
+  Play,
+  Plus,
 } from 'lucide-react-native';
 import {
   fetchRoadDirections,
@@ -43,15 +46,19 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { supabase } from '../lib/supabase';
 
 const defaultInitialDrops: any[] = [];
 
 export default function ActiveTrackerScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const tripId = params.tripId;
   const tripTitle = params.tripTitle || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
   const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)';
+  // Remove license plate to keep badge compact
+  const displayVehicleName = selectedVehicle.split('(')[0]?.trim() || selectedVehicle;
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
   const startOdometer = params.startOdometer || '';
 
@@ -63,9 +70,6 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     typeof params.dropIndex === 'number' ? params.dropIndex : 0
   );
 
-  // Completed drops state (strictly follows completed sequence)
-  const [completedDropIndices, setCompletedDropIndices] = useState<number[]>([]);
-
   // Real Hardware Battery State
   const [batteryLevel, setBatteryLevel] = useState<number>(88);
   const [isCharging, setIsCharging] = useState<boolean>(false);
@@ -73,19 +77,19 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   // Telemetry Metrics
   const [speed, setSpeed] = useState(42);
   const [odometer, setOdometer] = useState(parseInt(startOdometer, 10) || 45228);
-  const [gpsAccuracy, setGpsAccuracy] = useState('3m (High)');
+  const gpsAccuracy = language === 'th' ? '3 ม. (สูง)' : '3m (High)';
 
   // Driver Current Live Position & Address
   const [driverLocation, setDriverLocation] = useState({
     latitude: startLocation.latitude || 13.7563,
     longitude: startLocation.longitude || 100.5018,
-    name: 'ตำแหน่งปัจจุบันของคุณ (Live Driver GPS)',
-    address: startLocation.address || 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร',
+    name: language === 'th' ? 'ตำแหน่งปัจจุบันของคุณ' : 'Your Live Location',
+    address: startLocation.address || (language === 'th' ? 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร' : 'Sukhumvit Rd, Khlong Toei, Bangkok'),
   });
 
   const [roadPolyline, setRoadPolyline] = useState<Coordinates[]>([]);
   const [legDistance, setLegDistance] = useState('3.8 km');
-  const [legDuration, setLegDuration] = useState('14 mins');
+  const [legDuration, setLegDuration] = useState(language === 'th' ? '14 นาที' : '14 mins');
   const [loadingRoad, setLoadingRoad] = useState(false);
 
   const mapRef = useRef<MapView | null>(null);
@@ -112,31 +116,156 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       setDriverLocation({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
-        name: 'พิกัดคนขับปัจจุบัน',
+        name: language === 'th' ? 'ตำแหน่งปัจจุบันของคุณ' : 'Your Live Location',
         address: loc.address,
       });
     }
     initGps();
-  }, []);
+  }, [language]);
+
+  // Fallback: Fetch appointments from Supabase if drops array is empty but tripId exists
+  useEffect(() => {
+    async function fetchTripDropsFallback() {
+      if (drops.length === 0 && tripId) {
+        try {
+          const { data: appts } = await supabase
+            .from('appointments')
+            .select('*')
+            .eq('trip_id', tripId)
+            .order('sequence_order', { ascending: true });
+
+          const { data: dbExpenses } = await supabase
+            .from('expenses')
+            .select('*')
+            .eq('trip_id', tripId);
+
+          const reverseCatMap: Record<string, string> = {
+            'toll': 'ค่าทางด่วน',
+            'parking': 'ค่าที่จอดรถ',
+            'fuel': 'ค่าน้ำมัน',
+            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
+            'other': 'อื่นๆ',
+          };
+
+          if (appts && appts.length > 0) {
+            const mapped = appts.map((a: any) => {
+              const apptExps = (dbExpenses || []).filter((e: any) => e.appointment_id === a.id);
+              const mappedExps = apptExps.map((e: any) => ({
+                id: e.id,
+                category: reverseCatMap[e.category] || e.category,
+                amount: String(e.amount),
+                receiptUri: e.receipt_url || e.receipt_image_path,
+                receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+                note: e.notes || '',
+              }));
+
+              return {
+                id: a.id,
+                appointmentId: a.id,
+                name: a.company_name,
+                recipient: a.recipient_name || a.customer_name || '',
+                phone: a.recipient_phone || '',
+                items: a.agenda || '',
+                address: a.destination_address || '',
+                latitude: a.destination_lat || undefined,
+                longitude: a.destination_lng || undefined,
+                isConfirmed: !!a.confirmation_status,
+                isDataComplete: a.status === 'completed' || a.status === 'Completed',
+                status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
+                meetingMinutes: a.meeting_notes || '',
+                photos: a.client_photo_url ? [a.client_photo_url] : [],
+                expenses: mappedExps,
+              };
+            });
+            setDrops(mapped);
+          }
+        } catch (err) {
+          console.warn('Error fetching fallback drops in ActiveTracker:', err);
+        }
+      }
+    }
+    fetchTripDropsFallback();
+  }, [tripId, drops.length]);
+
+  // Auto-redirect if trip is already submitted for approval or approved
+  useEffect(() => {
+    async function checkTripStatus() {
+      if (!tripId) return;
+      try {
+        const { data: t } = await supabase
+          .from('trips')
+          .select('status, approval_status, title, start_location, start_odometer')
+          .eq('id', tripId)
+          .single();
+
+        if (t?.approval_status === 'pending' || t?.approval_status === 'approved') {
+          navigation.replace('TripSummary', {
+            tripId: tripId,
+            tripCode: params.tripCode,
+            tripTitle: t.title || tripTitle,
+            drops: drops,
+            startLocation: t.start_location || startLocation,
+            startOdometer: t.start_odometer?.toString() || startOdometer,
+            isPendingReview: t.approval_status === 'pending',
+            isApproved: t.approval_status === 'approved',
+          });
+        }
+      } catch (err) {
+        console.warn('Error checking trip status in ActiveTracker:', err);
+      }
+    }
+    checkTripStatus();
+  }, [tripId]);
 
   // 2. Sync route params when arriving from DropReporting or EditTripItinerary
   useEffect(() => {
-    if (typeof route.params?.dropIndex === 'number') {
-      const newIdx = route.params.dropIndex;
-      setCurrentDropIndex(newIdx);
-      const done: number[] = [];
-      for (let i = 0; i < newIdx; i++) {
-        done.push(i);
-      }
-      setCompletedDropIndices(done);
-    }
     if (Array.isArray(route.params?.drops) && route.params.drops.length > 0) {
       setDrops(route.params.drops);
     }
-  }, [route.params?.dropIndex, route.params?.drops]);
+  }, [route.params?.drops]);
 
-  const activeDrop = drops[currentDropIndex] || drops[0];
-  const isAllCompleted = currentDropIndex >= drops.length;
+  // Update active drop selection when drops array changes or route params specify a target
+  useEffect(() => {
+    if (Array.isArray(drops) && drops.length > 0) {
+      const firstUnconfirmed = drops.findIndex((d) => !d.isConfirmed);
+
+      if (typeof route.params?.dropIndex === 'number' && route.params.dropIndex >= 0 && route.params.dropIndex < drops.length) {
+        // If route specified a target index and it's not confirmed, choose it; otherwise choose first unconfirmed
+        if (!drops[route.params.dropIndex]?.isConfirmed) {
+          setCurrentDropIndex(route.params.dropIndex);
+        } else if (firstUnconfirmed !== -1) {
+          setCurrentDropIndex(firstUnconfirmed);
+        } else {
+          setCurrentDropIndex(route.params.dropIndex);
+        }
+      } else {
+        // If current index is out of bounds or already confirmed, auto-focus first unconfirmed drop
+        if (currentDropIndex >= drops.length || drops[currentDropIndex]?.isConfirmed) {
+          if (firstUnconfirmed !== -1) {
+            setCurrentDropIndex(firstUnconfirmed);
+          }
+        }
+      }
+    }
+  }, [drops, route.params?.dropIndex]);
+
+  // Derive completed drops from real isConfirmed status
+  const completedDropIndices = drops
+    .map((d, idx) => (d.isConfirmed ? idx : -1))
+    .filter((idx) => idx !== -1);
+  const completedCount = completedDropIndices.length;
+  const totalDropsCount = drops.length;
+  const progressPercent = totalDropsCount > 0 ? Math.min(100, Math.round((completedCount / totalDropsCount) * 100)) : 0;
+  const isAllCompleted = totalDropsCount > 0 && completedCount === totalDropsCount;
+
+  // First uncompleted drop index according to sequential route plan
+  const nextSequentialDropIndex = drops.findIndex((d) => !d.isConfirmed);
+
+  // Resolved active drop
+  const activeDrop = drops[Math.min(currentDropIndex, Math.max(0, drops.length - 1))] || drops[0] || {
+    name: 'กำลังโหลดข้อมูลจุดส่ง...',
+    address: 'กรุงเทพมหานคร',
+  };
 
   // 3. Fetch Road Connection between Driver and Next Sequential Destination
   useEffect(() => {
@@ -197,14 +326,75 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     }
   };
 
-  // Handle Check-in strictly for the current sequential drop
-  const handleCheckInDrop = () => {
+  // 1-Tap Promote / Move Target Drop to be the immediate next uncompleted stop
+  const handlePromoteDropToActive = async (targetIdx: number) => {
+    if (nextSequentialDropIndex === -1 || targetIdx <= nextSequentialDropIndex) return;
+
+    const targetItemName = drops[targetIdx]?.name || `จุดที่ #${targetIdx + 1}`;
+
+    // Create reordered drops: take the target drop and place it right at nextSequentialDropIndex
+    const updated = [...drops];
+    const [promotedItem] = updated.splice(targetIdx, 1);
+    updated.splice(nextSequentialDropIndex, 0, promotedItem);
+
+    setDrops(updated);
+    setCurrentDropIndex(nextSequentialDropIndex);
+
+    // Sync sequence order to Supabase
+    try {
+      if (tripId) {
+        for (let idx = 0; idx < updated.length; idx++) {
+          const d = updated[idx];
+          if (d.id || d.appointmentId) {
+            await (supabase.from('appointments' as any) as any)
+              .update({ sequence_order: idx + 1 })
+              .eq('id', d.appointmentId || d.id);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error syncing promoted drop sequence to Supabase:', err);
+    }
+
+    Alert.alert(
+      language === 'th' ? '⚡ สลับลำดับคิวสำเร็จ' : '⚡ Stop Promoted',
+      language === 'th'
+        ? `ย้ายจุด "${targetItemName}" ขึ้นมาเป็นคิวถัดไปเรียบร้อยแล้ว คุณสามารถเดินทางและกดเช็คอินได้ทันที`
+        : `Promoted "${targetItemName}" to the current active queue. You can now navigate and check in.`
+    );
+  };
+
+  // Handle Check-in strictly following the planned route sequence
+  const handleCheckInDrop = (targetIdx = currentDropIndex) => {
+    // If attempting to check-in to a future drop while an earlier drop is not yet completed:
+    if (nextSequentialDropIndex !== -1 && targetIdx > nextSequentialDropIndex) {
+      Alert.alert(
+        language === 'th' ? '⚠️ ต้องเข้าพบตามลำดับเส้นทาง' : '⚠️ Sequential Route Required',
+        language === 'th'
+          ? `คุณกำลังจะเช็คอินจุดที่ #${targetIdx + 1} (${drops[targetIdx]?.name}) ข้ามจุดที่ #${nextSequentialDropIndex + 1} (${drops[nextSequentialDropIndex]?.name}) ที่ยังไม่เสร็จสิ้น\n\nต้องการสลับจุดนี้ขึ้นมาทำก่อนทันทีหรือไม่?`
+          : `You are attempting to check in to stop #${targetIdx + 1} before stop #${nextSequentialDropIndex + 1}.\n\nWould you like to promote this stop to the front of the queue?`,
+        [
+          {
+            text: language === 'th' ? '⚡ สลับมาทำก่อนทันที' : '⚡ Promote to Front',
+            onPress: () => handlePromoteDropToActive(targetIdx),
+          },
+          {
+            text: language === 'th' ? `📍 ไปจุดที่ #${nextSequentialDropIndex + 1}` : `📍 Go to #${nextSequentialDropIndex + 1}`,
+            onPress: () => setCurrentDropIndex(nextSequentialDropIndex),
+          },
+          { text: language === 'th' ? 'ยกเลิก' : 'Cancel', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    const dropToReport = drops[targetIdx] || activeDrop;
     navigation.navigate('DropReporting', {
       tripId,
       tripTitle,
       selectedVehicle,
-      drop: activeDrop,
-      dropIndex: currentDropIndex,
+      drop: dropToReport,
+      dropIndex: targetIdx,
       totalDrops: drops.length,
       drops,
     });
@@ -215,7 +405,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     navigation.navigate('EditTripItinerary', {
       tripId,
       drops,
-      currentDropIndex,
+      currentDropIndex: nextSequentialDropIndex !== -1 ? nextSequentialDropIndex : 0,
       startLocation,
       onUpdateDrops: (updated: any[]) => {
         setDrops(updated);
@@ -246,40 +436,85 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     });
   };
 
-  const progressPercent = Math.min(
-    100,
-    Math.round((completedDropIndices.length / drops.length) * 100)
-  );
-
   const activeLegColor = LEG_COLORS[currentDropIndex % LEG_COLORS.length];
+
+  // Handle Back to Dashboard with Progress Persistence
+  const handleBackToDashboard = async () => {
+    try {
+      if (tripId) {
+        await supabase
+          .from('trips')
+          .update({
+            status: 'in_progress',
+            current_odometer: odometer ? parseFloat(odometer.toString()) : null,
+          })
+          .eq('id', tripId);
+      }
+    } catch (e) {
+      console.warn('Error syncing in-progress trip state:', e);
+    }
+
+    Alert.alert(
+      language === 'th' ? 'กลับสู่หน้าหลัก (Dashboard) 🏠' : 'Return to Dashboard 🏠',
+      language === 'th'
+        ? 'ต้องการกลับสู่หน้าหลักใช่หรือไม่? ระบบจะบันทึกสถานะและความคืบหน้าของทริปไว้ คุณสามารถกด "เข้าพบต่อ" เพื่อกลับมาทำงานต่อได้ตลอดเวลา'
+        : 'Do you want to return to Dashboard? Your progress is saved and you can continue anytime.',
+      [
+        { text: language === 'th' ? 'อยู่หน้านี้ต่อ' : 'Stay on Tracker', style: 'cancel' },
+        {
+          text: language === 'th' ? '🏠 กลับหน้าหลัก' : '🏠 Go to Dashboard',
+          onPress: () => {
+            navigation.navigate('Dashboard');
+          },
+        },
+      ]
+    );
+  };
+
+  const isCurrentTargetDone = !!activeDrop?.isConfirmed;
+  const isFutureDropViewing = !isCurrentTargetDone && nextSequentialDropIndex !== -1 && currentDropIndex > nextSequentialDropIndex;
+  const isCurrentActiveDrop = !isCurrentTargetDone && currentDropIndex === nextSequentialDropIndex;
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top Header with Vehicle & Status */}
+      {/* Top Header with Quick Actions */}
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={handleBackToDashboard}
             activeOpacity={0.8}
+            accessibilityLabel="Back to Dashboard"
           >
-            <ArrowLeft size={20} color="#03246B" />
+            <ArrowLeft size={18} color="#03246B" />
           </TouchableOpacity>
 
-          <View style={styles.vehicleBadge}>
-            <View style={styles.vehicleLiveDot} />
-            <Text style={styles.vehicleBadgeText}>{selectedVehicle}</Text>
+          <View style={styles.routeHeaderPill}>
+            <MapPin size={13} color="#1D4ED8" />
+            <Text style={styles.routeHeaderTitle} numberOfLines={1}>
+              {tripTitle}
+            </Text>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <LanguageTogglePill />
+          <View style={styles.headerRightActions}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={handleOpenEditItinerary}
+              onPress={() => navigation.navigate('TripSchedule')}
               activeOpacity={0.8}
+              accessibilityLabel="Calendar"
             >
-              <Edit size={16} color="#03246B" />
+              <Calendar size={16} color="#03246B" />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.navigate('Dashboard')}
+              activeOpacity={0.8}
+              accessibilityLabel="Home"
+            >
+              <Home size={16} color="#03246B" />
+            </TouchableOpacity>
+
+            <LanguageTogglePill />
           </View>
         </View>
 
@@ -330,7 +565,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             <View>
               <Text style={styles.progressCardTitle}>{t('tracker_progress')}</Text>
               <Text style={styles.progressCardSub}>
-                {t('tracker_visited_of')} {completedDropIndices.length} / {drops.length} ({progressPercent}%)
+                {t('tracker_visited_of')} {completedCount} / {totalDropsCount} ({progressPercent}%)
               </Text>
             </View>
             <TouchableOpacity
@@ -338,14 +573,22 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
               onPress={handleOpenEditItinerary}
               activeOpacity={0.8}
             >
-              <Edit size={13} color="#1D4ED8" />
+              <Edit3 size={13} color="#1D4ED8" />
               <Text style={styles.editRouteQuickBtnText}>{t('tracker_reorder_btn')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Continuous Progress Track */}
           <View style={styles.progressBarTrack}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+            <View
+              style={[
+                styles.progressBarFill,
+                {
+                  width: `${progressPercent}%`,
+                  backgroundColor: isAllCompleted ? '#16A34A' : '#1D4ED8',
+                },
+              ]}
+            />
           </View>
 
           {/* Sequential Stepper Drops Scroll */}
@@ -355,32 +598,35 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             contentContainerStyle={styles.stepperScroll}
           >
             {drops.map((dropItem, idx) => {
-              const isCompleted = completedDropIndices.includes(idx);
-              const isActive = idx === currentDropIndex && !isCompleted;
-              const isPending = idx > currentDropIndex && !isCompleted;
+              const isCompleted = !!dropItem.isConfirmed;
+              const isActive = idx === currentDropIndex;
+              const isFuture = !isCompleted && nextSequentialDropIndex !== -1 && idx > nextSequentialDropIndex;
+              const isNextSequential = !isCompleted && idx === nextSequentialDropIndex;
 
               return (
-                <View
+                <TouchableOpacity
                   key={dropItem.id || idx}
                   style={[
                     styles.stepPill,
-                    isCompleted && styles.stepPillCompleted,
-                    isActive && styles.stepPillActive,
-                    isPending && styles.stepPillPending,
+                    isCompleted && (isActive ? styles.stepPillCompletedActive : styles.stepPillCompleted),
+                    !isCompleted && isActive && (isFuture ? styles.stepPillFutureActive : styles.stepPillActive),
+                    !isCompleted && !isActive && (isNextSequential ? styles.stepPillNextPending : styles.stepPillPending),
                   ]}
+                  onPress={() => setCurrentDropIndex(idx)}
+                  activeOpacity={0.8}
                 >
                   <View
                     style={[
                       styles.stepIconCircle,
                       isCompleted && styles.stepIconCircleCompleted,
-                      isActive && styles.stepIconCircleActive,
-                      isPending && styles.stepIconCirclePending,
+                      !isCompleted && isActive && (isFuture ? styles.stepIconCircleFuture : styles.stepIconCircleActive),
+                      !isCompleted && !isActive && (isNextSequential ? styles.stepIconCircleNext : styles.stepIconCirclePending),
                     ]}
                   >
                     {isCompleted ? (
                       <Check size={14} color="#FFFFFF" />
                     ) : isActive ? (
-                      <MapPin size={14} color="#FFFFFF" />
+                      isFuture ? <Clock size={13} color="#FFFFFF" /> : <MapPin size={14} color="#FFFFFF" />
                     ) : (
                       <Text style={styles.stepNumberText}>{idx + 1}</Text>
                     )}
@@ -390,129 +636,191 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                     <Text
                       style={[
                         styles.stepPillTitle,
-                        isActive && styles.stepPillTitleActive,
-                        isCompleted && styles.stepPillTitleCompleted,
+                        isCompleted
+                          ? styles.stepPillTitleCompleted
+                          : isActive
+                          ? isFuture
+                            ? styles.stepPillTitleFuture
+                            : styles.stepPillTitleActive
+                          : styles.stepPillTitlePending,
                       ]}
                       numberOfLines={1}
                     >
                       #{idx + 1} {dropItem.name}
                     </Text>
-                    <Text
-                      style={[
-                        styles.stepPillStatus,
-                        isCompleted && { color: '#166534' },
-                        isActive && { color: '#1D4ED8' },
-                      ]}
-                    >
-                      {isCompleted ? `✓ ${t('tracker_status_done')}` : isActive ? `📍 ${t('tracker_status_going')}` : `🕒 ${t('tracker_status_pending')}`}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      {isCompleted ? (
+                        <Text style={[styles.stepPillStatus, { color: '#166534' }]}>{language === 'th' ? '✓ เสร็จสิ้น' : '✓ Done'}</Text>
+                      ) : isNextSequential ? (
+                        <Text style={[styles.stepPillStatus, { color: '#1D4ED8' }]}>{isActive ? (language === 'th' ? '📍 จุดนี้' : '📍 Current') : (language === 'th' ? '▶️ ถัดไป' : '▶️ Next')}</Text>
+                      ) : isFuture ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Eye size={11} color="#4F46E5" />
+                          <Text style={[styles.stepPillStatus, { color: '#4F46E5' }]}>{language === 'th' ? 'ดูข้อมูล' : 'Preview'}</Text>
+                        </View>
+                      ) : (
+                        <Text style={[styles.stepPillStatus, { color: '#64748B' }]}>{language === 'th' ? '🕒 รอคิว' : '🕒 Queued'}</Text>
+                      )}
+                    </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })}
           </ScrollView>
         </View>
 
-        {/* 2. Current Location & Next Destination Preview Card */}
-        {!isAllCompleted ? (
-          <View style={styles.previewRouteCard}>
-            {/* Origin Live Position */}
-            <View style={styles.previewRow}>
-              <View style={[styles.previewDot, { backgroundColor: '#10B981', borderColor: '#DCFCE7' }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.previewLabel}>{t('tracker_current_loc')}</Text>
-                <Text style={styles.previewName} numberOfLines={1}>
-                  {driverLocation.name}
-                </Text>
-                <Text style={styles.previewAddress} numberOfLines={1}>
-                  {driverLocation.address}
-                </Text>
-              </View>
-            </View>
+        {/* 2. Target Destination Preview Card */}
+        {(() => {
+          const isTargetDone = isCurrentTargetDone;
+          const targetThemeColor = isTargetDone ? '#16A34A' : isFutureDropViewing ? '#4F46E5' : '#1D4ED8';
+          const targetLightBg = isTargetDone ? '#DCFCE7' : isFutureDropViewing ? '#EEF2FF' : '#EFF6FF';
 
-            {/* Connecting Route Arrow & Distance */}
-            <View style={styles.previewConnectorRow}>
-              <View style={styles.previewDottedLine} />
-              <View style={styles.previewDistancePill}>
-                <Navigation size={13} color="#1D4ED8" />
-                <Text style={styles.previewDistanceText}>
-                  {t('preview_distance')} ~{legDistance} ({legDuration})
-                </Text>
-              </View>
-            </View>
-
-            {/* Target Destination Drop */}
-            <View style={styles.previewRow}>
-              <View style={[styles.previewDot, { backgroundColor: activeLegColor, borderColor: `${activeLegColor}33` }]} />
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={[styles.previewLabel, { color: activeLegColor }]}>
-                    {t('tracker_next_client')} (#{currentDropIndex + 1})
+          return (
+            <View style={[styles.previewRouteCard, isFutureDropViewing && styles.previewRouteCardFuture]}>
+              {/* Future Drop Info Banner */}
+              {isFutureDropViewing && (
+                <View style={styles.futureSimplePill}>
+                  <Eye size={13} color="#4F46E5" />
+                  <Text style={styles.futureSimplePillText} numberOfLines={1}>
+                    {language === 'th'
+                      ? `ดูข้อมูลล่วงหน้า (คิวปัจจุบัน: จุด #${nextSequentialDropIndex + 1})`
+                      : `Previewing stop #${currentDropIndex + 1} (Current: #${nextSequentialDropIndex + 1})`}
                   </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    {activeDrop.items && (
-                      <View style={styles.cargoBadge}>
-                        <Package size={11} color="#1D4ED8" />
-                        <Text style={styles.cargoBadgeText}>{activeDrop.items}</Text>
-                      </View>
-                    )}
-                    <TouchableOpacity
-                      style={styles.quickEditDropBtn}
-                      onPress={() => handleEditDrop(activeDrop, currentDropIndex)}
-                      activeOpacity={0.7}
-                    >
-                      <Edit3 size={11} color="#1D4ED8" />
-                      <Text style={styles.quickEditDropText}>{t('btn_edit')}</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
-                <Text style={styles.previewName}>{activeDrop.name}</Text>
-                <Text style={styles.previewAddress}>{activeDrop.address}</Text>
+              )}
 
-                {/* Google Maps External Navigation Button */}
-                <TouchableOpacity
-                  style={styles.googleMapsNavBtn}
-                  onPress={handleOpenGoogleMaps}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.googleMapsIconCircle}>
-                    <MapPin size={14} color="#EA4335" />
-                  </View>
-                  <Text style={styles.googleMapsNavText}>{t('btn_open_maps')}</Text>
-                  <ExternalLink size={14} color="#1E293B" />
-                </TouchableOpacity>
+              {/* Already Completed Drop Banner */}
+              {isTargetDone && (
+                <View style={styles.completedBanner}>
+                  <CheckCircle2 size={15} color="#166534" />
+                  <Text style={styles.completedBannerText} numberOfLines={1}>
+                    {language === 'th'
+                      ? `✓ จุดนี้เข้าพบเสร็จสิ้นแล้ว (#${currentDropIndex + 1})`
+                      : `✓ Visited (#${currentDropIndex + 1})`}
+                  </Text>
+                </View>
+              )}
 
-                {/* Recipient Contact Card */}
-                {activeDrop.recipient && (
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactText}>
-                      {t('tracker_contact_label')}: <Text style={{ fontWeight: '700' }}>{activeDrop.recipient}</Text>{' '}
-                      {activeDrop.phone ? `(${activeDrop.phone})` : ''}
-                    </Text>
+              {/* Origin Live Position */}
+              <View style={styles.previewRow}>
+                <View style={[styles.previewDot, { backgroundColor: '#10B981', borderColor: '#DCFCE7' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.previewLabel}>{t('tracker_current_loc')}</Text>
+                  <Text style={styles.previewName} numberOfLines={1}>
+                    {driverLocation.name}
+                  </Text>
+                  <Text style={styles.previewAddress} numberOfLines={1}>
+                    {driverLocation.address}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Connecting Route Arrow & Distance */}
+              <View style={styles.previewConnectorRow}>
+                <View style={styles.previewDottedLine} />
+                <View style={[styles.previewDistancePill, { backgroundColor: targetLightBg }]}>
+                  <Navigation size={12} color={targetThemeColor} />
+                  <Text style={[styles.previewDistanceText, { color: targetThemeColor }]}>
+                    ~{legDistance} • {legDuration}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Target Destination Drop */}
+              <View style={styles.previewRow}>
+                <View style={[styles.previewDot, { backgroundColor: targetThemeColor, borderColor: targetLightBg }]} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.previewLabel, { color: targetThemeColor }]}>
+                        {isTargetDone
+                          ? `#${currentDropIndex + 1} • ${language === 'th' ? 'เสร็จสิ้น' : 'Done'}`
+                          : isFutureDropViewing
+                          ? `#${currentDropIndex + 1} • ${language === 'th' ? 'ดูล่วงหน้า' : 'Preview'}`
+                          : `#${currentDropIndex + 1} • ${language === 'th' ? 'คิวปัจจุบัน' : 'Current'}`}
+                      </Text>
+                      {isTargetDone && (
+                        <View style={styles.confirmedStatusPill}>
+                          <CheckCircle2 size={11} color="#166534" />
+                          <Text style={styles.confirmedStatusPillText}>{language === 'th' ? 'ยืนยันแล้ว' : 'Confirmed'}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {activeDrop?.items && (
+                        <View style={[styles.cargoBadge, { backgroundColor: targetLightBg }]}>
+                          <Package size={11} color={targetThemeColor} />
+                          <Text style={[styles.cargoBadgeText, { color: targetThemeColor }]} numberOfLines={1}>
+                            {activeDrop.items.split('(')[0]?.trim()}
+                          </Text>
+                        </View>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.quickEditDropBtn, { backgroundColor: targetLightBg, borderColor: isTargetDone ? '#86EFAC' : '#BFDBFE' }]}
+                        onPress={() => handleEditDrop(activeDrop, currentDropIndex)}
+                        activeOpacity={0.7}
+                      >
+                        <Edit3 size={11} color={targetThemeColor} />
+                        <Text style={[styles.quickEditDropText, { color: targetThemeColor }]}>{t('btn_edit')}</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                )}
+                  <Text style={styles.previewName} numberOfLines={1}>{activeDrop?.name}</Text>
+                  <Text style={styles.previewAddress} numberOfLines={1}>{activeDrop?.address}</Text>
+
+                  {/* Google Maps External Navigation Button */}
+                  <TouchableOpacity
+                    style={styles.googleMapsNavBtn}
+                    onPress={handleOpenGoogleMaps}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.googleMapsIconCircle}>
+                      <MapPin size={14} color="#EA4335" />
+                    </View>
+                    <Text style={styles.googleMapsNavText}>{t('btn_open_maps')}</Text>
+                    <ExternalLink size={14} color="#1E293B" />
+                  </TouchableOpacity>
+
+                  {/* Compact Recipient Contact Card */}
+                  {activeDrop?.recipient && (
+                    <View style={styles.compactContactRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <View style={styles.compactContactIconCircle}>
+                          <Phone size={10} color="#1D4ED8" />
+                        </View>
+                        <Text style={styles.compactContactText} numberOfLines={1}>
+                          <Text style={{ fontWeight: '700' }}>{activeDrop.recipient}</Text>
+                          {activeDrop.phone ? ` • ${activeDrop.phone}` : ''}
+                        </Text>
+                      </View>
+                      {activeDrop.phone && (
+                        <TouchableOpacity
+                          style={styles.compactCallBtn}
+                          onPress={() => Linking.openURL(`tel:${activeDrop.phone}`)}
+                          activeOpacity={0.7}
+                        >
+                          <Phone size={10} color="#FFFFFF" />
+                          <Text style={styles.compactCallBtnText}>
+                            {language === 'th' ? 'โทร' : 'Call'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
-          </View>
-        ) : (
-          /* All Drops Completed Summary Banner */
-          <View style={styles.allDoneCard}>
-            <View style={styles.allDoneIconCircle}>
-              <CheckCircle2 size={36} color="#166534" />
-            </View>
-            <Text style={styles.allDoneTitle}>{t('tracker_all_done')} 🎉</Text>
-            <Text style={styles.allDoneSubtitle}>
-              {t('tracker_all_done_sub')} ({drops.length} {t('dash_total_clients')})
-            </Text>
-          </View>
-        )}
+          );
+        })()}
 
         {/* 3. Bird's Eye Overview Google Map Preview */}
         <View style={styles.mapCard}>
           {Platform.OS === 'web' ? (
             <View style={styles.webMapFallback}>
               <Navigation size={32} color="#1D4ED8" />
-              <Text style={styles.webMapText}>Google Maps Live Preview</Text>
+              <Text style={styles.webMapText}>
+                {language === 'th' ? 'แผนที่จำลองเส้นทาง' : 'Google Maps Live Preview'}
+              </Text>
               <Text style={styles.webMapSub}>
                 {driverLocation.name} ➔ {activeDrop?.name}
               </Text>
@@ -545,11 +853,11 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
               {!isAllCompleted && (
                 <Marker
                   coordinate={{
-                    latitude: activeDrop.latitude || 13.7469,
-                    longitude: activeDrop.longitude || 100.5349,
+                    latitude: activeDrop?.latitude || 13.7469,
+                    longitude: activeDrop?.longitude || 100.5349,
                   }}
-                  title={`${t('preview_client')} #${currentDropIndex + 1}: ${activeDrop.name}`}
-                  description={activeDrop.address}
+                  title={`${t('preview_client')} #${currentDropIndex + 1}: ${activeDrop?.name}`}
+                  description={activeDrop?.address}
                   pinColor={activeLegColor}
                 />
               )}
@@ -576,28 +884,82 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       </ScrollView>
 
       {/* ========================================================================= */}
-      {/* Sticky Bottom Actions (Strict Sequential Closing) */}
+      {/* Sticky Bottom Actions */}
       {/* ========================================================================= */}
-      <View style={styles.bottomBar}>
-        {!isAllCompleted ? (
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
+        {isAllCompleted ? (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.primaryActionButton, { flex: 1, backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#93C5FD' }]}
+              onPress={handleOpenEditItinerary}
+              activeOpacity={0.85}
+            >
+              <Plus size={16} color="#1D4ED8" />
+              <Text style={[styles.primaryActionText, { color: '#1D4ED8' }]}>
+                {language === 'th' ? '+ เพิ่มจุดเข้าพบ' : '+ Add Stop'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.primaryActionButton, { flex: 1.3, backgroundColor: '#16A34A' }]}
+              onPress={handleFinishTrip}
+              activeOpacity={0.9}
+            >
+              <Flag size={17} color="#FFFFFF" />
+              <Text style={styles.primaryActionText}>
+                {language === 'th' ? 'สรุปผลทริป 🏁' : 'Go to Summary 🏁'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : isCurrentTargetDone ? (
+          /* 1. Viewing an already completed drop */
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.primaryActionButton, { flex: 1, backgroundColor: '#D97706' }]}
+              onPress={() => handleCheckInDrop(currentDropIndex)}
+              activeOpacity={0.9}
+            >
+              <Edit3 size={16} color="#FFFFFF" />
+              <Text style={styles.primaryActionText} numberOfLines={1}>
+                {language === 'th' ? `✏️ แก้ไข (#${currentDropIndex + 1})` : `Edit (#${currentDropIndex + 1})`}
+              </Text>
+            </TouchableOpacity>
+            {nextSequentialDropIndex !== -1 && (
+              <TouchableOpacity
+                style={[styles.primaryActionButton, { flex: 1, backgroundColor: '#1D4ED8' }]}
+                onPress={() => setCurrentDropIndex(nextSequentialDropIndex)}
+                activeOpacity={0.9}
+              >
+                <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
+                <Text style={styles.primaryActionText} numberOfLines={1}>
+                  {language === 'th' ? `▶️ ไปจุดที่ #${nextSequentialDropIndex + 1}` : `Go to #${nextSequentialDropIndex + 1}`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : isFutureDropViewing ? (
+          /* 2. Viewing a future uncompleted drop: 1-click go to current sequential queue stop */
           <TouchableOpacity
-            style={styles.primaryActionButton}
-            onPress={handleCheckInDrop}
+            style={[styles.primaryActionButton, { backgroundColor: '#1D4ED8' }]}
+            onPress={() => setCurrentDropIndex(nextSequentialDropIndex)}
             activeOpacity={0.9}
           >
-            <CheckCircle2 size={18} color="#FFFFFF" fill="#FFFFFF" />
-            <Text style={styles.primaryActionText}>
-              {t('btn_check_in')} (#{currentDropIndex + 1})
+            <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
+            <Text style={styles.primaryActionText} numberOfLines={1}>
+              {language === 'th' ? `▶️ ไปจุดที่ #${nextSequentialDropIndex + 1}` : `Go to #${nextSequentialDropIndex + 1}`}
             </Text>
           </TouchableOpacity>
         ) : (
+          /* 3. Standard sequential check-in for current planned stop */
           <TouchableOpacity
-            style={[styles.primaryActionButton, { backgroundColor: '#16A34A' }]}
-            onPress={handleFinishTrip}
+            style={styles.primaryActionButton}
+            onPress={() => handleCheckInDrop(currentDropIndex)}
             activeOpacity={0.9}
           >
-            <Flag size={20} color="#FFFFFF" />
-            <Text style={styles.primaryActionText}>เสร็จสิ้นทริป & สรุปรายงานการเข้าพบ</Text>
+            <CheckCircle2 size={18} color="#FFFFFF" fill="#FFFFFF" />
+            <Text style={styles.primaryActionText} numberOfLines={1}>
+              {language === 'th' ? `📍 เช็คอินจุดที่ #${currentDropIndex + 1}` : `Check-in (#${currentDropIndex + 1})`}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -612,7 +974,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#F2F4F7',
     gap: 12,
@@ -621,44 +983,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 6,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flexShrink: 0,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowRadius: 4,
     elevation: 2,
+    flexShrink: 0,
   },
-  vehicleBadge: {
+  routeHeaderPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 20,
+    flex: 1,
+    flexShrink: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowRadius: 4,
     elevation: 2,
   },
-  vehicleLiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#16A34A',
-  },
-  vehicleBadgeText: {
-    fontSize: 13,
+  routeHeaderTitle: {
+    fontSize: 12,
     fontWeight: '700',
     color: '#03246B',
+    flexShrink: 1,
   },
   telemetryBar: {
     flexDirection: 'row',
@@ -698,7 +1065,7 @@ const styles = StyleSheet.create({
   scrollInner: {
     paddingHorizontal: 20,
     paddingTop: 6,
-    paddingBottom: 110,
+    paddingBottom: 130,
     gap: 14,
   },
   progressCard: {
@@ -774,14 +1141,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     borderColor: '#86EFAC',
   },
+  stepPillCompletedActive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#16A34A',
+    borderWidth: 2,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
   stepPillActive: {
-    backgroundColor: 'rgba(29, 78, 216, 0.06)',
+    backgroundColor: '#EFF6FF',
     borderColor: '#1D4ED8',
+    borderWidth: 2,
     shadowColor: '#1D4ED8',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 2,
+  },
+  stepPillFutureActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#4F46E5',
+    borderWidth: 2,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  stepPillNextPending: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#93C5FD',
+    borderWidth: 1.5,
   },
   stepPillPending: {
     backgroundColor: '#F8FAFC',
@@ -800,6 +1193,12 @@ const styles = StyleSheet.create({
   stepIconCircleActive: {
     backgroundColor: '#1D4ED8',
   },
+  stepIconCircleFuture: {
+    backgroundColor: '#4F46E5',
+  },
+  stepIconCircleNext: {
+    backgroundColor: '#2563EB',
+  },
   stepIconCirclePending: {
     backgroundColor: '#94A3B8',
   },
@@ -810,16 +1209,23 @@ const styles = StyleSheet.create({
   },
   stepPillTitle: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
     maxWidth: 130,
   },
   stepPillTitleActive: {
-    color: '#03246B',
+    color: '#1D4ED8',
+    fontWeight: '800',
+  },
+  stepPillTitleFuture: {
+    color: '#4F46E5',
     fontWeight: '800',
   },
   stepPillTitleCompleted: {
     color: '#166534',
+    fontWeight: '800',
+  },
+  stepPillTitlePending: {
+    color: '#475569',
+    fontWeight: '700',
   },
   stepPillStatus: {
     fontSize: 10,
@@ -838,6 +1244,44 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: 'rgba(224, 227, 230, 0.6)',
+  },
+  previewRouteCardFuture: {
+    borderColor: '#C7D2FE',
+    borderWidth: 1.5,
+  },
+  futureSimplePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  futureSimplePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+    flex: 1,
+  },
+  completedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  completedBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+    flex: 1,
   },
   previewRow: {
     flexDirection: 'row',
@@ -956,16 +1400,47 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1E293B',
   },
-  contactRow: {
+  compactContactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
     marginTop: 6,
+    gap: 8,
   },
-  contactText: {
+  compactContactIconCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  compactContactText: {
     fontSize: 11,
-    color: '#475569',
+    color: '#334155',
+    flex: 1,
+  },
+  compactCallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#1D4ED8',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  compactCallBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   allDoneCard: {
     backgroundColor: '#F0FDF4',
@@ -1078,5 +1553,148 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  confirmedStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  confirmedStatusPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  inlineCallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginLeft: 6,
+  },
+  inlineCallBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  stopsTimelineCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 16,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  stopsTimelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  stopsTimelineTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#03246B',
+  },
+  stopsTimelineSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  stopsTimelineList: {
+    gap: 10,
+  },
+  stopTimelineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  stopTimelineRowPending: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  stopTimelineRowActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#2563EB',
+    borderWidth: 2,
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  stopTimelineRowDone: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+    borderWidth: 1.5,
+  },
+  stopTimelineRowDoneActive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#16A34A',
+    borderWidth: 2,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  stopTimelineNumberBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  stopTimelineNumberText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  stopTimelineName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#03246B',
+    flex: 1,
+  },
+  stopTimelineStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  stopTimelineStatusPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  stopTimelineAddress: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+  stopTimelineContact: {
+    fontSize: 11,
+    color: '#1D4ED8',
+    fontWeight: '600',
+    marginTop: 2,
   },
 });

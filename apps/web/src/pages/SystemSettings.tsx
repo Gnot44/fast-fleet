@@ -1,12 +1,45 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useTheme } from '../context/ThemeContext';
+import { supabase } from '../lib/supabase';
 
 export default function SystemSettings() {
   const { language, setLanguage, t } = useLanguage();
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'general' | 'gps_engine' | 'policies' | 'api'>('general');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read initial tab from URL param or localStorage
+  const tabParam = searchParams.get('tab') as 'general' | 'gps_engine' | 'policies' | 'api' | null;
+  const [activeTab, setActiveTab] = useState<'general' | 'gps_engine' | 'policies' | 'api'>(() => {
+    if (tabParam && ['general', 'gps_engine', 'policies', 'api'].includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('fastfleet_settings_active_tab') as any;
+    if (saved && ['general', 'gps_engine', 'policies', 'api'].includes(saved)) {
+      return saved;
+    }
+    return 'general';
+  });
+
+  const handleTabChange = (newTab: 'general' | 'gps_engine' | 'policies' | 'api') => {
+    setActiveTab(newTab);
+    setSearchParams({ tab: newTab }, { replace: true });
+    localStorage.setItem('fastfleet_settings_active_tab', newTab);
+  };
+
+  // Sync state if URL query param changes externally
+  useEffect(() => {
+    if (tabParam && ['general', 'gps_engine', 'policies', 'api'].includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+      localStorage.setItem('fastfleet_settings_active_tab', tabParam);
+    }
+  }, [tabParam]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [settingsId, setSettingsId] = useState<string | null>(null);
 
   // General Settings State
   const [companyName, setCompanyName] = useState('FastFleet Field Marketing Co., Ltd.');
@@ -50,7 +83,197 @@ export default function SystemSettings() {
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Load Settings from Supabase + localStorage cache fallback
+  const fetchSettings = async () => {
+    try {
+      setIsLoading(true);
+
+      // Check localStorage first for instant hydration
+      const cached = localStorage.getItem('fastfleet_system_settings');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.companyName) setCompanyName(parsed.companyName);
+          if (parsed.timezone) setTimezone(parsed.timezone);
+          if (parsed.operatingHours) setOperatingHours(parsed.operatingHours);
+          if (parsed.notifications) setNotifications(parsed.notifications);
+          if (parsed.gpsSettings) setGpsSettings(parsed.gpsSettings);
+          if (parsed.approvalRules) setApprovalRules(parsed.approvalRules);
+          if (parsed.apiKey) setApiKey(parsed.apiKey);
+          if (parsed.lastSavedAt) setLastSavedAt(new Date(parsed.lastSavedAt));
+        } catch (e) {
+          console.warn('Error reading localStorage settings:', e);
+        }
+      }
+
+      // Fetch active row from Supabase
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Supabase fetch system_settings warning:', error);
+        return;
+      }
+
+      if (data) {
+        setSettingsId(data.id);
+        if (data.company_name) setCompanyName(data.company_name);
+        if (data.timezone) setTimezone(data.timezone);
+        if (data.operating_hours) setOperatingHours(data.operating_hours);
+        if (data.notifications_config) setNotifications(data.notifications_config);
+        if (data.gps_config) {
+          setGpsSettings({
+            mbSpeedMoving: Number(data.gps_config.mbSpeedMoving) || 4.0,
+            mbDistMoving: Number(data.gps_config.mbDistMoving) || 10.0,
+            mbSpeedStatic: Number(data.gps_config.mbSpeedStatic) || 1.5,
+            mbStaticRadius: Number(data.gps_config.mbStaticRadius) || 15.0,
+            dropIgnoreData: data.gps_config.dropIgnoreData ?? true,
+          });
+        }
+        if (data.approval_rules) {
+          setApprovalRules({
+            requireAllDropsConfirmed: data.approval_rules.requireAllDropsConfirmed ?? true,
+            requireReceiptSlips: data.approval_rules.requireReceiptSlips ?? true,
+            maxExpensePerTrip: Number(data.approval_rules.maxExpensePerTrip) || 3000,
+            requireStartOdometer: data.approval_rules.requireStartOdometer ?? true,
+          });
+        }
+        if (data.api_key) setApiKey(data.api_key);
+        if (data.updated_at) setLastSavedAt(new Date(data.updated_at));
+      }
+    } catch (err) {
+      console.error('Failed to load system settings:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('system_settings_live_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_settings' },
+        (payload) => {
+          if (payload.new && typeof payload.new === 'object') {
+            const row: any = payload.new;
+            if (row.id) setSettingsId(row.id);
+            if (row.company_name) setCompanyName(row.company_name);
+            if (row.timezone) setTimezone(row.timezone);
+            if (row.operating_hours) setOperatingHours(row.operating_hours);
+            if (row.notifications_config) setNotifications(row.notifications_config);
+            if (row.gps_config) setGpsSettings(row.gps_config);
+            if (row.approval_rules) setApprovalRules(row.approval_rules);
+            if (row.api_key) setApiKey(row.api_key);
+            if (row.updated_at) setLastSavedAt(new Date(row.updated_at));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Save Settings to Supabase + localStorage
+  const handleSaveSettings = async () => {
+    try {
+      setIsSaving(true);
+
+      const payload = {
+        company_name: companyName,
+        timezone: timezone,
+        operating_hours: operatingHours,
+        notifications_config: notifications,
+        gps_config: gpsSettings,
+        approval_rules: approvalRules,
+        api_key: apiKey,
+        updated_at: new Date().toISOString(),
+      };
+
+      let savedId = settingsId;
+
+      if (settingsId) {
+        const { error } = await supabase
+          .from('system_settings')
+          .update(payload)
+          .eq('id', settingsId);
+
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('system_settings')
+          .upsert(payload)
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          savedId = data.id;
+          setSettingsId(data.id);
+        }
+      }
+
+      // Save to localStorage
+      localStorage.setItem(
+        'fastfleet_system_settings',
+        JSON.stringify({
+          id: savedId,
+          companyName,
+          timezone,
+          operatingHours,
+          notifications,
+          gpsSettings,
+          approvalRules,
+          apiKey,
+          lastSavedAt: new Date().toISOString(),
+        })
+      );
+
+      const now = new Date();
+      setLastSavedAt(now);
+      showToast(
+        language === 'th'
+          ? '✓ บันทึกการตั้งค่าระบบลงฐานข้อมูล Cloud เรียบร้อยแล้ว'
+          : '✓ System settings saved to Cloud database!'
+      );
+    } catch (err: any) {
+      console.error('Error saving system settings:', err);
+
+      // Fallback save to localStorage
+      localStorage.setItem(
+        'fastfleet_system_settings',
+        JSON.stringify({
+          id: settingsId,
+          companyName,
+          timezone,
+          operatingHours,
+          notifications,
+          gpsSettings,
+          approvalRules,
+          apiKey,
+          lastSavedAt: new Date().toISOString(),
+        })
+      );
+      setLastSavedAt(new Date());
+      showToast(
+        language === 'th'
+          ? '✓ บันทึกการตั้งค่าลง Local Storage แล้ว'
+          : '✓ Settings saved locally!'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Evaluate Smartphone GPS Status based on exact user logic
@@ -100,7 +323,7 @@ export default function SystemSettings() {
       mbStaticRadius: 15.0,
       dropIgnoreData: true,
     });
-    showToast('🔄 คืนค่าเริ่มต้นสำหรับ Smartphone เรียบร้อย');
+    showToast('🔄 คืนค่าเริ่มต้นสำหรับ Smartphone เรียบร้อย (กดบันทึกเพื่อใช้งาน)');
   };
 
   return (
@@ -120,22 +343,40 @@ export default function SystemSettings() {
             <span className="material-symbols-outlined text-[22px]">tune</span>
           </div>
           <div>
-            <h1 className="font-extrabold text-lg text-slate-900 tracking-tight">
-              {t('settings_title')}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-extrabold text-lg text-slate-900 tracking-tight">
+                {t('settings_title')}
+              </h1>
+              {isLoading && (
+                <span className="text-[10px] text-slate-400 animate-pulse font-medium">กำลังโหลด...</span>
+              )}
+            </div>
             <p className="text-slate-500 text-xs mt-0.5">
               {t('settings_subtitle')}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={() => showToast(language === 'th' ? '✓ บันทึกการตั้งค่าแล้ว' : '✓ Settings saved!')}
-          className="px-5 py-2.5 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 shrink-0"
-        >
-          <span className="material-symbols-outlined text-[18px]">save</span>
-          {t('btn_save_changes')}
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          {lastSavedAt && (
+            <span className="text-[11px] text-slate-400 hidden sm:inline font-medium">
+              บันทึกล่าสุด: {lastSavedAt.toLocaleTimeString('th-TH')}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveSettings}
+            disabled={isSaving}
+            className={`px-5 py-2.5 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer ${
+              isSaving ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
+          >
+            <span className={`material-symbols-outlined text-[18px] ${isSaving ? 'animate-spin' : ''}`}>
+              {isSaving ? 'autorenew' : 'save'}
+            </span>
+            <span>{isSaving ? 'กำลังบันทึก...' : t('btn_save_changes')}</span>
+          </button>
+        </div>
       </div>
 
       {/* Modern Navigation Tabs */}
@@ -150,8 +391,8 @@ export default function SystemSettings() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              onClick={() => handleTabChange(tab.id as any)}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                 isActive
                   ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900'
@@ -185,7 +426,7 @@ export default function SystemSettings() {
                   setLanguage('th');
                   showToast('เปลี่ยนภาษาเป็น: ภาษาไทย');
                 }}
-                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 ${
+                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer ${
                   language === 'th'
                     ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -204,7 +445,7 @@ export default function SystemSettings() {
                   setLanguage('en');
                   showToast('Language changed to: English');
                 }}
-                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 ${
+                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer ${
                   language === 'en'
                     ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -234,11 +475,12 @@ export default function SystemSettings() {
               ].map((thm) => (
                 <button
                   key={thm.key}
+                  type="button"
                   onClick={() => {
                     setTheme(thm.key as any);
                     showToast(`Theme: ${thm.label}`);
                   }}
-                  className={`p-3 rounded-xl border text-center transition-all flex flex-col items-center gap-1 ${
+                  className={`p-3 rounded-xl border text-center transition-all flex flex-col items-center gap-1 cursor-pointer ${
                     theme === thm.key
                       ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
                       : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -260,7 +502,7 @@ export default function SystemSettings() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">ชื่อหน่วยงาน</label>
+                <label className="font-bold text-slate-700">ชื่อหน่วยงาน / องค์กร</label>
                 <input
                   type="text"
                   value={companyName}
@@ -270,7 +512,7 @@ export default function SystemSettings() {
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">เขตเวลา</label>
+                <label className="font-bold text-slate-700">เขตเวลา (Timezone)</label>
                 <select
                   value={timezone}
                   onChange={(e) => setTimezone(e.target.value)}
@@ -282,7 +524,7 @@ export default function SystemSettings() {
               </div>
 
               <div className="space-y-1 sm:col-span-2">
-                <label className="font-bold text-slate-700">เวลาทำการภาคสนาม</label>
+                <label className="font-bold text-slate-700">เวลาทำการภาคสนาม (Operating Hours)</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="time"
@@ -355,13 +597,16 @@ export default function SystemSettings() {
               </p>
             </div>
 
-            <button
-              onClick={resetToMobileDefaults}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl border border-slate-200 transition-all flex items-center gap-1.5 shrink-0"
-            >
-              <span className="material-symbols-outlined text-[15px]">restart_alt</span>
-              {t('settings_gps_reset_btn')}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={resetToMobileDefaults}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl border border-slate-200 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[15px]">restart_alt</span>
+                {t('settings_gps_reset_btn')}
+              </button>
+            </div>
           </div>
 
           {/* 4 Core Threshold Sliders */}
@@ -497,21 +742,25 @@ export default function SystemSettings() {
           </div>
 
           {/* Real-time Interactive Test Sandbox */}
-          <div className="p-4 rounded-xl bg-slate-900 text-white space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="font-bold text-xs text-slate-200 flex items-center gap-1.5">
+          <div className="p-4.5 rounded-2xl bg-blue-50/40 border border-blue-200/60 space-y-3.5">
+            <div className="flex items-center justify-between border-b border-blue-200/50 pb-2.5">
+              <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-primary text-[18px]">science</span>
                 {t('settings_gps_sandbox_title')}
               </span>
-              <span className="text-[10px] text-slate-400 font-mono">Live Simulator</span>
+              <span className="text-[10px] font-bold text-primary bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded-md font-mono">
+                Live Simulator
+              </span>
             </div>
 
             {/* Test Sliders */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-slate-300">
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px]">
-                  <span>ความเร็ว:</span>
-                  <span className="font-mono text-white font-bold">{testSpeed.toFixed(1)} km/h</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-slate-700">
+              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <div className="flex justify-between items-center text-[11px] font-semibold">
+                  <span className="text-slate-600">ความเร็วจำลอง:</span>
+                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {testSpeed.toFixed(1)} km/h
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -520,14 +769,16 @@ export default function SystemSettings() {
                   step="0.5"
                   value={testSpeed}
                   onChange={(e) => setTestSpeed(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary"
+                  className="w-full cursor-pointer accent-primary mt-1"
                 />
               </div>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px]">
-                  <span>ระยะขยับ:</span>
-                  <span className="font-mono text-white font-bold">{testDist.toFixed(1)} m</span>
+              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <div className="flex justify-between items-center text-[11px] font-semibold">
+                  <span className="text-slate-600">ระยะขยับจำลอง:</span>
+                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {testDist.toFixed(1)} m
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -536,14 +787,16 @@ export default function SystemSettings() {
                   step="1"
                   value={testDist}
                   onChange={(e) => setTestDist(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary"
+                  className="w-full cursor-pointer accent-primary mt-1"
                 />
               </div>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px]">
-                  <span>รัศมีแกว่ง:</span>
-                  <span className="font-mono text-white font-bold">{testRadius.toFixed(1)} m</span>
+              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <div className="flex justify-between items-center text-[11px] font-semibold">
+                  <span className="text-slate-600">รัศมีแกว่งจำลอง:</span>
+                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {testRadius.toFixed(1)} m
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -552,20 +805,20 @@ export default function SystemSettings() {
                   step="0.5"
                   value={testRadius}
                   onChange={(e) => setTestRadius(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary"
+                  className="w-full cursor-pointer accent-primary mt-1"
                 />
               </div>
             </div>
 
             {/* Test Output Strip */}
-            <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${testResult.badgeBg}`}>
+            <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${testResult.badgeBg} shadow-2xs`}>
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${testResult.dotColor}`} />
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${testResult.dotColor}`} />
                 <span className="font-bold text-xs">{testResult.label}</span>
-                <span className="text-[11px] opacity-80 hidden sm:inline">• {testResult.summary}</span>
+                <span className="text-[11px] opacity-85 hidden sm:inline">• {testResult.summary}</span>
               </div>
-              <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-white/90 border border-black/10 shrink-0">
-                DB: {testResult.isDropped ? '❌ ไม่บันทึก' : '💾 บันทึก'}
+              <span className="font-mono text-[10.5px] font-bold px-2.5 py-1 rounded-lg bg-white/95 border border-black/10 shadow-2xs shrink-0">
+                DB: {testResult.isDropped ? '❌ กรองทิ้ง (ไม่บันทึก)' : '💾 บันทึกลงฐานข้อมูล'}
               </span>
             </div>
           </div>
@@ -647,67 +900,132 @@ export default function SystemSettings() {
       {/* TAB 4: API & DEVELOPER */}
       {/* ========================================================================= */}
       {activeTab === 'api' && (
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4 text-xs">
-          <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-            <span className="material-symbols-outlined text-primary text-[18px]">terminal</span>
-            API & Real-time WebSockets
-          </h3>
+        <div className="space-y-4 text-xs">
+          {/* API Credentials Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
+              <span className="material-symbols-outlined text-primary text-[18px]">terminal</span>
+              API & Real-time WebSockets
+            </h3>
 
-          <div className="space-y-3.5">
-            <div className="space-y-1">
-              <label className="font-bold text-slate-700">WebSocket Telemetry Stream Endpoint</label>
-              <input
-                type="text"
-                readOnly
-                value={wsStreamUrl}
-                className="w-full p-2.5 rounded-xl border border-slate-200 font-mono text-xs text-primary bg-slate-50 focus:outline-none"
-              />
+            <div className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700">WebSocket Telemetry Stream Endpoint</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={wsStreamUrl}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 font-mono text-xs text-primary bg-slate-50 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700">Production Secret API Key</label>
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  <input
+                    type={isKeyVisible ? 'text' : 'password'}
+                    readOnly
+                    value={apiKey}
+                    className="flex-1 min-w-[200px] p-2.5 rounded-xl border border-slate-200 font-mono text-xs bg-slate-50 text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsKeyVisible(!isKeyVisible)}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-600 cursor-pointer shrink-0"
+                    title={isKeyVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      {isKeyVisible ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newKey =
+                        'flt_live_mkt_' +
+                        Math.random().toString(36).substring(2, 15) +
+                        Math.random().toString(36).substring(2, 15);
+                      setApiKey(newKey);
+                      showToast('⚡ สุ่มสร้าง Secret Key ใหม่เรียบร้อย (กดบันทึกด้านบนเพื่อใช้งาน)');
+                    }}
+                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 font-bold cursor-pointer shrink-0"
+                  >
+                    สุ่มใหม่
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(apiKey);
+                      showToast('📋 คัดลอก API Key แล้ว');
+                    }}
+                    className="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                    คัดลอก
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Official API Documentation Download & Reference Banner */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-primary flex items-center justify-center font-bold">
+                    <span className="material-symbols-outlined text-[18px]">menu_book</span>
+                  </div>
+                  <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
+                    FastFleet API Documentation (English Version)
+                  </h3>
+                  <span className="px-2 py-0.5 bg-blue-50 text-primary border border-blue-200 rounded-md text-[10px] font-mono font-bold">
+                    v1.4 Official
+                  </span>
+                </div>
+                <p className="text-slate-600 text-xs max-w-2xl leading-relaxed">
+                  Official Developer Integration Guide with complete REST endpoints, WebSocket event schemas, authentication headers, error codes, and live code examples (cURL, Python, Node.js).
+                </p>
+              </div>
+
+              {/* Download Action */}
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
+                <a
+                  href="/FastFleet_API_Documentation.md"
+                  download="FastFleet_API_Documentation.md"
+                  className="px-4 py-2.5 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-none"
+                >
+                  <span className="material-symbols-outlined text-[17px]">download</span>
+                  Download Doc (.MD)
+                </a>
+              </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="font-bold text-slate-700">Production Secret API Key</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type={isKeyVisible ? 'text' : 'password'}
-                  readOnly
-                  value={apiKey}
-                  className="flex-1 p-2.5 rounded-xl border border-slate-200 font-mono text-xs bg-slate-50 text-slate-800"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIsKeyVisible(!isKeyVisible)}
-                  className="p-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-600"
-                >
-                  <span className="material-symbols-outlined text-[16px]">
-                    {isKeyVisible ? 'visibility_off' : 'visibility'}
-                  </span>
-                </button>
+            {/* Quick API Snippet Preview */}
+            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 font-mono text-[11px] space-y-2 text-slate-800 overflow-x-auto">
+              <div className="flex items-center justify-between text-[10.5px] text-slate-500 border-b border-slate-200 pb-1.5 font-sans">
+                <span className="font-bold text-primary flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">code</span>
+                  Quick cURL Request Sample:
+                </span>
                 <button
                   type="button"
                   onClick={() => {
-                    const newKey =
-                      'flt_live_mkt_' +
-                      Math.random().toString(36).substring(2, 15) +
-                      Math.random().toString(36).substring(2, 15);
-                    setApiKey(newKey);
-                    showToast('⚡ สุ่มสร้าง Secret Key ใหม่เรียบร้อย');
+                    const snippet = `curl -X GET "https://api.fastfleet.io/v1/telemetry/live" \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -H "Content-Type: application/json"`;
+                    navigator.clipboard.writeText(snippet);
+                    showToast('📋 คัดลอก cURL snippet แล้ว');
                   }}
-                  className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 font-bold"
+                  className="text-slate-500 hover:text-primary flex items-center gap-1 text-[10px] cursor-pointer font-bold transition-colors"
                 >
-                  สุ่มใหม่
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKey);
-                    showToast('📋 คัดลอก API Key แล้ว');
-                  }}
-                  className="px-4 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary-hover shadow-xs flex items-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                  คัดลอก
+                  <span className="material-symbols-outlined text-[13px]">content_copy</span>
+                  Copy
                 </button>
               </div>
+              <pre className="text-slate-900 select-all overflow-x-auto font-medium">
+{`curl -X GET "https://api.fastfleet.io/v1/telemetry/live" \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json"`}
+              </pre>
             </div>
           </div>
         </div>

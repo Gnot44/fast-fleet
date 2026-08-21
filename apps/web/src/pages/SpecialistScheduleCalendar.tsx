@@ -36,7 +36,8 @@ export interface SpecialistTripSchedule {
   assignedVehicle: string;
   date: string; // YYYY-MM-DD
   timeSlot: string;
-  status: 'Scheduled' | 'Completed' | 'In Progress' | 'Revision Requested';
+  status: 'Scheduled' | 'Completed' | 'In Progress' | 'Revision Requested' | 'Pending Approval' | 'Approved';
+  approvalStatus?: string;
   startLocation: string;
   startOdometer?: number;
   endOdometer?: number;
@@ -49,8 +50,9 @@ export default function SpecialistScheduleCalendar() {
   const { language, t } = useLanguage();
 
   // Calendar Navigation
-  const [currentYear, setCurrentYear] = useState<number>(2026);
-  const [currentMonth, setCurrentMonth] = useState<number>(7); // 0-indexed: 7 = August
+  const today = new Date();
+  const [currentYear, setCurrentYear] = useState<number>(today.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState<number>(today.getMonth());
 
   // Selected Specialist Filter ('all' or specialistId)
   const [selectedSpecialistId, setSelectedSpecialistId] = useState<string>('all');
@@ -116,7 +118,7 @@ export default function SpecialistScheduleCalendar() {
         }
 
         // 2. Fetch Real Trips
-        const { data: trips } = await supabase
+        const { data: trips, error: tripsErr } = await supabase
           .from('trips')
           .select(`
             id,
@@ -125,10 +127,11 @@ export default function SpecialistScheduleCalendar() {
             status,
             approval_status,
             trip_date,
+            created_at,
             start_odometer,
             end_odometer,
             staff_id,
-            profiles (
+            profiles:profiles!trips_staff_id_fkey (
               id,
               full_name,
               nickname,
@@ -137,7 +140,9 @@ export default function SpecialistScheduleCalendar() {
               staff (
                 staff_id,
                 territory,
-                assigned_vehicle
+                assigned_vehicle,
+                vehicle_plate,
+                vehicle_model
               )
             ),
             appointments (
@@ -159,11 +164,17 @@ export default function SpecialistScheduleCalendar() {
               category,
               amount
             )
-          `);
+          `)
+          .order('created_at', { ascending: false });
+
+        if (tripsErr) {
+          console.error('Error fetching calendar schedule:', tripsErr);
+        }
 
         if (trips && trips.length > 0) {
           const mappedTrips: SpecialistTripSchedule[] = trips.map((t: any) => {
-            const prof = t.profiles || {};
+            const rawProf = t.profiles;
+            const prof = (Array.isArray(rawProf) ? rawProf[0] : rawProf) || {};
             const staffObj = Array.isArray(prof.staff) ? prof.staff[0] : prof.staff;
             const appts = t.appointments || [];
             const exps = t.expenses || [];
@@ -171,27 +182,39 @@ export default function SpecialistScheduleCalendar() {
             const totalExp = exps.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
 
             const tripStat =
-              t.status === 'completed'
+              t.approval_status === 'approved'
+                ? 'Approved'
+                : t.approval_status === 'pending'
+                ? 'Pending Approval'
+                : t.approval_status === 'revision_requested'
+                ? 'Revision Requested'
+                : t.status === 'completed'
                 ? 'Completed'
                 : t.status === 'in_progress'
                 ? 'In Progress'
                 : 'Scheduled';
 
+            const rawDate = t.trip_date || (t.created_at ? t.created_at.split('T')[0] : new Date().toISOString().split('T')[0]);
+            const dateOnly = typeof rawDate === 'string' ? rawDate.split('T')[0] : new Date().toISOString().split('T')[0];
+            const fullName = prof.full_name || 'kosit goonlaboot';
+            const nick = prof.nickname || fullName.split(' ')[0] || 'kosit';
+
             return {
               id: t.id,
-              tripCode: t.trip_code || `TRP-${t.id.slice(0, 6)}`,
+              tripCode: t.trip_code || `TRP-${t.id.slice(0, 6).toUpperCase()}`,
               tripTitle: t.title || 'เส้นทางเข้าพบลูกค้า',
               specialistId: t.staff_id || prof.id,
-              specialistName: prof.full_name || 'พนักงานการตลาด',
-              specialistNickname: prof.nickname || prof.full_name?.split(' ')[0] || 'พนักงาน',
+              specialistName: fullName,
+              specialistNickname: nick,
               specialistAvatar: prof.avatar_url,
-              specialistInitials: prof.full_name?.slice(0, 2) || 'MK',
+              specialistInitials: fullName.slice(0, 2).toUpperCase(),
               department: prof.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
               territory: staffObj?.territory || 'Bangkok Central (B2B)',
-              assignedVehicle: staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
-              date: t.trip_date || new Date().toISOString().split('T')[0],
+              assignedVehicle: staffObj?.vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
+              date: dateOnly,
               timeSlot: '09:00 AM',
               status: tripStat as any,
+              approvalStatus: t.approval_status,
               startLocation: 'Bangkok Central Hub',
               startOdometer: t.start_odometer,
               endOdometer: t.end_odometer,
@@ -199,8 +222,8 @@ export default function SpecialistScheduleCalendar() {
               totalExpenses: totalExp,
               drops: appts.map((a: any) => ({
                 id: a.id,
-                name: a.company_name,
-                address: a.destination_address,
+                name: a.company_name || 'ลูกค้าองค์กร',
+                address: a.destination_address || 'กรุงเทพมหานคร',
                 contactPerson: a.recipient_name || '-',
                 contactPhone: a.recipient_phone || '-',
                 agendaCategory: a.agenda || 'เข้าพบลูกค้า',
@@ -225,6 +248,23 @@ export default function SpecialistScheduleCalendar() {
     }
 
     loadData();
+
+    const channel = supabase
+      .channel('calendar-schedule-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // Filtered Trips by Specialist and Status
@@ -319,37 +359,54 @@ export default function SpecialistScheduleCalendar() {
   // Helper for Status Badge styling
   const getStatusBadge = (status: SpecialistTripSchedule['status']) => {
     switch (status) {
-      case 'Completed':
+      case 'Approved':
         return {
-          label: `✓ ${t('schedule_status_completed')}`,
+          label: `✓ อนุมัติแล้ว`,
           bg: 'bg-emerald-50',
           text: 'text-emerald-700',
           border: 'border-emerald-200',
           dot: 'bg-emerald-500',
         };
-      case 'In Progress':
+      case 'Pending Approval':
         return {
-          label: `🚗 ${t('schedule_status_inprogress')}`,
+          label: `⏳ รออนุมัติ`,
           bg: 'bg-blue-50',
           text: 'text-blue-700',
           border: 'border-blue-200',
           dot: 'bg-blue-500 animate-pulse',
         };
+      case 'Revision Requested':
+        return {
+          label: '⚠️ ส่งกลับแก้ไข',
+          bg: 'bg-rose-50',
+          text: 'text-rose-700',
+          border: 'border-rose-200',
+          dot: 'bg-rose-500',
+        };
+      case 'Completed':
+        return {
+          label: `✓ ${t('schedule_status_completed')}`,
+          bg: 'bg-teal-50',
+          text: 'text-teal-700',
+          border: 'border-teal-200',
+          dot: 'bg-teal-500',
+        };
+      case 'In Progress':
+        return {
+          label: `🚗 ${t('schedule_status_inprogress')}`,
+          bg: 'bg-amber-50',
+          text: 'text-amber-700',
+          border: 'border-amber-200',
+          dot: 'bg-amber-500 animate-pulse',
+        };
       case 'Scheduled':
+      default:
         return {
           label: `📅 ${t('schedule_status_scheduled')}`,
           bg: 'bg-purple-50',
           text: 'text-purple-700',
           border: 'border-purple-200',
           dot: 'bg-purple-500',
-        };
-      default:
-        return {
-          label: '⚠️ Revision',
-          bg: 'bg-rose-50',
-          text: 'text-rose-700',
-          border: 'border-rose-200',
-          dot: 'bg-rose-500',
         };
     }
   };
@@ -484,55 +541,118 @@ export default function SpecialistScheduleCalendar() {
           </div>
         </div>
 
-        {/* Calendar Grid */}
-        <div className="border border-outline-variant/60 rounded-xl overflow-hidden">
-          {/* Weekday header */}
-          <div className="grid grid-cols-7 bg-surface-container-low text-center font-bold text-xs py-2 border-b border-outline-variant/60">
-            {weekdays.map((w, idx) => (
-              <div key={idx} className={w.color || 'text-on-surface'}>
-                {w.name}
-              </div>
-            ))}
+        {/* Calendar Grid View */}
+        {activeTab === 'calendar' ? (
+          <div className="border border-outline-variant/60 rounded-xl overflow-hidden">
+            {/* Weekday header */}
+            <div className="grid grid-cols-7 bg-surface-container-low text-center font-bold text-xs py-2 border-b border-outline-variant/60">
+              {weekdays.map((w, idx) => (
+                <div key={idx} className={w.color || 'text-on-surface'}>
+                  {w.name}
+                </div>
+              ))}
+            </div>
+
+            {/* Days Grid */}
+            <div className="grid grid-cols-7 divide-x divide-y divide-outline-variant/40">
+              {calendarDays.map((d, idx) => (
+                <div
+                  key={idx}
+                  className={`min-h-[95px] p-2 flex flex-col justify-between ${
+                    !d.dayNumber ? 'bg-slate-50/50' : d.isToday ? 'bg-blue-50/30' : 'bg-white'
+                  }`}
+                >
+                  {d.dayNumber ? (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className={`font-bold ${d.isToday ? 'text-primary' : 'text-slate-700'}`}>
+                          {d.dayNumber}
+                        </span>
+                        {d.isToday && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-blue-100 text-blue-700 font-bold">
+                            วันนี้
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-1 mt-1">
+                        {d.trips.map((tr) => {
+                          const badge = getStatusBadge(tr.status);
+                          return (
+                            <div
+                              key={tr.id}
+                              onClick={() => setSelectedTrip(tr)}
+                              className={`p-1 rounded text-[10px] font-bold border truncate cursor-pointer hover:opacity-85 transition-all ${badge.bg} ${badge.text} ${badge.border}`}
+                              title={`${tr.specialistName}: ${tr.tripTitle}`}
+                            >
+                              {tr.specialistNickname}: {tr.tripTitle}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </div>
-
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 divide-x divide-y divide-outline-variant/40">
-            {calendarDays.map((d, idx) => (
-              <div
-                key={idx}
-                className={`min-h-[90px] p-2 flex flex-col justify-between ${
-                  !d.dayNumber ? 'bg-slate-50/50' : d.isToday ? 'bg-blue-50/30' : 'bg-white'
-                }`}
-              >
-                {d.dayNumber ? (
-                  <>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className={`font-bold ${d.isToday ? 'text-primary' : 'text-slate-700'}`}>
-                        {d.dayNumber}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1 mt-1">
-                      {d.trips.map((tr) => {
-                        const badge = getStatusBadge(tr.status);
-                        return (
-                          <div
-                            key={tr.id}
-                            onClick={() => setSelectedTrip(tr)}
-                            className={`p-1 rounded text-[10px] font-bold border truncate cursor-pointer hover:opacity-85 transition-all ${badge.bg} ${badge.text} ${badge.border}`}
-                            title={`${tr.specialistName}: ${tr.tripTitle}`}
-                          >
-                            {tr.specialistNickname}: {tr.tripTitle}
+        ) : (
+          /* Timeline List View */
+          <div className="space-y-3">
+            {filteredTrips.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 space-y-2">
+                <span className="material-symbols-outlined text-4xl text-slate-300">event_busy</span>
+                <p className="text-xs font-bold text-slate-600">ไม่พบตารางงานการเดินทาง</p>
+                <p className="text-[11px] text-slate-400">ยังไม่มีแผนการเดินทางของพนักงานที่เลือกในเดือนนี้</p>
+              </div>
+            ) : (
+              filteredTrips.map((tr) => {
+                const badge = getStatusBadge(tr.status);
+                return (
+                  <div
+                    key={tr.id}
+                    onClick={() => setSelectedTrip(tr)}
+                    className="p-4 rounded-2xl border border-outline-variant/60 hover:border-primary/50 transition-all bg-white cursor-pointer space-y-3 shadow-2xs"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-100 text-primary flex items-center justify-center font-bold text-sm shrink-0">
+                          {tr.specialistInitials}
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                            <span>{tr.tripTitle}</span>
+                            <span className="font-mono text-xs text-primary bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                              {tr.tripCode}
+                            </span>
                           </div>
-                        );
-                      })}
+                          <div className="text-xs text-slate-500">
+                            {tr.specialistName} ({tr.specialistNickname}) • {tr.assignedVehicle} • {tr.territory}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                          📅 {tr.date} ({tr.timeSlot})
+                        </span>
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${badge.bg} ${badge.text} ${badge.border}`}>
+                          {badge.label}
+                        </span>
+                      </div>
                     </div>
-                  </>
-                ) : null}
-              </div>
-            ))}
+
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
+                      <span>📍 {tr.drops.length} จุดเข้าพบลูกค้า</span>
+                      <span>🚗 ระยะทาง: {tr.totalDistanceKm || 0} กม.</span>
+                      <span className="font-bold font-mono text-slate-800">฿{tr.totalExpenses || 0}</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Deep Inspection Modal */}

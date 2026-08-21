@@ -13,7 +13,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   ArrowLeft,
@@ -41,6 +41,7 @@ import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 
 export default function AddNewDropScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const isEditing = !!params.isEditing;
   const initialDrop = params.drop || {};
@@ -49,6 +50,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
   const [fetchingGps, setFetchingGps] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [customerName, setCustomerName] = useState(initialDrop.recipient || '');
   const [phoneNumber, setPhoneNumber] = useState(initialDrop.phone || '');
   const [companyName, setCompanyName] = useState(initialDrop.name || '');
@@ -183,6 +185,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   };
 
   const handleConfirm = () => {
+    if (isSubmitting) return;
     if (!customerName && !companyName && !destinationAddress) {
       Alert.alert(
         language === 'th' ? 'กรุณากรอกข้อมูล' : 'Information Required',
@@ -191,6 +194,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
       return;
     }
 
+    setIsSubmitting(true);
     const payload = {
       id: initialDrop.id || `client-${Date.now()}`,
       name: companyName || customerName || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit'),
@@ -218,6 +222,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         style={{ flex: 1 }}
       >
         {/* Top Header */}
@@ -498,14 +503,21 @@ export default function AddNewDropScreen({ navigation, route }: any) {
         </ScrollView>
 
         {/* Sticky Bottom CTA */}
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
           <TouchableOpacity
-            style={styles.confirmButton}
+            style={[styles.confirmButton, isSubmitting && { opacity: 0.6 }]}
             onPress={handleConfirm}
+            disabled={isSubmitting}
             activeOpacity={0.9}
           >
-            <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
-            <Text style={styles.confirmButtonText}>{t('btn_confirm')}</Text>
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
+            )}
+            <Text style={styles.confirmButtonText}>
+              {isSubmitting ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...') : t('btn_confirm')}
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -523,8 +535,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -561,7 +573,7 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 170,
     gap: 16,
   },
   mapContainer: {

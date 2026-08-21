@@ -8,24 +8,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(new Date());
-  const [countdownSeconds, setCountdownSeconds] = useState(60);
   const location = useLocation();
-
-  // 60-second live countdown timer for automatic data refresh
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdownSeconds((prev) => {
-        if (prev <= 1) {
-          setLastRefreshedAt(new Date());
-          return 60;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
 
   const navItems = [
     { icon: 'dashboard', label: t('nav_dashboard'), path: '/admin/dashboard' },
@@ -230,10 +213,7 @@ export default function AdminLayout() {
         >
           <div className="flex items-center gap-2 text-slate-500 font-medium truncate">
             <span className="truncate">
-              {t('brand_title')} • {t('data_refresh')} {lastRefreshedAt.toLocaleTimeString()}
-            </span>
-            <span className="text-[10px] font-extrabold text-primary bg-blue-50 px-2 py-0.2 rounded-md border border-blue-200 shrink-0">
-              {language === 'th' ? `(รีเฟรชใน ${countdownSeconds}s)` : `(Next refresh in ${countdownSeconds}s)`}
+              {t('brand_title')} • {t('brand_subtitle')} © {new Date().getFullYear()} FastFleet Intelligence Hub
             </span>
           </div>
           <div className="flex items-center gap-2 font-bold text-emerald-700 shrink-0">

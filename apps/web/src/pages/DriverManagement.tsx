@@ -47,12 +47,25 @@ export const drivingLicenseTypes = [
   'ใบอนุญาตขับขี่รถจักรยานยนต์ส่วนบุคคล',
 ];
 
+export const departmentPresets = [
+  'Key Accounts & Enterprise',
+  'B2B Field Marketing',
+  'Strategic Accounts',
+  'Retail Expansion',
+  'ฝ่ายการตลาดและบริหารงานภาคสนาม',
+];
+
 export default function DriverManagement() {
   const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterDepartment, setFilterDepartment] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+
+  // Custom Departments Dynamic Pool
+  const [customDepartments, setCustomDepartments] = useState<string[]>([]);
+  const [selectedDeptChoice, setSelectedDeptChoice] = useState<string>('Key Accounts & Enterprise');
+  const [customDeptInput, setCustomDeptInput] = useState<string>('');
 
   // Modals & Drawers
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -97,10 +110,21 @@ export default function DriverManagement() {
   // Marketing Specialists Users Data
   const [specialists, setSpecialists] = useState<MarketingSpecialistUser[]>([]);
 
-  // Load specialists from Supabase Database on mount
+  // Load specialists & departments from Supabase Database on mount
   useEffect(() => {
     async function loadSpecialistsFromSupabase() {
       try {
+        // 1. Fetch Master Departments from DB
+        const { data: depts } = await supabase
+          .from('departments')
+          .select('name')
+          .order('created_at', { ascending: true });
+
+        if (depts && depts.length > 0) {
+          setCustomDepartments(depts.map((d: any) => d.name));
+        }
+
+        // 2. Fetch Specialist Profiles & Staff details
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, full_name, nickname, phone, email, avatar_url, position, department, status, created_at, assigned_vehicle, assigned_vehicle_plate, assigned_vehicle_model, driving_license_no, driving_license_type, driving_license_expiry, staff(staff_id, territory, position, assigned_vehicle, vehicle_plate, vehicle_model, vehicle_type, driving_license_no, driving_license_type, driving_license_expiry)')
@@ -150,7 +174,39 @@ export default function DriverManagement() {
     }
 
     loadSpecialistsFromSupabase();
+
+    // Subscribe to realtime department updates
+    const deptChannel = supabase
+      .channel('departments-realtime-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => {
+        supabase
+          .from('departments')
+          .select('name')
+          .order('created_at', { ascending: true })
+          .then(({ data }) => {
+            if (data && data.length > 0) {
+              setCustomDepartments(data.map((d: any) => d.name));
+            }
+          });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(deptChannel);
+    };
   }, []);
+
+  // Unique merged departments list (Presets + Custom + DB Specialists)
+  const availableDepartments = useMemo(() => {
+    const set = new Set<string>(departmentPresets);
+    customDepartments.forEach((d) => {
+      if (d?.trim()) set.add(d.trim());
+    });
+    specialists.forEach((s) => {
+      if (s.department?.trim()) set.add(s.department.trim());
+    });
+    return Array.from(set);
+  }, [customDepartments, specialists]);
 
   // Derived Stats
   const totalCount = specialists.length;
@@ -241,6 +297,10 @@ export default function DriverManagement() {
   // Open Add Modal
   const handleOpenAddModal = () => {
     const newEmpId = `AITS${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const defaultDept = availableDepartments[0] || 'Key Accounts & Enterprise';
+    setSelectedDeptChoice(defaultDept);
+    setCustomDeptInput('');
+
     setFormData({
       employeeId: newEmpId,
       fullName: '',
@@ -250,7 +310,7 @@ export default function DriverManagement() {
       password: generateRandomPassword(),
       profilePhotoUrl: avatarPresets[Math.floor(Math.random() * avatarPresets.length)],
       position: 'Field Marketing Specialist',
-      department: 'Key Accounts & Enterprise',
+      department: defaultDept,
       territory: 'Wat Donmuang',
       assignedVehiclePlate: vehiclePresets[0].plate,
       assignedVehicleModel: vehiclePresets[0].model,
@@ -269,6 +329,18 @@ export default function DriverManagement() {
   // Open Edit Modal
   const handleOpenEditModal = (spec: MarketingSpecialistUser) => {
     setEditingSpecialist(spec);
+
+    if (spec.department && availableDepartments.includes(spec.department)) {
+      setSelectedDeptChoice(spec.department);
+      setCustomDeptInput('');
+    } else if (spec.department) {
+      setSelectedDeptChoice('__custom__');
+      setCustomDeptInput(spec.department);
+    } else {
+      setSelectedDeptChoice(availableDepartments[0] || 'Key Accounts & Enterprise');
+      setCustomDeptInput('');
+    }
+
     setFormData({
       ...spec,
       assignedVehiclePlate: spec.assignedVehiclePlate || vehiclePresets[0].plate,
@@ -303,6 +375,20 @@ export default function DriverManagement() {
       .map((w) => w.charAt(0).toUpperCase())
       .join('') || 'MK';
 
+    const finalDept = selectedDeptChoice === '__custom__'
+      ? (customDeptInput.trim() || 'ฝ่ายการตลาดและบริหารงานภาคสนาม')
+      : (selectedDeptChoice || formData.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม');
+
+    if (selectedDeptChoice === '__custom__' && customDeptInput.trim()) {
+      const newDeptName = customDeptInput.trim();
+      setCustomDepartments((prev) => Array.from(new Set([...prev, newDeptName])));
+      try {
+        await supabase.from('departments').upsert({ name: newDeptName }, { onConflict: 'name' });
+      } catch (dErr) {
+        console.error('Error saving department to database:', dErr);
+      }
+    }
+
     const fullVehicleStr = `${formData.assignedVehicleModel || 'Isuzu D-Max'} (${formData.assignedVehiclePlate || '1กข-4452 กทม.'})`;
 
     setIsSubmitting(true);
@@ -328,7 +414,7 @@ export default function DriverManagement() {
           phone: formData.phoneNumber!.trim(),
           avatar_url: formData.profilePhotoUrl,
           position: formData.position || 'Field Marketing Specialist',
-          department: formData.department,
+          department: finalDept,
           status: formData.isActive ? 'active' : 'suspended',
           assigned_vehicle: fullVehicleStr,
           assigned_vehicle_plate: formData.assignedVehiclePlate,
@@ -379,6 +465,7 @@ export default function DriverManagement() {
               ? {
                   ...s,
                   ...(formData as MarketingSpecialistUser),
+                  department: finalDept,
                   initials,
                 }
               : s
@@ -415,7 +502,7 @@ export default function DriverManagement() {
             position: formData.position || 'Field Marketing Specialist',
             role: 'specialist',
             status: formData.isActive ? 'active' : 'suspended',
-            department: formData.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
+            department: finalDept,
             assigned_vehicle: fullVehicleStr,
             assigned_vehicle_plate: formData.assignedVehiclePlate,
             assigned_vehicle_model: formData.assignedVehicleModel,
@@ -450,7 +537,7 @@ export default function DriverManagement() {
           profilePhotoUrl: formData.profilePhotoUrl || '',
           initials,
           position: formData.position || 'Field Marketing Specialist',
-          department: formData.department || 'Key Accounts & Enterprise',
+          department: finalDept,
           territory: formData.territory || 'Bangkok Central',
           isActive: formData.isActive !== undefined ? formData.isActive : true,
           notes: formData.notes?.trim() || '',
@@ -598,13 +685,12 @@ export default function DriverManagement() {
           <select
             value={filterDepartment}
             onChange={(e) => setFilterDepartment(e.target.value)}
-            className="bg-surface-container-low px-2.5 py-1.5 rounded-xl text-xs font-bold text-on-surface border border-outline-variant/50 focus:outline-none focus:border-primary"
+            className="bg-surface-container-low px-2.5 py-1.5 rounded-xl text-xs font-bold text-on-surface border border-outline-variant/50 focus:outline-none focus:border-primary cursor-pointer"
           >
             <option value="all">{t('specialists_filter_all_dept')}</option>
-            <option value="Key Accounts & Enterprise">Key Accounts & Enterprise</option>
-            <option value="B2B Field Marketing">B2B Field Marketing</option>
-            <option value="Strategic Accounts">Strategic Accounts</option>
-            <option value="Retail Expansion">Retail Expansion</option>
+            {availableDepartments.map((dept) => (
+              <option key={dept} value={dept}>{dept}</option>
+            ))}
           </select>
 
           {/* View Mode Toggle */}
@@ -704,15 +790,19 @@ export default function DriverManagement() {
                     </div>
                   </div>
 
-                  {/* Position & Territory */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-bold text-primary flex items-center gap-1 truncate">
-                      <span className="material-symbols-outlined text-[14px]">work</span>
-                      {spec.position}
+                  {/* Position, Department & Territory */}
+                  <div className="space-y-1 bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/60">
+                    <div className="text-xs font-bold text-primary flex items-center gap-1.5 truncate">
+                      <span className="material-symbols-outlined text-[15px]">work</span>
+                      <span className="truncate">{spec.position}</span>
                     </div>
-                    <div className="text-[11px] text-slate-600 flex items-center gap-1 truncate">
-                      <span className="material-symbols-outlined text-[13px] text-slate-400">location_on</span>
-                      {spec.territory}
+                    <div className="text-[11.5px] font-semibold text-slate-800 flex items-center gap-1.5 truncate">
+                      <span className="material-symbols-outlined text-[14px] text-blue-600">corporate_fare</span>
+                      <span className="truncate">{spec.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม'}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
+                      <span className="material-symbols-outlined text-[14px] text-slate-400">location_on</span>
+                      <span className="truncate">{spec.territory}</span>
                     </div>
                   </div>
 
@@ -842,7 +932,7 @@ export default function DriverManagement() {
               <thead className="bg-surface-container-low text-on-surface-variant font-bold border-b border-outline-variant/60">
                 <tr>
                   <th className="p-3.5 pl-4">พนักงาน (Employee)</th>
-                  <th className="p-3.5">ตำแหน่ง & โซนพื้นที่</th>
+                  <th className="p-3.5">ตำแหน่ง & ฝ่าย/แผนก & โซนพื้นที่</th>
                   <th className="p-3.5">รถฟลีท & ใบขับขี่</th>
                   <th className="p-3.5">เบอร์โทรศัพท์</th>
                   <th className="p-3.5">Email สำหรับล็อกอิน</th>
@@ -880,7 +970,14 @@ export default function DriverManagement() {
                       </td>
                       <td className="p-3.5">
                         <div className="font-semibold text-primary">{spec.position}</div>
-                        <div className="text-[11px] text-slate-500">{spec.territory}</div>
+                        <div className="text-[11px] font-semibold text-slate-800 flex items-center gap-1 mt-0.5">
+                          <span className="material-symbols-outlined text-[13px] text-blue-600">corporate_fare</span>
+                          <span>{spec.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม'}</span>
+                        </div>
+                        <div className="text-[10.5px] text-slate-500 flex items-center gap-0.5 mt-0.5">
+                          <span className="material-symbols-outlined text-[12px] text-slate-400">location_on</span>
+                          <span>{spec.territory}</span>
+                        </div>
                       </td>
                       <td className="p-3.5">
                         <div className="space-y-0.5">
@@ -969,35 +1066,36 @@ export default function DriverManagement() {
 
       {/* Add / Edit Specialist Full Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-scale-up max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-100 text-primary flex items-center justify-center font-bold">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 md:p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] sm:max-h-[90vh] animate-scale-up">
+            {/* Modal Header (Fixed / Non-scrolling) */}
+            <div className="flex items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-primary flex items-center justify-center font-bold shrink-0">
                   <span className="material-symbols-outlined text-[20px]">
                     {editingSpecialist ? 'manage_accounts' : 'person_add'}
                   </span>
                 </div>
-                <div>
-                  <h3 className="font-bold text-base text-slate-900">
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 truncate">
                     {editingSpecialist ? `แก้ไขข้อมูล: ${editingSpecialist.fullName}` : 'เพิ่มพนักงานการตลาดภาคสนามใหม่'}
                   </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[10.5px] sm:text-[11px] text-slate-500 line-clamp-1 sm:line-clamp-none">
                     กำหนดข้อมูลประจำตัว รถฟลีท ใบขับขี่ และสิทธิ์เข้าใช้งาน Mobile App
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-all"
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-all shrink-0"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleSaveSpecialist} className="space-y-4 text-xs">
+            {/* Modal Form Body (Scrollable with Touch Support) */}
+            <form onSubmit={handleSaveSpecialist} className="flex-1 overflow-y-auto pr-1 py-3 space-y-4 text-xs overscroll-contain">
               {/* Section 1: ข้อมูลส่วนตัวและตำแหน่งงาน */}
               <div className="space-y-3">
                 <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs border-b pb-1.5 text-blue-900">
@@ -1005,7 +1103,7 @@ export default function DriverManagement() {
                   ข้อมูลส่วนตัวและตำแหน่งงาน (Personal & Staff Details)
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                   <div className="space-y-1">
                     <label className="font-bold text-slate-700">ชื่อ-นามสกุล <span className="text-rose-600">*</span></label>
                     <input
@@ -1014,7 +1112,7 @@ export default function DriverManagement() {
                       placeholder="เช่น สมพงษ์ ชัยชนะ"
                       value={formData.fullName || ''}
                       onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1025,7 +1123,7 @@ export default function DriverManagement() {
                       placeholder="เช่น พงษ์"
                       value={formData.nickname || ''}
                       onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1037,7 +1135,7 @@ export default function DriverManagement() {
                       placeholder="เช่น AITS10002772"
                       value={formData.employeeId || ''}
                       onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1049,7 +1147,7 @@ export default function DriverManagement() {
                       placeholder="เช่น 081-234-5678"
                       value={formData.phoneNumber || ''}
                       onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1060,18 +1158,62 @@ export default function DriverManagement() {
                       placeholder="เช่น Asst.Supervisor"
                       value={formData.position || ''}
                       onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-slate-700 flex items-center justify-between">
+                      <span>ฝ่าย / แผนก (Department) <span className="text-rose-600">*</span></span>
+                      {selectedDeptChoice === '__custom__' && (
+                        <span className="text-[10px] text-primary font-bold">ระบุฝ่ายใหม่</span>
+                      )}
+                    </label>
+                    <select
+                      value={selectedDeptChoice}
+                      onChange={(e) => {
+                        setSelectedDeptChoice(e.target.value);
+                        if (e.target.value !== '__custom__') {
+                          setFormData((prev) => ({ ...prev, department: e.target.value }));
+                        }
+                      }}
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white cursor-pointer font-medium"
+                    >
+                      {availableDepartments.map((dept) => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                      <option value="__custom__">➕ อื่นๆ (ระบุชื่อฝ่าย/แผนกใหม่...)</option>
+                    </select>
+
+                    {selectedDeptChoice === '__custom__' && (
+                      <div className="pt-1 animate-fade-in space-y-1">
+                        <input
+                          type="text"
+                          required
+                          autoFocus
+                          placeholder="พิมพ์ชื่อฝ่าย/แผนกใหม่ เช่น ฝ่ายการตลาดดิจิทัล (Digital Marketing)"
+                          value={customDeptInput}
+                          onChange={(e) => {
+                            setCustomDeptInput(e.target.value);
+                            setFormData((prev) => ({ ...prev, department: e.target.value }));
+                          }}
+                          className="w-full p-2 sm:p-2.5 rounded-xl border-2 border-primary/60 bg-blue-50/30 text-xs font-semibold text-slate-900 focus:outline-none focus:border-primary"
+                        />
+                        <p className="text-[10.5px] text-slate-500">
+                          * เมื่อบันทึกแล้ว ฝ่าย/แผนกนี้จะถูกเพิ่มลงในตัวเลือกและฟิลเตอร์ของระบบโดยอัตโนมัติ
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
                     <label className="font-bold text-slate-700">โซนพื้นที่รับผิดชอบ (Territory)</label>
                     <input
                       type="text"
                       placeholder="เช่น Wat Donmuang"
                       value={formData.territory || ''}
                       onChange={(e) => setFormData({ ...formData, territory: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
                 </div>
@@ -1092,7 +1234,7 @@ export default function DriverManagement() {
                     )}
                   </label>
 
-                  <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3 sm:gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-200">
                     {/* Current Photo Preview */}
                     <div className="relative shrink-0">
                       {formData.profilePhotoUrl ? (
@@ -1109,8 +1251,8 @@ export default function DriverManagement() {
                     </div>
 
                     {/* Local File Upload Button & URL Input */}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
+                    <div className="flex-1 w-full space-y-2">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         {/* Hidden File Input */}
                         <input
                           type="file"
@@ -1154,42 +1296,44 @@ export default function DriverManagement() {
                         {/* Trigger Button */}
                         <label
                           htmlFor="specialist-photo-file-input"
-                          className="px-3.5 py-1.5 bg-white hover:bg-blue-50 text-primary border border-primary/40 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                          className="w-full sm:w-auto px-3.5 py-2 bg-white hover:bg-blue-50 text-primary border border-primary/40 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
                         >
                           <span className="material-symbols-outlined text-[16px]">upload_file</span>
                           เลือกรูปถ่ายจากไฟล์ในเครื่อง...
                         </label>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                        <span>หรือใส่ URL รูปภาพ:</span>
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 text-[10px] text-slate-400">
+                        <span className="shrink-0">หรือใส่ URL รูปภาพ:</span>
                         <input
                           type="url"
                           placeholder="https://..."
                           value={formData.profilePhotoUrl || ''}
                           onChange={(e) => setFormData({ ...formData, profilePhotoUrl: e.target.value })}
-                          className="flex-1 p-1 px-2 rounded-lg border border-slate-200 text-[11px] bg-white text-slate-800 focus:outline-none focus:border-primary"
+                          className="w-full sm:flex-1 p-1.5 px-2 rounded-lg border border-slate-200 text-[11px] bg-white text-slate-800 focus:outline-none focus:border-primary"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Avatar Quick Presets */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <span className="text-[10px] text-slate-500 font-medium">หรือเลือกอวตารตัวอย่าง:</span>
-                    {avatarPresets.map((preset, pIdx) => (
-                      <img
-                        key={pIdx}
-                        src={preset}
-                        alt="Preset"
-                        onClick={() => setFormData({ ...formData, profilePhotoUrl: preset })}
-                        className={`w-7 h-7 rounded-full object-cover cursor-pointer border-2 transition-all ${
-                          formData.profilePhotoUrl === preset
-                            ? 'border-primary ring-2 ring-primary/40 scale-105'
-                            : 'border-transparent hover:border-slate-300'
-                        }`}
-                      />
-                    ))}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-[10px] text-slate-500 font-medium w-full sm:w-auto">หรือเลือกอวตารตัวอย่าง:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {avatarPresets.map((preset, pIdx) => (
+                        <img
+                          key={pIdx}
+                          src={preset}
+                          alt="Preset"
+                          onClick={() => setFormData({ ...formData, profilePhotoUrl: preset })}
+                          className={`w-7 h-7 rounded-full object-cover cursor-pointer border-2 transition-all ${
+                            formData.profilePhotoUrl === preset
+                              ? 'border-primary ring-2 ring-primary/40 scale-105'
+                              : 'border-transparent hover:border-slate-300'
+                          }`}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1201,7 +1345,7 @@ export default function DriverManagement() {
                   ข้อมูลเข้าสู่ระบบ Mobile App (ใช้อีเมลเพื่อล็อกอิน)
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                   <div className="space-y-1">
                     <label className="font-bold text-slate-700">
                       อีเมลสำหรับเข้าสู่ระบบ (Login Email) <span className="text-rose-600">*</span>
@@ -1212,7 +1356,7 @@ export default function DriverManagement() {
                       placeholder="เช่น sompong.c@fastfleet.io"
                       value={formData.email || ''}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
+                      className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1237,12 +1381,12 @@ export default function DriverManagement() {
                         placeholder="อย่างน้อย 6 ตัวอักษร"
                         value={formData.password || ''}
                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className="w-full p-2 pr-8 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary"
+                        className="w-full p-2 sm:p-2.5 pr-8 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary"
                       />
                       <button
                         type="button"
                         onClick={() => setShowFormPassword(!showFormPassword)}
-                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
                       >
                         <span className="material-symbols-outlined text-[15px]">
                           {showFormPassword ? 'visibility_off' : 'visibility'}
@@ -1253,7 +1397,7 @@ export default function DriverManagement() {
                 </div>
 
                 {/* Status Toggle in Modal */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                   <div>
                     <div className="font-bold text-slate-900">สถานะการใช้งาน (Account Status)</div>
                     <div className="text-[10px] text-slate-500">
@@ -1262,7 +1406,7 @@ export default function DriverManagement() {
                         : '🔴 ระงับสิทธิ์: พนักงานจะไม่สามารถเข้าสู่ระบบ Mobile App ได้ทันที'}
                     </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
                       checked={formData.isActive}
@@ -1326,7 +1470,7 @@ export default function DriverManagement() {
                         placeholder="เช่น 1กข-4452 กทม."
                         value={formData.assignedVehiclePlate || ''}
                         onChange={(e) => setFormData({ ...formData, assignedVehiclePlate: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary bg-white"
                       />
                     </div>
 
@@ -1337,7 +1481,7 @@ export default function DriverManagement() {
                         placeholder="เช่น Isuzu D-Max SpaceCab 1.9"
                         value={formData.assignedVehicleModel || ''}
                         onChange={(e) => setFormData({ ...formData, assignedVehicleModel: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
                       />
                     </div>
 
@@ -1346,7 +1490,7 @@ export default function DriverManagement() {
                       <select
                         value={formData.assignedVehicleType || 'Pickup Truck'}
                         onChange={(e) => setFormData({ ...formData, assignedVehicleType: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white cursor-pointer"
                       >
                         <option value="Pickup Truck">Pickup Truck (กระบะบรรทุก)</option>
                         <option value="Sedan">Sedan (รถเก๋งส่วนบุคคล)</option>
@@ -1365,7 +1509,7 @@ export default function DriverManagement() {
                       <span className="material-symbols-outlined text-[14px] text-emerald-600">badge</span>
                       ข้อมูลใบขับขี่ (Driving License Credentials)
                     </span>
-                    <span className="text-[10px] text-slate-400 font-normal">ความถูกต้องทางกฎหมายและความปลอดภัย</span>
+                    <span className="text-[10px] text-slate-400 font-normal">ความถูกต้องทางกฎหมาย</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -1376,7 +1520,7 @@ export default function DriverManagement() {
                         placeholder="เช่น DL-94821034"
                         value={formData.drivingLicenseNo || ''}
                         onChange={(e) => setFormData({ ...formData, drivingLicenseNo: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:outline-none focus:border-primary bg-white"
                       />
                     </div>
 
@@ -1385,7 +1529,7 @@ export default function DriverManagement() {
                       <select
                         value={formData.drivingLicenseType || drivingLicenseTypes[0]}
                         onChange={(e) => setFormData({ ...formData, drivingLicenseType: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white cursor-pointer"
                       >
                         {drivingLicenseTypes.map((type, tIdx) => (
                           <option key={tIdx} value={type}>
@@ -1401,7 +1545,7 @@ export default function DriverManagement() {
                         type="date"
                         value={formData.drivingLicenseExpiry || ''}
                         onChange={(e) => setFormData({ ...formData, drivingLicenseExpiry: e.target.value })}
-                        className="w-full p-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
+                        className="w-full p-2 sm:p-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-primary bg-white"
                       />
                     </div>
                   </div>
@@ -1420,19 +1564,19 @@ export default function DriverManagement() {
                 />
               </div>
 
-              {/* Modal Footer Actions */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              {/* Modal Footer Actions (Fixed at bottom with responsive full-width mobile buttons) */}
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-3 border-t border-slate-200 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all text-center"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`px-5 py-2 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-xs transition-all flex items-center gap-1.5 ${isSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-xs transition-all flex items-center justify-center gap-1.5 ${isSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <span className="material-symbols-outlined text-[16px]">
                     {isSubmitting ? 'autorenew' : 'save'}
@@ -1447,8 +1591,8 @@ export default function DriverManagement() {
 
       {/* Delete Confirmation Modal */}
       {deletingSpecialist && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-scale-up">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-scale-up">
             <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
               <span className="material-symbols-outlined text-[22px]">warning</span>
             </div>
@@ -1458,16 +1602,18 @@ export default function DriverManagement() {
                 คุณต้องการลบบัญชีของ <strong>{deletingSpecialist.fullName}</strong> ({deletingSpecialist.employeeId}) ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้
               </p>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setDeletingSpecialist(null)}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 text-center"
               >
                 ยกเลิก
               </button>
               <button
+                type="button"
                 onClick={handleConfirmDelete}
-                className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-xs"
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-xs text-center"
               >
                 ลบบัญชี
               </button>

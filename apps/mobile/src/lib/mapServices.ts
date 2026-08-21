@@ -292,18 +292,25 @@ export function getDistanceMeters(c1: Coordinates, c2: Coordinates): number {
   return R * c;
 }
 
-// 6. Real Traveling Salesperson Optimization (Finds Best First Stop & Entire Optimal Sequence)
 export function solveOptimalStopOrder(
   origin: Coordinates,
-  stops: Array<{ latitude?: number; longitude?: number; name?: string; address?: string }>
+  stops: Array<{ latitude?: number | string; longitude?: number | string; name?: string; address?: string }>
 ): number[] {
   const n = stops.length;
   if (n <= 1) return [0];
 
-  const stopCoords: Coordinates[] = stops.map((s, idx) => ({
-    latitude: s.latitude || 13.7225 + idx * 0.02,
-    longitude: s.longitude || 100.5283 + idx * 0.03,
-  }));
+  const originLat = typeof origin.latitude === 'number' ? origin.latitude : parseFloat(origin.latitude as any) || 13.7563;
+  const originLng = typeof origin.longitude === 'number' ? origin.longitude : parseFloat(origin.longitude as any) || 100.5018;
+  const safeOrigin: Coordinates = { latitude: originLat, longitude: originLng };
+
+  const stopCoords: Coordinates[] = stops.map((s, idx) => {
+    const lat = typeof s.latitude === 'number' ? s.latitude : parseFloat(s.latitude as any);
+    const lng = typeof s.longitude === 'number' ? s.longitude : parseFloat(s.longitude as any);
+    return {
+      latitude: !isNaN(lat) && lat !== 0 ? lat : 13.7225 + (idx % 2 === 0 ? idx * 0.03 : -idx * 0.02),
+      longitude: !isNaN(lng) && lng !== 0 ? lng : 100.5283 + (idx % 2 === 0 ? -idx * 0.02 : idx * 0.04),
+    };
+  });
 
   const indices = Array.from({ length: n }, (_, i) => i);
   let bestPerm: number[] = [...indices];
@@ -311,7 +318,7 @@ export function solveOptimalStopOrder(
 
   function permute(arr: number[], m = 0) {
     if (m === arr.length - 1) {
-      let cost = getDistanceMeters(origin, stopCoords[arr[0]]);
+      let cost = getDistanceMeters(safeOrigin, stopCoords[arr[0]]);
       for (let i = 0; i < arr.length - 1; i++) {
         cost += getDistanceMeters(stopCoords[arr[i]], stopCoords[arr[i + 1]]);
       }

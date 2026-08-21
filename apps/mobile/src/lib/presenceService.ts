@@ -186,7 +186,7 @@ async function processLocationTelemetry(rawCoords: {
     }
 
     // Stream filtered and stabilized telemetry to Supabase Presence & Live Map
-    await (supabase.rpc as any)('update_specialist_presence', {
+    const { error: rpcErr } = await (supabase.rpc as any)('update_specialist_presence', {
       p_is_online: true,
       p_lat: evalResult.coords.latitude,
       p_lng: evalResult.coords.longitude,
@@ -194,6 +194,33 @@ async function processLocationTelemetry(rawCoords: {
       p_speed: Math.round(evalResult.speedKmH),
       p_battery: batteryLevel,
     });
+
+    if (rpcErr) {
+      // Direct table update fallback
+      try {
+        await (supabase.from('profiles' as any) as any)
+          .update({
+            is_online: true,
+            last_seen_at: new Date().toISOString(),
+            current_lat: evalResult.coords.latitude,
+            current_lng: evalResult.coords.longitude,
+            current_address: state.lastAddress,
+            current_speed: Math.round(evalResult.speedKmH),
+            battery_level: batteryLevel,
+          })
+          .eq('id', user.id);
+
+        await supabase.from('location_logs').insert({
+          staff_id: user.id,
+          lat: evalResult.coords.latitude,
+          lng: evalResult.coords.longitude,
+          speed: Math.round(evalResult.speedKmH),
+          battery_level: batteryLevel,
+        });
+      } catch (directErr) {
+        console.warn('[LocationService] Direct update fallback note:', directErr);
+      }
+    }
 
     console.log(`[LocationService] ✅ Telemetry sent: ${evalResult.coords.latitude.toFixed(5)}, ${evalResult.coords.longitude.toFixed(5)} (${Math.round(evalResult.speedKmH)} km/h, Batt: ${batteryLevel}%)`);
   } catch (err) {
@@ -235,9 +262,19 @@ export async function sendLocationPing(isOnline: boolean = true) {
     if (!user) return;
 
     if (!isOnline) {
-      await (supabase.rpc as any)('update_specialist_presence', {
+      const { error: rpcErr } = await (supabase.rpc as any)('update_specialist_presence', {
         p_is_online: false,
       });
+      if (rpcErr) {
+        try {
+          await (supabase.from('profiles' as any) as any)
+            .update({
+              is_online: false,
+              last_seen_at: new Date().toISOString(),
+            })
+            .eq('id', user.id);
+        } catch (e) {}
+      }
       console.log('[LocationService] 🛑 Specialist marked OFFLINE');
       return;
     }

@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     padding: 16,
-    paddingBottom: 110,
+    paddingBottom: 120,
     gap: 14,
     maxWidth: 500,
     alignSelf: 'center',

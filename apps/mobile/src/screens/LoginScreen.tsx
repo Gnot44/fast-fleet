@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -38,6 +39,7 @@ export default function LoginScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    if (loading) return;
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
       Alert.alert(
@@ -81,114 +83,120 @@ export default function LoginScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top Floating Language Switcher */}
-      <View style={styles.topLangBar}>
-        <LanguageTogglePill />
-      </View>
-
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.content}
       >
-        <View style={styles.innerContainer}>
-          {/* Top: Logo & Branding */}
-          <View style={styles.header}>
-            <View style={[styles.logoCircle, { backgroundColor: colors.primaryLight }]}>
-              <Briefcase size={30} color={colors.primary} />
-            </View>
-            <Text style={[styles.title, { color: colors.text }]}>{t('app_title')}</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('app_subtitle')}</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollInner}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Top Floating Language Switcher */}
+          <View style={styles.topLangBar}>
+            <LanguageTogglePill />
           </View>
 
-          {/* Center: Login Card */}
-          <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            {/* Email Field */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>{t('login_email_label')}</Text>
-              <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
-                <Mail color={colors.textSecondary} size={18} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  placeholder={language === 'th' ? 'ระบุอีเมลพนักงาน' : 'specialist@company.com'}
-                  placeholderTextColor={colors.textMuted}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                />
+          <View style={styles.innerContainer}>
+            {/* Top: Logo & Branding */}
+            <View style={styles.header}>
+              <View style={[styles.logoCircle, { backgroundColor: colors.primaryLight }]}>
+                <Briefcase size={30} color={colors.primary} />
+              </View>
+              <Text style={[styles.title, { color: colors.text }]}>{t('app_title')}</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('app_subtitle')}</Text>
+            </View>
+
+            {/* Center: Login Card */}
+            <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              {/* Email Field */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>{t('login_email_label')}</Text>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                  <Mail color={colors.textSecondary} size={18} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    placeholder={language === 'th' ? 'ระบุอีเมลพนักงาน' : 'specialist@company.com'}
+                    placeholderTextColor={colors.textMuted}
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+
+              {/* Password Field */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>{t('login_password_label')}</Text>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                  <KeyRound color={colors.textSecondary} size={18} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    placeholder="••••••••"
+                    placeholderTextColor={colors.textMuted}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeIcon}
+                  >
+                    {showPassword ? <EyeOff color={colors.textSecondary} size={18} /> : <Eye color={colors.textSecondary} size={18} />}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Remember Me */}
+              <TouchableOpacity
+                style={styles.checkboxContainer}
+                onPress={() => setRememberMe(!rememberMe)}
+                activeOpacity={0.7}
+              >
+                {rememberMe ? (
+                  <CheckSquare color={colors.primary} size={18} />
+                ) : (
+                  <Square color={colors.border} size={18} />
+                )}
+                <Text style={[styles.checkboxText, { color: colors.textSecondary }]}>{t('remember_me')}</Text>
+              </TouchableOpacity>
+
+              {/* Submit Button */}
+              <TouchableOpacity
+                style={[styles.loginButton, { backgroundColor: colors.primary }, loading && { opacity: 0.7 }]}
+                onPress={handleLogin}
+                activeOpacity={0.85}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.loginButtonText}>{t('login_btn')}</Text>
+                    <ArrowRight color="#FFFFFF" size={18} />
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Enterprise Security Notice */}
+              <View style={[styles.securityNotice, { backgroundColor: colors.surfaceSubtle, borderColor: colors.border }]}>
+                <ShieldCheck size={16} color={colors.primary} />
+                <Text style={[styles.securityNoticeText, { color: colors.textSecondary }]}>
+                  {language === 'th'
+                    ? 'บัญชีผู้ใช้งานถูกจัดการและกำหนดสิทธิ์โดยผู้ดูแลระบบ (Admin Console)'
+                    : 'Specialist accounts are provisioned by your System Administrator.'}
+                </Text>
               </View>
             </View>
 
-            {/* Password Field */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>{t('login_password_label')}</Text>
-              <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
-                <KeyRound color={colors.textSecondary} size={18} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  placeholder="••••••••"
-                  placeholderTextColor={colors.textMuted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeIcon}
-                >
-                  {showPassword ? <EyeOff color={colors.textSecondary} size={18} /> : <Eye color={colors.textSecondary} size={18} />}
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Remember Me */}
-            <TouchableOpacity
-              style={styles.checkboxContainer}
-              onPress={() => setRememberMe(!rememberMe)}
-              activeOpacity={0.7}
-            >
-              {rememberMe ? (
-                <CheckSquare color={colors.primary} size={18} />
-              ) : (
-                <Square color={colors.border} size={18} />
-              )}
-              <Text style={[styles.checkboxText, { color: colors.textSecondary }]}>{t('remember_me')}</Text>
-            </TouchableOpacity>
-
-            {/* Submit Button */}
-            <TouchableOpacity
-              style={[styles.loginButton, { backgroundColor: colors.primary }, loading && { opacity: 0.7 }]}
-              onPress={handleLogin}
-              activeOpacity={0.85}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <>
-                  <Text style={styles.loginButtonText}>{t('login_btn')}</Text>
-                  <ArrowRight color="#FFFFFF" size={18} />
-                </>
-              )}
-            </TouchableOpacity>
-
-            {/* Enterprise Security Notice */}
-            <View style={[styles.securityNotice, { backgroundColor: colors.surfaceSubtle, borderColor: colors.border }]}>
-              <ShieldCheck size={16} color={colors.primary} />
-              <Text style={[styles.securityNoticeText, { color: colors.textSecondary }]}>
-                {language === 'th'
-                  ? 'บัญชีผู้ใช้งานถูกจัดการและกำหนดสิทธิ์โดยผู้ดูแลระบบ (Admin Console)'
-                  : 'Specialist accounts are provisioned by your System Administrator.'}
-              </Text>
+            {/* Footer */}
+            <View style={styles.footer}>
+              <Text style={[styles.versionText, { color: colors.textMuted }]}>FastFleet Marketing Field Pro v2.4 (2026)</Text>
             </View>
           </View>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={[styles.versionText, { color: colors.textMuted }]}>FastFleet Marketing Field Pro v2.4 (2026)</Text>
-          </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -202,10 +210,19 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  innerContainer: {
-    flex: 1,
+  scrollInner: {
+    flexGrow: 1,
     justifyContent: 'center',
-    padding: 20,
+    paddingVertical: 16,
+  },
+  topLangBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  innerContainer: {
+    paddingHorizontal: 20,
     maxWidth: 440,
     alignSelf: 'center',
     width: '100%',
@@ -327,11 +344,5 @@ const styles = StyleSheet.create({
   versionText: {
     fontSize: 11,
     color: '#94A3B8',
-  },
-  topLangBar: {
-    position: 'absolute',
-    top: 14,
-    right: 20,
-    zIndex: 50,
   },
 });

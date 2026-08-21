@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   Alert,
   Image,
   Modal,
+  KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   MapPin,
@@ -19,13 +21,10 @@ import {
   Clock,
   Receipt,
   CheckCircle,
-  AlertCircle,
   AlertTriangle,
   Camera,
   CreditCard,
-  PlusCircle,
   Send,
-  MoreVertical,
   CheckCircle2,
   FileText,
   Users,
@@ -38,20 +37,61 @@ import {
   ChevronRight,
   Gauge,
   Navigation as NavigationIcon,
+  Home,
+  Save,
 } from 'lucide-react-native';
 
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 
+function parsePhotos(photoField?: any): string[] {
+  if (!photoField) return [];
+  const results: string[] = [];
+
+  const extract = (val: any) => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      val.forEach(extract);
+      return;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('"{') && trimmed.endsWith('}"')) ||
+        (trimmed.startsWith('"[') && trimmed.endsWith(']"'))
+      ) {
+        try {
+          const unescaped = trimmed.startsWith('"') && trimmed.endsWith('"') ? JSON.parse(trimmed) : trimmed;
+          const parsed = typeof unescaped === 'string' ? JSON.parse(unescaped) : unescaped;
+          extract(parsed);
+          return;
+        } catch (e) {}
+      }
+      if (trimmed.includes('||')) {
+        trimmed.split('||').forEach((s) => extract(s.trim()));
+        return;
+      }
+      if (trimmed.length > 5 && !trimmed.startsWith('[') && !trimmed.endsWith(']')) {
+        results.push(trimmed);
+      }
+    }
+  };
+
+  extract(photoField);
+  return Array.from(new Set(results));
+}
+
 export default function TripSummaryScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const tripRoute = params.tripTitle || params.tripRoute || 'Bangkok Central Delivery Route';
   const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max (1กข-4452)';
   
-  // Starting Location & Odometer state (editable directly in visit logs)
+  // Starting Location & Odometer state
   const [startOdometer, setStartOdometer] = useState<string>(params.startOdometer || '45200');
-  const [startLocation, setStartLocation] = useState(
+  const [startLocation] = useState(
     params.startLocation || {
       name: language === 'th' ? 'สำนักงาน / จุดปล่อยรถ (Depot)' : 'Office / Dispatch Depot',
       address: 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร',
@@ -79,22 +119,125 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
   // Dynamic state that gets updated when returning from DropReporting
   const [dropsList, setDropsList] = useState<any[]>(rawDrops);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isRevision, setIsRevision] = useState<boolean>(!!params.isRevision);
+  const [revisionCount, setRevisionCount] = useState<number>(params.revisionCount || 1);
+  const [managerFeedback, setManagerFeedback] = useState<string>(params.managerFeedback || '');
+  const [isApproved, setIsApproved] = useState<boolean>(!!params.isApproved);
+  const [isPendingReview, setIsPendingReview] = useState<boolean>(!!params.isPendingReview);
+  const hasInitialTripExpensesLoadedRef = useRef(false);
 
   // Sync state when route params change (e.g. from DropReporting edit)
   useEffect(() => {
     if (params.drops && Array.isArray(params.drops) && params.drops.length > 0) {
       setDropsList(params.drops);
-    } else if (params.updatedDropIndex !== undefined && params.updatedDropData) {
+    } else if (params.updatedDropIndex !== undefined && params.updatedDrop) {
+      // Single drop update from DropReporting edit
       setDropsList((prev) => {
         const next = [...prev];
         next[params.updatedDropIndex] = {
           ...next[params.updatedDropIndex],
-          ...params.updatedDropData,
+          ...params.updatedDrop,
         };
         return next;
       });
     }
   }, [params]);
+
+  useEffect(() => {
+    if (params.isRevision !== undefined) setIsRevision(!!params.isRevision);
+    if (params.revisionCount !== undefined) setRevisionCount(params.revisionCount);
+    if (params.managerFeedback !== undefined) setManagerFeedback(params.managerFeedback);
+    if (params.isApproved !== undefined) setIsApproved(!!params.isApproved);
+    if (params.isPendingReview !== undefined) setIsPendingReview(!!params.isPendingReview);
+  }, [params.isRevision, params.revisionCount, params.managerFeedback, params.isApproved, params.isPendingReview]);
+
+  // Load trip status & manager feedback directly from Supabase
+  useEffect(() => {
+    async function loadTripMeta() {
+      if (!params.tripId) return;
+      try {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('approval_status, manager_feedback, status')
+          .eq('id', params.tripId)
+          .single();
+        if (tripData) {
+          if (tripData.approval_status === 'revision_requested') {
+            setIsRevision(true);
+            setIsApproved(false);
+            setIsPendingReview(false);
+            const revMatch = tripData.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
+            const count = revMatch ? parseInt(revMatch[1], 10) : 1;
+            setRevisionCount(count);
+            const cleanFeedback = tripData.manager_feedback?.replace(/\[(?:รอบที่|REV:)\s*\d+\]\s*/i, '').trim() || tripData.manager_feedback || '';
+            setManagerFeedback(cleanFeedback);
+          } else if (tripData.approval_status === 'approved') {
+            setIsApproved(true);
+            setIsRevision(false);
+            setIsPendingReview(false);
+          } else if (tripData.approval_status === 'pending') {
+            setIsPendingReview(true);
+            setIsRevision(false);
+            setIsApproved(false);
+          }
+        }
+      } catch (err) {
+        console.warn('Error loading trip meta in TripSummary:', err);
+      }
+    }
+    loadTripMeta();
+  }, [params.tripId]);
+
+  // Load expenses from Supabase for all drops if tripId is present (only once if dropsList has no expenses)
+  useEffect(() => {
+    async function loadTripExpenses() {
+      if (!params.tripId || hasInitialTripExpensesLoadedRef.current) return;
+      try {
+        const { data: dbExpenses } = await supabase
+          .from('expenses')
+          .select('*')
+          .eq('trip_id', params.tripId);
+
+        if (dbExpenses && dbExpenses.length > 0) {
+          hasInitialTripExpensesLoadedRef.current = true;
+          const reverseCatMap: Record<string, string> = {
+            'toll': 'ค่าทางด่วน',
+            'parking': 'ค่าที่จอดรถ',
+            'fuel': 'ค่าน้ำมัน',
+            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
+            'other': 'อื่นๆ',
+          };
+          setDropsList((prev) =>
+            prev.map((d) => {
+              if (Array.isArray(d.expenses) && d.expenses.length > 0) {
+                return d;
+              }
+              const apptId = d.appointmentId || d.id;
+              const apptExps = dbExpenses.filter((e) => e.appointment_id === apptId);
+              if (apptExps.length > 0) {
+                return {
+                  ...d,
+                  expenses: apptExps.map((e) => ({
+                    id: e.id,
+                    category: reverseCatMap[e.category] || e.category || 'ค่าใช้จ่ายเข้าพบ',
+                    amount: String(e.amount),
+                    receiptUri: e.receipt_url || e.receipt_image_path,
+                    receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+                    note: e.notes || '',
+                  })),
+                };
+              }
+              return d;
+            })
+          );
+        }
+      } catch (err) {
+        console.warn('Error loading trip expenses in TripSummary:', err);
+      }
+    }
+    loadTripExpenses();
+  }, [params.tripId]);
 
   // Aggregate breakdown by each client
   const clientExpensesBreakdown = dropsList.map((drop, index) => {
@@ -112,186 +255,344 @@ export default function TripSummaryScreen({ navigation, route }: any) {
   const totalExpenseItemsCount = clientExpensesBreakdown.reduce((sum, item) => sum + item.expenses.length, 0);
 
   // Modal Image Preview State
-  const [previewImage, setPreviewImage] = useState<{ uri: string; title: string; subtitle?: string } | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ uri: string; title: string; subtitle?: string; location?: string; latitude?: number; longitude?: number } | null>(null);
   const [showAllExpenses, setShowAllExpenses] = useState(false);
 
   // Navigation to DropReporting for retroactive edits
   const handleEditDrop = (dropItem: any, index: number) => {
+    if (isApproved) {
+      Alert.alert(
+        language === 'th' ? 'รายงานได้รับการอนุมัติแล้ว' : 'Report Approved',
+        language === 'th'
+          ? 'รายงานนี้ได้รับการอนุมัติจาก Admin เรียบร้อยแล้ว จึงถูกบันทึกเป็นประวัติถาวร (Read-Only) ไม่สามารถแก้ไขได้'
+          : 'This report has been approved by the Admin and is archived as read-only.',
+        [{ text: t('btn_confirm') || 'ตกลง' }]
+      );
+      return;
+    }
+    if (isPendingReview) {
+      Alert.alert(
+        language === 'th' ? 'รายงานอยู่ระหว่างรออนุมัติ' : 'Report Pending Approval',
+        language === 'th'
+          ? 'รายงานนี้ถูกส่งให้ Admin แล้ว ไม่สามารถแก้ไขได้ในขณะนี้ หากต้องการแก้ไขต้องรอให้ Admin ส่งกลับมาแก้ไข (Revision Requested) เท่านั้น'
+          : 'This report has been submitted to Admin and is locked. You can only edit if Admin requests a revision.'
+      );
+      return;
+    }
+    const currentDrop = dropsList[index] || dropItem;
+    const currentExps = Array.isArray(currentDrop.expenses)
+      ? currentDrop.expenses
+      : Array.isArray(dropItem.expenses)
+      ? dropItem.expenses
+      : getDropExpenses(currentDrop, index);
+
+    const currentPhotos = Array.isArray(currentDrop.photos)
+      ? parsePhotos(currentDrop.photos)
+      : Array.isArray(dropItem.photos)
+      ? parsePhotos(dropItem.photos)
+      : parsePhotos(currentDrop.client_photo_url);
+
     navigation.navigate('DropReporting', {
-      drop: dropItem,
+      drop: {
+        ...currentDrop,
+        expenses: currentExps,
+        photos: currentPhotos,
+      },
       dropIndex: index,
       drops: dropsList,
       totalDrops: dropsList.length,
+      tripId: params.tripId,
       tripTitle: tripRoute,
       selectedVehicle: selectedVehicle,
+      startLocation: startLocation,
+      startOdometer: startOdometer,
       isEditingFromSummary: true,
-      note: dropItem.note || dropItem.meetingMinutes || '',
-      expenses: dropItem.expenses || getDropExpenses(dropItem, index),
-      odometer: dropItem.odometer,
-      photos: dropItem.photos,
+      isRevision: isRevision,
+      revisionCount: revisionCount,
+      managerFeedback: managerFeedback,
+      isApproved: isApproved,
+      isPendingReview: isPendingReview,
+      note: currentDrop.note || currentDrop.meetingMinutes || '',
+      expenses: currentExps,
+      odometer: currentDrop.odometer,
+      photos: currentPhotos,
     });
   };
 
-  const handleSubmitTripReport = () => {
-    const unconfirmedList = dropsList.filter((d: any, idx: number) => {
-      if (d.isConfirmed !== undefined) return !d.isConfirmed;
-      return idx >= 2;
-    });
-
-    if (unconfirmedList.length > 0) {
+  // Start Odometer edit handler (same protection as drop edits)
+  const handleEditStartOdo = () => {
+    if (params.isApproved) {
       Alert.alert(
-        language === 'th' ? 'ยังยืนยันไม่ครบทุกจุด ⚠️' : 'Incomplete Confirmations ⚠️',
+        language === 'th' ? 'รายงานได้รับการอนุมัติแล้ว' : 'Report Approved',
         language === 'th'
-          ? `มี ${unconfirmedList.length} จุดที่ยังไม่ได้เปิดสวิตช์ยืนยันเข้าพบ กรุณาแตะที่รายชื่อลูกค้าเพื่อกดยืนยันให้ครบถ้วนก่อนส่งรายงาน`
-          : `There are ${unconfirmedList.length} stops not confirmed yet. Please verify all stops before submitting report.`,
-        [
-          { text: t('btn_cancel'), style: 'cancel' },
-          {
-            text: language === 'th' ? 'ตรวจสอบจุดที่เหลือ' : 'Review Stops',
-            onPress: () => {
-              const firstUnconfirmedIndex = dropsList.findIndex((d: any, idx: number) => {
-                if (d.isConfirmed !== undefined) return !d.isConfirmed;
-                return idx >= 2;
+          ? 'รายงานนี้ได้รับการอนุมัติจาก Admin เรียบร้อยแล้ว จึงถูกบันทึกเป็นประวัติถาวร (Read-Only) ไม่สามารถแก้ไขได้'
+          : 'This report has been approved by the Admin and is archived as read-only.',
+        [{ text: t('btn_confirm') || 'ตกลง' }]
+      );
+      return;
+    }
+    if (params.isPendingReview) {
+      Alert.alert(
+        language === 'th' ? 'รายงานอยู่ระหว่างรออนุมัติ' : 'Report Pending Approval',
+        language === 'th'
+          ? 'รายงานนี้ถูกส่งให้ Admin แล้ว ไม่สามารถแก้ไขได้ในขณะนี้ หากต้องการแก้ไขต้องรอให้ Admin ส่งกลับมาแก้ไข (Revision Requested) เท่านั้น'
+          : 'This report has been submitted to Admin and is locked. You can only edit if Admin requests a revision.'
+      );
+      return;
+    }
+    setEditingOdoValue(startOdometer);
+    setIsEditStartOdoOpen(true);
+  };
+
+  const handleSaveStartOdo = async () => {
+    const trimmed = editingOdoValue.trim();
+    if (!trimmed) {
+      setIsEditStartOdoOpen(false);
+      return;
+    }
+    setStartOdometer(trimmed);
+    setIsEditStartOdoOpen(false);
+
+    if (params.tripId) {
+      try {
+        await supabase.from('trips').update({
+          start_odometer: Number(trimmed) || 0,
+        }).eq('id', params.tripId);
+      } catch (err) {
+        console.warn('Error updating start odometer in DB:', err);
+      }
+    }
+
+    Alert.alert(
+      language === 'th' ? 'บันทึกสำเร็จ ✓' : 'Saved ✓',
+      language === 'th'
+        ? `อัปเดตเลขไมล์เริ่มต้นเป็น ${trimmed} กม. เรียบร้อยแล้ว`
+        : `Starting odometer updated to ${trimmed} km.`
+    );
+  };
+
+  const incompleteDropsCount = dropsList.filter((d: any) => !d.isConfirmed || !d.isDataComplete).length;
+  const isAllDropsCompleted = dropsList.length > 0 && incompleteDropsCount === 0;
+
+  const syncTripDataToDatabase = async (targetApprovalStatus: 'draft' | 'pending' | 'revision_requested') => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const staffId = user?.id;
+    if (!staffId) return;
+
+    let tripId = params.tripId;
+    const startOdoNum = parseInt(startOdometer || '45200', 10);
+    const endOdoNum = startOdoNum + 45;
+    const isPending = targetApprovalStatus === 'pending';
+
+    if (!tripId) {
+      const newTripCode = `TRP-${Date.now().toString().slice(-6)}`;
+      const { data: newTrip } = await supabase
+        .from('trips')
+        .insert({
+          type: 'marketing',
+          trip_code: newTripCode,
+          staff_id: staffId,
+          title: tripRoute,
+          trip_date: new Date().toISOString().split('T')[0],
+          status: isPending ? 'completed' : 'in_progress',
+          approval_status: targetApprovalStatus,
+          start_odometer: startOdoNum,
+          end_odometer: endOdoNum,
+          total_distance_km: 45.2,
+          total_expenses: totalExpenseAmount,
+        })
+        .select()
+        .single();
+
+      if (newTrip) tripId = newTrip.id;
+    } else {
+      await supabase
+        .from('trips')
+        .update({
+          status: isPending ? 'completed' : 'in_progress',
+          approval_status: targetApprovalStatus,
+          start_odometer: startOdoNum,
+          end_odometer: endOdoNum,
+          total_expenses: totalExpenseAmount,
+        })
+        .eq('id', tripId);
+    }
+
+    // Sync appointments
+    if (tripId && Array.isArray(dropsList)) {
+      for (let i = 0; i < dropsList.length; i++) {
+        const d = dropsList[i];
+        const isDataComp = !!d.isDataComplete;
+        const isConf = !!d.isConfirmed;
+
+        const dropExps = d.expenses || getDropExpenses(d, i);
+        const cleanedPhotos = parsePhotos(d.photos || d.client_photo_url);
+        const finalPhotoUrl = cleanedPhotos.length > 0 ? (cleanedPhotos.length === 1 ? cleanedPhotos[0] : JSON.stringify(cleanedPhotos)) : null;
+
+        const apptPayload: any = {
+          type: 'appointment',
+          trip_id: tripId,
+          staff_id: staffId,
+          company_name: d.name || `ลูกค้าจุดที่ ${i + 1}`,
+          customer_name: d.contactPerson || d.recipient || d.name || `ลูกค้าจุดที่ ${i + 1}`,
+          recipient_name: d.recipient || d.contactPerson || '',
+          recipient_phone: d.phone || d.contactPhone || '',
+          destination_address: d.address || '',
+          destination_lat: d.latitude || null,
+          destination_lng: d.longitude || null,
+          agenda: d.agenda || d.items || '',
+          sequence_order: i + 1,
+          confirmation_status: isConf,
+          meeting_notes: d.meetingMinutes || d.note || '',
+          status: isConf ? (isDataComp ? 'completed' : 'incomplete') : 'pending',
+        };
+
+        if (isPending) {
+          // Submitted/Resubmitted to Admin: Commit the newly revised photos to official client_photo_url and clear draft!
+          apptPayload.client_photo_url = finalPhotoUrl;
+          apptPayload.driver_notes = null;
+        } else if (isRevision) {
+          // Saving draft during revision: Store draft photos in driver_notes so specialist keeps them, but DO NOT update client_photo_url (Admin won't see new draft photos yet!)
+          apptPayload.driver_notes = JSON.stringify({ draftPhotos: cleanedPhotos, draftExpenses: dropExps });
+        } else {
+          // Brand new draft:
+          apptPayload.client_photo_url = finalPhotoUrl;
+          apptPayload.driver_notes = null;
+        }
+
+        let apptId = d.appointmentId || d.id;
+        if (apptId) {
+          await supabase
+            .from('appointments')
+            .update(apptPayload)
+            .eq('id', apptId);
+        } else {
+          const { data: newAppt } = await supabase
+            .from('appointments')
+            .insert(apptPayload)
+            .select()
+            .single();
+          if (newAppt) apptId = newAppt.id;
+        }
+        if (apptId && Array.isArray(dropExps)) {
+          await supabase.from('expenses').delete().eq('appointment_id', apptId);
+          for (const exp of dropExps) {
+            const amt = parseFloat(exp.amount);
+            if (amt > 0) {
+              const catMap: Record<string, string> = {
+                'ค่าทางด่วน': 'toll',
+                'ค่าที่จอดรถ': 'parking',
+                'ค่าน้ำมัน': 'fuel',
+                'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
+                'ค่าเลี้ยงรับรอง': 'entertainment',
+                'อื่นๆ': 'other',
+              };
+              await supabase.from('expenses').insert({
+                staff_id: staffId,
+                trip_id: tripId,
+                appointment_id: apptId,
+                category: catMap[exp.category] || exp.category || 'other',
+                title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
+                amount: amt,
+                receipt_url: exp.receiptUri,
+                receipt_image_path: exp.receiptUri,
+                notes: exp.note,
+                status: 'pending',
               });
-              if (firstUnconfirmedIndex >= 0) {
-                handleEditDrop(dropsList[firstUnconfirmedIndex], firstUnconfirmedIndex);
-              }
-            },
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const handleSaveDraftAndReturn = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const targetStatus = isRevision ? 'revision_requested' : 'draft';
+      await syncTripDataToDatabase(targetStatus);
+      Alert.alert(
+        language === 'th' ? 'บันทึกสำเร็จ ✓' : 'Saved ✓',
+        language === 'th'
+          ? (isRevision
+              ? 'บันทึกแบบร่างฉบับแก้ไขเรียบร้อย ทริปนี้จะยังคงอยู่ในกล่อง "⚠️ ส่งกลับแก้ไข" เพื่อให้คุณกลับมาแก้ไขและส่งใหม่ได้ตลอดเวลา'
+              : 'บันทึกข้อมูลเรียบร้อย ทริปนี้จะคงอยู่ในแผนงานวันนี้ เพื่อให้คุณสามารถกลับมาแก้ไขข้อมูลได้ตลอดเวลา')
+          : 'Saved draft. This trip will remain available for editing.',
+        [
+          {
+            text: language === 'th' ? 'กลับหน้าหลัก' : 'Go to Dashboard',
+            onPress: () => navigation.navigate('Dashboard'),
           },
         ]
+      );
+    } catch (err: any) {
+      console.error('Error saving draft:', err);
+      Alert.alert(
+        language === 'th' ? 'เกิดข้อผิดพลาด' : 'Error',
+        err.message || 'Could not save draft'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSubmitToAdmin = () => {
+    if (isSaving) return;
+    const incompleteList = dropsList.filter((d: any) => !d.isConfirmed || !d.isDataComplete);
+    if (incompleteList.length > 0) {
+      Alert.alert(
+        language === 'th' ? 'ข้อมูลยังไม่ครบถ้วน ⚠️' : 'Incomplete Data ⚠️',
+        language === 'th'
+          ? `มี ${incompleteList.length} จุดที่ยังไม่สมบูรณ์ (Incomplete) คุณต้องกรอกข้อมูลให้ครบถ้วนทุกจุดก่อนจึงจะส่งให้ Admin ได้\n\nหากต้องการออกไปก่อน กรุณากดปุ่ม "บันทึกและกลับไปแผนงานวันนี้"`
+          : `There are ${incompleteList.length} incomplete stops. Please complete all stops before submitting to Admin, or save draft to Planned Today.`
       );
       return;
     }
 
     Alert.alert(
-      params.isRevision
-        ? (language === 'th' ? 'ยืนยันการส่งรายงานแก้ไข 🚀' : 'Confirm Resubmission 🚀')
-        : (language === 'th' ? 'ยืนยันการส่งรายงาน 🎉' : 'Submit Field Report 🎉'),
-      params.isRevision
+      isRevision
+        ? (language === 'th' ? 'ยืนยันการส่งรายงานแก้ไขให้ Admin 🚀' : 'Confirm Resubmission to Admin 🚀')
+        : (language === 'th' ? 'ยืนยันส่งรายงานให้ Admin ตรวจสอบ 🚀' : 'Confirm Submit to Admin 🚀'),
+      isRevision
         ? (language === 'th'
-            ? `ส่งรายงานฉบับแก้ไขรอบที่ ${params.revisionCount || 1} พร้อมเอกสารและสลิปค่าใช้จ่ายรวม ฿${totalExpenseAmount.toFixed(2)} ให้หัวหน้างานตรวจสอบ`
-            : `Resubmit revised report for manager review with total expenses of ฿${totalExpenseAmount.toFixed(2)}`)
+            ? `ส่งรายงานฉบับแก้ไขรอบที่ ${revisionCount || 1} พร้อมสลิปค่าใช้จ่ายรวม ฿${totalExpenseAmount.toFixed(2)} ไปยัง Web Admin เพื่อรออนุมัติ`
+            : `Resubmit revised report for manager approval with total expenses of ฿${totalExpenseAmount.toFixed(2)}`)
         : (language === 'th'
-            ? `ส่งรายงานการเข้าพบลูกค้าทั้งหมด (${dropsList.length} รายการ) และสรุปค่าใช้จ่ายรวม ฿${totalExpenseAmount.toFixed(2)} (${totalExpenseItemsCount} รายการ) เข้าระบบส่วนกลาง`
-            : `Submit report for ${dropsList.length} client visits and total expenses of ฿${totalExpenseAmount.toFixed(2)} (${totalExpenseItemsCount} items) to central system`),
+            ? `ยืนยันส่งรายงานการเข้าพบลูกค้า (${dropsList.length} จุด) และค่าใช้จ่ายรวม ฿${totalExpenseAmount.toFixed(2)} ไปยัง Web Admin เพื่อรออนุมัติ? (รายงานจะย้ายไปที่กล่องรออนุมัติ)`
+            : `Submit report for ${dropsList.length} client visits and total expenses of ฿${totalExpenseAmount.toFixed(2)} to Web Admin? (It will move to Pending Approval)`),
       [
         { text: t('btn_cancel'), style: 'cancel' },
         {
-          text: t('btn_confirm'),
+          text: language === 'th' ? 'ส่งให้ Admin' : 'Submit to Admin',
           onPress: async () => {
+            if (isSaving) return;
+            setIsSaving(true);
             try {
-              const { data: { user } } = await supabase.auth.getUser();
-              const staffId = user?.id;
-
-              if (staffId) {
-                // Check if tripId exists or create new
-                let tripId = params.tripId;
-                const startOdoNum = parseInt(startOdometer || '45200', 10);
-                const endOdoNum = startOdoNum + 45;
-
-                if (!tripId) {
-                  const newTripCode = `TRP-${Date.now().toString().slice(-6)}`;
-                  const { data: newTrip } = await supabase
-                    .from('trips')
-                    .insert({
-                      type: 'marketing',
-                      trip_code: newTripCode,
-                      staff_id: staffId,
-                      title: tripRoute,
-                      trip_date: new Date().toISOString().split('T')[0],
-                      status: 'completed',
-                      approval_status: 'pending',
-                      start_odometer: startOdoNum,
-                      end_odometer: endOdoNum,
-                      total_distance_km: 45.2,
-                      total_expenses: totalExpenseAmount,
-                    })
-                    .select()
-                    .single();
-
-                  if (newTrip) {
-                    tripId = newTrip.id;
-                  }
-                } else {
-                  await supabase
-                    .from('trips')
-                    .update({
-                      status: 'completed',
-                      approval_status: 'pending',
-                      start_odometer: startOdoNum,
-                      end_odometer: endOdoNum,
-                      total_expenses: totalExpenseAmount,
-                    })
-                    .eq('id', tripId);
-                }
-
-                // Sync appointments
-                if (tripId && Array.isArray(dropsList)) {
-                  for (let i = 0; i < dropsList.length; i++) {
-                    const d = dropsList[i];
-                    const apptRes = await supabase
-                      .from('appointments')
-                      .insert({
-                        type: 'appointment',
-                        trip_id: tripId,
-                        staff_id: staffId,
-                        company_name: d.name || `ลูกค้าจุดที่ ${i + 1}`,
-                        customer_name: d.contactPerson || d.name || `ลูกค้าจุดที่ ${i + 1}`,
-                        recipient_name: d.contactPerson || 'ผู้จัดการสาขา',
-                        recipient_phone: d.contactPhone || '081-000-0000',
-                        destination_address: d.address || 'กรุงเทพมหานคร',
-                        agenda: d.agenda || 'demo',
-                        sequence_order: i + 1,
-                        confirmation_status: d.isConfirmed !== false,
-                        meeting_notes: d.meetingMinutes || d.note || '',
-                        status: 'completed',
-                        client_photo_url: d.photos && d.photos[0] ? d.photos[0] : null,
-                      })
-                      .select()
-                      .single();
-
-                    // Sync drop expenses
-                    const dropExps = d.expenses || getDropExpenses(d, i);
-                    if (apptRes.data?.id && Array.isArray(dropExps)) {
-                      for (const exp of dropExps) {
-                        if (parseFloat(exp.amount) > 0) {
-                          await supabase.from('expenses').insert({
-                            staff_id: staffId,
-                            trip_id: tripId,
-                            appointment_id: apptRes.data.id,
-                            category: exp.category === 'ค่าน้ำมัน' ? 'fuel' : (exp.category === 'ค่าทางด่วน' ? 'toll' : 'parking'),
-                            amount: parseFloat(exp.amount),
-                            receipt_url: exp.receiptUri,
-                            notes: exp.note,
-                          });
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (syncErr) {
-              console.error('Error syncing trip report to Supabase:', syncErr);
+              await syncTripDataToDatabase('pending');
+              Alert.alert(
+                isRevision
+                  ? (language === 'th' ? 'ส่งรายงานแก้ไขเรียบร้อย 🚀' : 'Report Resubmitted 🚀')
+                  : (language === 'th' ? 'ส่งรายงานให้ Admin เรียบร้อย 🚀' : 'Submitted to Admin 🚀'),
+                language === 'th'
+                  ? 'ข้อมูลถูกส่งไปยังหน้า Web Admin เรียบร้อยแล้ว รายงานจะย้ายไปอยู่ที่กล่องรออนุมัติ (คุณสามารถกดดึงกลับมาแก้ไขได้ตลอดเวลา)'
+                  : 'Report sent to Web Admin for manager approval. It has moved to Pending Approval box.',
+                [
+                  {
+                    text: language === 'th' ? 'กลับหน้าหลัก' : 'Go to Dashboard',
+                    onPress: () => navigation.navigate('Dashboard'),
+                  },
+                ]
+              );
+            } catch (err: any) {
+              console.error('Error submitting to admin:', err);
+              Alert.alert(
+                language === 'th' ? 'เกิดข้อผิดพลาด' : 'Error',
+                err.message || 'Could not submit report'
+              );
+            } finally {
+              setIsSaving(false);
             }
-
-            Alert.alert(
-              params.isRevision
-                ? (language === 'th' ? 'ส่งรายงานแก้ไขเรียบร้อย 🚀' : 'Report Resubmitted 🚀')
-                : (language === 'th' ? 'ส่งรายงานเรียบร้อย 🚀' : 'Report Submitted 🚀'),
-              params.isRevision
-                ? (language === 'th'
-                    ? `ข้อมูลฉบับแก้ไขถูกส่งไปยัง Web Admin ให้ผู้จัดการตรวจสอบแล้ว`
-                    : 'Your revised trip report has been sent to Web Admin for manager approval.')
-                : (language === 'th'
-                    ? 'ข้อมูลการเข้าพบลูกค้าและหลักฐานสลิปค่าใช้จ่ายถูกบันทึกเรียบร้อยแล้ว'
-                    : 'Client visit records and expense receipts have been synced successfully.'),
-              [
-                {
-                  text: language === 'th' ? 'กลับหน้าหลัก' : 'Go to Dashboard',
-                  onPress: () => navigation.navigate('Dashboard'),
-                },
-              ]
-            );
           },
         },
       ]
@@ -300,47 +601,99 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
   return (
     <View style={styles.container}>
-      {/* Top App Bar (Dark Navy Header) */}
-      <View style={styles.darkHeader}>
-        <SafeAreaView edges={['top']} style={styles.headerInner}>
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.8}
-          >
-            <ArrowLeft size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>
-              {params.isRevision
-                ? (language === 'th' ? 'แก้ไขรายงานทริป' : 'Revise Trip Report')
-                : t('summary_title')}
-            </Text>
-            <Text style={styles.headerSub} numberOfLines={1}>{tripRoute}</Text>
-          </View>
-          <LanguageTogglePill />
-        </SafeAreaView>
-      </View>
-
-      <ScrollView
-        style={styles.scrollContent}
-        contentContainerStyle={styles.scrollInner}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
       >
+        {/* Top App Bar (Dark Navy Header) */}
+        <View style={styles.darkHeader}>
+          <SafeAreaView edges={['top']} style={styles.headerInner}>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.8}
+            >
+              <ArrowLeft size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>
+                {isRevision
+                  ? (language === 'th' ? 'แก้ไขรายงานทริป' : 'Revise Trip Report')
+                  : t('summary_title')}
+              </Text>
+              <Text style={styles.headerSub} numberOfLines={1}>{tripRoute}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <LanguageTogglePill />
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => navigation.navigate('Dashboard')}
+                activeOpacity={0.8}
+              >
+                <Home size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+
+        <ScrollView
+          style={styles.scrollContent}
+          contentContainerStyle={styles.scrollInner}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         {/* Manager Revision Alert Banner if in Revision Mode */}
-        {params.isRevision && (
+        {isRevision && (
           <View style={styles.revisionNoticeCard}>
             <View style={styles.revisionNoticeHeader}>
               <AlertTriangle size={18} color="#DC2626" />
               <Text style={styles.revisionNoticeTitle}>
                 {language === 'th'
-                  ? `⚠️ ทริปนี้ถูกส่งกลับแก้ไข (รอบที่ ${params.revisionCount || 1})`
-                  : `⚠️ Revision Requested (Cycle #${params.revisionCount || 1})`}
+                  ? `⚠️ ทริปนี้ถูกส่งกลับแก้ไข (รอบที่ ${revisionCount || 1})`
+                  : `⚠️ Revision Requested (Cycle #${revisionCount || 1})`}
               </Text>
             </View>
             <Text style={styles.revisionNoticeText}>
               {language === 'th' ? '💬 ข้อความจากหัวหน้างาน:' : '💬 Manager Feedback:'}{' '}
-              "{params.managerFeedback || 'กรุณาตรวจสอบและแก้ไขข้อมูลให้ถูกต้องก่อนส่งใหม่'}"
+              "{managerFeedback || 'กรุณาตรวจสอบและแก้ไขข้อมูลให้ถูกต้องก่อนส่งใหม่'}"
+            </Text>
+          </View>
+        )}
+
+        {/* Approved Notice Banner if already approved */}
+        {isApproved && (
+          <View style={[styles.revisionNoticeCard, { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' }]}>
+            <View style={styles.revisionNoticeHeader}>
+              <CheckCircle2 size={18} color="#166534" />
+              <Text style={[styles.revisionNoticeTitle, { color: '#166534' }]}>
+                {language === 'th'
+                  ? '✓ รายงานนี้ได้รับการอนุมัติเรียบร้อยแล้ว'
+                  : '✓ Report Approved by Admin'}
+              </Text>
+            </View>
+            <Text style={[styles.revisionNoticeText, { color: '#14532D' }]}>
+              {language === 'th'
+                ? 'รายงานและค่าใช้จ่ายในทริปนี้ผ่านการตรวจสอบและอนุมัติจากผู้จัดการฝ่ายการตลาดแล้ว ข้อมูลและประวัติการเข้าพบถูกจัดเก็บเป็นประวัติถาวร (Read-Only)'
+                : 'This visit report and expenses have been verified and approved by the marketing manager. Data is permanently archived.'}
+            </Text>
+          </View>
+        )}
+
+        {/* Pending Review Banner if already submitted */}
+        {isPendingReview && (
+          <View style={[styles.revisionNoticeCard, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+            <View style={styles.revisionNoticeHeader}>
+              <Clock size={18} color="#1D4ED8" />
+              <Text style={[styles.revisionNoticeTitle, { color: '#1D4ED8' }]}>
+                {language === 'th'
+                  ? '⏳ ส่งรายงานให้ Admin แล้ว (รอการอนุมัติ)'
+                  : '⏳ Report Submitted to Admin (Pending Approval)'}
+              </Text>
+            </View>
+            <Text style={[styles.revisionNoticeText, { color: '#1E40AF' }]}>
+              {language === 'th'
+                ? 'รายงานนี้ถูกส่งไปที่หน้า Trip Approval เพื่อรอ Admin ตรวจสอบและอนุมัติแล้ว ไม่สามารถแก้ไขได้ หากต้องการแก้ไขเพิ่มเติม ต้องรอให้ Admin ส่งกลับมาแก้ไข (Revision Requested) เท่านั้น'
+                : 'This report has been submitted for Admin approval. If modifications are needed, Admin must request a revision.'}
             </Text>
           </View>
         )}
@@ -482,6 +835,9 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                                     uri: exp.receiptUri,
                                     title: `${item.drop.name} - ${exp.category}`,
                                     subtitle: `฿${exp.amount} • ${exp.receiptName || 'Slip'}`,
+                                    location: item.drop.name,
+                                    latitude: item.drop.latitude,
+                                    longitude: item.drop.longitude,
                                   })
                                 }
                                 activeOpacity={0.8}
@@ -530,13 +886,10 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           </View>
 
           <View style={styles.timelineList}>
-            {/* Origin / Start Location Item (#0) with Edit Start Odo Button */}
+            {/* Origin / Start Location Item (#0) (Editable in Draft/Revision, Locked in Approved/Pending) */}
             <TouchableOpacity
               style={styles.timelineItem}
-              onPress={() => {
-                setEditingOdoValue(startOdometer);
-                setIsEditStartOdoOpen(true);
-              }}
+              onPress={handleEditStartOdo}
               activeOpacity={0.7}
             >
               <View style={styles.seqCol}>
@@ -560,17 +913,16 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                     </View>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.editDropButton}
-                    onPress={() => {
-                      setEditingOdoValue(startOdometer);
-                      setIsEditStartOdoOpen(true);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Edit3 size={12} color="#1D4ED8" />
-                    <Text style={styles.editDropButtonText}>{t('btn_edit')}</Text>
-                  </TouchableOpacity>
+                  {!params.isApproved && !params.isPendingReview && (
+                    <TouchableOpacity
+                      style={styles.editDropButton}
+                      onPress={handleEditStartOdo}
+                      activeOpacity={0.7}
+                    >
+                      <Edit3 size={12} color="#1D4ED8" />
+                      <Text style={styles.editDropButtonText}>{t('btn_edit')}</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 <Text style={styles.dropAddressText} numberOfLines={1}>
@@ -589,7 +941,10 @@ export default function TripSummaryScreen({ navigation, route }: any) {
             </TouchableOpacity>
 
             {dropsList.map((dropItem: any, index: number) => {
-              const isDropConfirmed = dropItem.isConfirmed !== undefined ? !!dropItem.isConfirmed : index < 2;
+              // isDataComplete controls Complete vs Incomplete badge on summary
+              const isDropComplete = dropItem.isDataComplete !== undefined
+                ? !!dropItem.isDataComplete
+                : (dropItem.status === 'Completed' || dropItem.status === 'completed');
               const dropExp = getDropExpenses(dropItem, index);
               const dropExpSum = dropExp.reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
 
@@ -598,7 +953,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                   key={dropItem.id || index}
                   style={[
                     styles.timelineItem,
-                    !isDropConfirmed && styles.timelineItemUnconfirmed,
+                    !isDropComplete && styles.timelineItemUnconfirmed,
                   ]}
                   onPress={() => handleEditDrop(dropItem, index)}
                   activeOpacity={0.7}
@@ -608,7 +963,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                     <View
                       style={[
                         styles.seqCircle,
-                        isDropConfirmed
+                        isDropComplete
                           ? { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' }
                           : { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' },
                       ]}
@@ -616,7 +971,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                       <Text
                         style={[
                           styles.seqText,
-                          isDropConfirmed ? { color: '#166534' } : { color: '#B45309' },
+                          isDropComplete ? { color: '#166534' } : { color: '#B45309' },
                         ]}
                       >
                         {index + 1}
@@ -633,14 +988,14 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                           #{index + 1} {dropItem.name}
                         </Text>
                         
-                        {/* Compact Confirmation Badge */}
+                        {/* Compact Status Badge */}
                         <View
                           style={[
                             styles.confirmBadgePill,
-                            isDropConfirmed ? styles.confirmBadgePillGreen : styles.confirmBadgePillAmber,
+                            isDropComplete ? styles.confirmBadgePillGreen : styles.confirmBadgePillAmber,
                           ]}
                         >
-                          {isDropConfirmed ? (
+                          {isDropComplete ? (
                             <CheckCircle2 size={10} color="#166534" />
                           ) : (
                             <AlertTriangle size={10} color="#B45309" />
@@ -648,12 +1003,12 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                           <Text
                             style={[
                               styles.confirmBadgePillText,
-                              isDropConfirmed ? { color: '#166534' } : { color: '#B45309' },
+                              isDropComplete ? { color: '#166534' } : { color: '#B45309' },
                             ]}
                           >
-                            {isDropConfirmed
-                              ? (language === 'th' ? 'ยืนยันแล้ว' : 'Confirmed')
-                              : (language === 'th' ? 'ยังไม่ยืนยัน' : 'Unconfirmed')}
+                            {isDropComplete
+                              ? (language === 'th' ? '✓ สมบูรณ์' : '✓ Complete')
+                              : (language === 'th' ? '⚠️ ไม่สมบูรณ์' : '⚠️ Incomplete')}
                           </Text>
                         </View>
                       </View>
@@ -669,17 +1024,17 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                     </Text>
 
                     <View style={styles.timeRow}>
-                      <Clock size={12} color={isDropConfirmed ? '#16A34A' : '#D97706'} />
+                      <Clock size={12} color={isDropComplete ? '#16A34A' : '#D97706'} />
                       <Text
                         style={[
                           styles.timeText,
-                          !isDropConfirmed && { color: '#B45309', fontWeight: '700' },
+                          !isDropComplete && { color: '#B45309', fontWeight: '700' },
                         ]}
                       >
                         {`0${9 + Math.floor(index * 0.8)}:${15 + (index * 25) % 40}`} น.{' '}
-                        {isDropConfirmed
+                        {isDropComplete
                           ? (language === 'th' ? '• เข้าพบแล้ว' : '• Visited')
-                          : (language === 'th' ? '• ยังไม่ยืนยัน (แตะเพื่อยืนยัน)' : '• Tap to verify')}
+                          : (language === 'th' ? '• ข้อมูลไม่สมบูรณ์ (แตะเพื่อแก้ไข)' : '• Incomplete (tap to edit)')}
                       </Text>
                     </View>
 
@@ -687,7 +1042,12 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                       <View style={styles.metaPill}>
                         <Camera size={13} color="#1D4ED8" />
                         <Text style={styles.metaPillText}>
-                          {Array.isArray(dropItem.photos) ? `${dropItem.photos.length} ${language === 'th' ? 'รูปถ่าย' : 'Photos'}` : (language === 'th' ? '2 รูปถ่าย' : '2 Photos')}
+                          {(() => {
+                            const pCount = Array.isArray(dropItem.photos) && dropItem.photos.length > 0
+                              ? dropItem.photos.length
+                              : parsePhotos(dropItem.client_photo_url).length;
+                            return `${pCount} ${language === 'th' ? 'รูปถ่าย' : 'Photos'}`;
+                          })()}
                         </Text>
                       </View>
                       <View style={styles.metaPill}>
@@ -703,6 +1063,45 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                         </View>
                       )}
                     </View>
+
+                    {/* Proof Photos Thumbnail Strip */}
+                    {(() => {
+                      const displayPhotos = Array.isArray(dropItem.photos) && dropItem.photos.length > 0
+                        ? dropItem.photos
+                        : parsePhotos(dropItem.client_photo_url);
+
+                      if (!displayPhotos || displayPhotos.length === 0) return null;
+
+                      return (
+                        <View style={styles.summaryPhotosStrip}>
+                          {displayPhotos.map((phUri: string, pIdx: number) => (
+                            <TouchableOpacity
+                              key={pIdx}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                setPreviewImage({
+                                  uri: phUri,
+                                  title: `${dropItem.name} - รูปถ่าย #${pIdx + 1}`,
+                                  subtitle: dropItem.address || dropItem.name,
+                                  location: dropItem.name,
+                                  latitude: dropItem.latitude,
+                                  longitude: dropItem.longitude,
+                                });
+                              }}
+                              activeOpacity={0.8}
+                              style={styles.summaryPhotoThumbBox}
+                            >
+                              <Image source={{ uri: phUri }} style={styles.summaryPhotoThumb} />
+                              <View style={styles.summaryPhotoWatermarkBadge}>
+                                <Text style={styles.summaryPhotoWatermarkText} numberOfLines={1}>
+                                  📍 {dropItem.name}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      );
+                    })()}
                   </View>
                 </TouchableOpacity>
               );
@@ -712,20 +1111,91 @@ export default function TripSummaryScreen({ navigation, route }: any) {
       </ScrollView>
 
 
-      {/* Bottom Sticky Action Bar (Submit CTA) */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.submitBtn}
-          onPress={handleSubmitTripReport}
-          activeOpacity={0.9}
-        >
-          <Send size={18} color="#FFFFFF" />
-          <Text style={styles.submitBtnText}>
-            {params.isRevision
-              ? (language === 'th' ? `ส่งรายงานแก้ไข (รอบที่ ${params.revisionCount || 1})` : `Resubmit Report (#${params.revisionCount || 1})`)
-              : t('btn_submit')}
-          </Text>
-        </TouchableOpacity>
+      {/* Bottom Sticky Action Bar */}
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
+        {isApproved ? (
+          <TouchableOpacity
+            style={[styles.submitBtn, { backgroundColor: '#166534' }]}
+            onPress={() => navigation.navigate('Dashboard')}
+            activeOpacity={0.9}
+          >
+            <CheckCircle2 size={18} color="#FFFFFF" />
+            <Text style={styles.submitBtnText}>
+              {language === 'th' ? 'กลับไปหน้าหลัก (อนุมัติเรียบร้อย)' : 'Back to Dashboard (Approved)'}
+            </Text>
+          </TouchableOpacity>
+        ) : isPendingReview ? (
+          <TouchableOpacity
+            style={[styles.submitBtn, { backgroundColor: '#64748B' }]}
+            onPress={() => navigation.navigate('Dashboard')}
+            activeOpacity={0.9}
+          >
+            <CheckCircle2 size={18} color="#FFFFFF" />
+            <Text style={styles.submitBtnText}>
+              {language === 'th' ? 'กลับไปหน้าหลัก (รอ Admin อนุมัติ)' : 'Back to Dashboard (Pending Review)'}
+            </Text>
+          </TouchableOpacity>
+        ) : !isAllDropsCompleted ? (
+          <TouchableOpacity
+            style={[styles.submitBtn, { backgroundColor: '#D97706' }, isSaving && { opacity: 0.7 }]}
+            onPress={handleSaveDraftAndReturn}
+            disabled={isSaving}
+            activeOpacity={0.9}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Save size={18} color="#FFFFFF" />
+            )}
+            <Text style={styles.submitBtnText}>
+              {isSaving
+                ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...')
+                : (language === 'th'
+                    ? `บันทึกและกลับไปแผนงานวันนี้ (ไม่สมบูรณ์ ${incompleteDropsCount} จุด)`
+                    : `Save & Back to Today Visits (${incompleteDropsCount} Incomplete)`)}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.submitBtnSecondary, { flex: 1 }, isSaving && { opacity: 0.7 }]}
+              onPress={handleSaveDraftAndReturn}
+              disabled={isSaving}
+              activeOpacity={0.85}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#1D4ED8" />
+              ) : (
+                <Save size={16} color="#1D4ED8" />
+              )}
+              <Text style={styles.submitBtnSecondaryText}>
+                {isSaving
+                  ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...')
+                  : (language === 'th' ? 'บันทึกแบบร่าง' : 'Save Draft')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.submitBtn, { flex: 1.6, backgroundColor: '#16A34A' }, isSaving && { opacity: 0.7 }]}
+              onPress={handleSubmitToAdmin}
+              disabled={isSaving}
+              activeOpacity={0.9}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Send size={18} color="#FFFFFF" />
+              )}
+              <Text style={styles.submitBtnText}>
+                {isSaving
+                  ? (language === 'th' ? 'กำลังส่งรายงาน...' : 'Submitting...')
+                  : (isRevision
+                      ? (language === 'th' ? `ส่งรายงานแก้ไข (#${revisionCount || 1})` : `Resubmit (#${revisionCount || 1})`)
+                      : (language === 'th' ? 'ส่งรายงานให้ Admin' : 'Submit to Admin'))}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Full-screen Slip / Photo Preview Modal */}
@@ -735,8 +1205,20 @@ export default function TripSummaryScreen({ navigation, route }: any) {
         animationType="fade"
         onRequestClose={() => setPreviewImage(null)}
       >
-        <View style={styles.modalBackdrop}>
-          <SafeAreaView style={styles.modalSafeArea}>
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setPreviewImage(null)}
+        >
+          <View
+            style={[
+              styles.modalSafeArea,
+              {
+                paddingTop: Math.max(insets.top, 24) + 12,
+                paddingBottom: Math.max(insets.bottom, 20) + 12,
+              },
+            ]}
+          >
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalHeaderTitle} numberOfLines={1}>
@@ -749,22 +1231,56 @@ export default function TripSummaryScreen({ navigation, route }: any) {
               <TouchableOpacity
                 style={styles.modalCloseBtn}
                 onPress={() => setPreviewImage(null)}
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                activeOpacity={0.7}
               >
-                <X size={20} color="#FFFFFF" />
+                <X size={22} color="#FFFFFF" strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.modalImageContainer}>
               {previewImage && (
-                <Image
-                  source={{ uri: previewImage.uri }}
-                  style={styles.modalFullImage}
-                  resizeMode="contain"
-                />
+                <View style={styles.modalFullImageWrapper}>
+                  <Image
+                    source={{ uri: previewImage.uri }}
+                    style={styles.modalFullImage}
+                    resizeMode="contain"
+                  />
+                  {/* Watermark Stamp Overlay */}
+                  <View style={styles.photoWatermarkOverlay}>
+                    <View style={styles.photoWatermarkContent}>
+                      <Text style={styles.watermarkLocationText} numberOfLines={1}>
+                        📍 {previewImage.location || previewImage.subtitle || previewImage.title || (language === 'th' ? 'สถานที่เข้าพบ' : 'Location')}
+                      </Text>
+                      {previewImage.latitude && (
+                        <Text style={styles.watermarkCoordText}>
+                          🌐 GPS: {previewImage.latitude.toFixed(5)}, {previewImage.longitude?.toFixed(5)}
+                        </Text>
+                      )}
+                      <Text style={styles.watermarkTimeText}>
+                        🕒 {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })} {new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
               )}
             </View>
-          </SafeAreaView>
-        </View>
+
+            {/* Bottom floating tap-to-close bar */}
+            <View style={styles.modalBottomActionWrap}>
+              <TouchableOpacity
+                style={styles.modalBottomClosePill}
+                onPress={() => setPreviewImage(null)}
+                activeOpacity={0.85}
+              >
+                <X size={16} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={styles.modalBottomCloseText}>
+                  {language === 'th' ? 'แตะที่ใดก็ได้เพื่อปิด' : 'Tap anywhere to close'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Edit Start Odometer Modal */}
@@ -813,18 +1329,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
               <TouchableOpacity
                 style={styles.editOdoSaveBtn}
-                onPress={() => {
-                  if (editingOdoValue.trim()) {
-                    setStartOdometer(editingOdoValue.trim());
-                    Alert.alert(
-                      language === 'th' ? 'บันทึกสำเร็จ ✓' : 'Saved ✓',
-                      language === 'th'
-                        ? `อัปเดตเลขไมล์เริ่มต้นเป็น ${editingOdoValue.trim()} กม. เรียบร้อยแล้ว`
-                        : `Starting odometer updated to ${editingOdoValue.trim()} km.`
-                    );
-                  }
-                  setIsEditStartOdoOpen(false);
-                }}
+                onPress={handleSaveStartOdo}
                 activeOpacity={0.85}
               >
                 <Text style={styles.editOdoSaveBtnText}>{t('btn_save')}</Text>
@@ -833,6 +1338,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -852,7 +1358,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 10,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   headerIconButton: {
     width: 40,
@@ -883,7 +1390,7 @@ const styles = StyleSheet.create({
   scrollInner: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 110,
+    paddingBottom: 140,
     gap: 16,
   },
   successBanner: {
@@ -1128,6 +1635,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  submitBtnSecondary: {
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 15,
+    borderRadius: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+  },
+  submitBtnSecondaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1D4ED8',
   },
   meetingCard: {
     backgroundColor: '#FFFFFF',
@@ -1450,12 +1973,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   modalImageContainer: {
     flex: 1,
@@ -1466,6 +1991,27 @@ const styles = StyleSheet.create({
   modalFullImage: {
     width: '100%',
     height: '100%',
+  },
+  modalBottomActionWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 8,
+  },
+  modalBottomClosePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  modalBottomCloseText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   editCardActionBtn: {
     flexDirection: 'row',
@@ -1629,6 +2175,79 @@ const styles = StyleSheet.create({
     color: '#7F1D1D',
     lineHeight: 18,
     fontStyle: 'italic',
+  },
+  summaryPhotosStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  summaryPhotoThumbBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  summaryPhotoThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  summaryPhotoWatermarkBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    paddingVertical: 1,
+    paddingHorizontal: 3,
+  },
+  summaryPhotoWatermarkText: {
+    color: '#FFFFFF',
+    fontSize: 7,
+    fontWeight: '700',
+  },
+  modalFullImageWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoWatermarkOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    alignItems: 'flex-start',
+  },
+  photoWatermarkContent: {
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    gap: 2,
+  },
+  watermarkLocationText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  watermarkCoordText: {
+    color: '#93C5FD',
+    fontSize: 10,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  watermarkTimeText: {
+    color: '#CBD5E1',
+    fontSize: 9,
+    fontWeight: '500',
   },
 });
 

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LayoutGrid, Calendar, User } from 'lucide-react-native';
 import { useLanguage } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
@@ -23,6 +24,7 @@ export default function FloatingBottomNav({
 }: FloatingBottomNavProps) {
   const { t } = useLanguage();
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const navItems = [
     {
@@ -52,8 +54,14 @@ export default function FloatingBottomNav({
     navigation.navigate(item.route);
   };
 
+  // Dynamic bottom calculation accounting for gesture bar vs 3-button bar on Android / home indicator on iOS
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 16 : 10);
+
   return (
-    <View style={styles.floatingWrapper} pointerEvents="box-none">
+    <View
+      style={[styles.floatingWrapper, { bottom: bottomInset }]}
+      pointerEvents="box-none"
+    >
       <View style={[styles.barContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         {navItems.map((item) => {
           const isActive = activeTab === item.key;
@@ -81,6 +89,8 @@ export default function FloatingBottomNav({
                   isActive && styles.tabLabelActive,
                 ]}
                 numberOfLines={1}
+                ellipsizeMode="tail"
+                maxFontSizeMultiplier={1.15}
               >
                 {item.label}
               </Text>
@@ -97,10 +107,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: Platform.OS === 'ios' ? 22 : 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     zIndex: 999,
   },
   barContainer: {
@@ -109,8 +118,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     borderRadius: 32,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
     width: '100%',
     maxWidth: 420,
     borderWidth: 1,
@@ -130,13 +139,15 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     flex: 1,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
     borderRadius: 24,
-    gap: 6,
+    gap: 5,
+    minWidth: 0,
   },
   tabButtonActive: {
     backgroundColor: '#1D4ED8',
@@ -147,9 +158,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   tabLabel: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
     color: '#64748B',
+    flexShrink: 1,
   },
   tabLabelActive: {
     color: '#FFFFFF',

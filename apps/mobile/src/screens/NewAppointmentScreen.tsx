@@ -14,7 +14,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   ArrowLeft,
@@ -66,6 +66,7 @@ interface StopItem {
   latitude?: number;
   longitude?: number;
   appointmentId?: string;
+  isConfirmed?: boolean;
 }
 
 const initialStops: StopItem[] = [];
@@ -82,8 +83,9 @@ const TIME_SLOTS = [
   '10:30 AM', '11:00 AM', '01:00 PM', '01:30 PM', '02:00 PM', '03:00 PM', '04:30 PM'
 ];
 
-export default function NewAppointmentScreen({ navigation }: any) {
+export default function NewAppointmentScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const [tabMode, setTabMode] = useState<'startNow' | 'planLater'>('startNow');
 
   // Start Location State
@@ -137,6 +139,62 @@ export default function NewAppointmentScreen({ navigation }: any) {
   useEffect(() => {
     handleFetchCurrentGps(false);
   }, []);
+
+  // Load existing trip data if editing from Dashboard or TripSchedule
+  useEffect(() => {
+    async function loadExistingTrip() {
+      const tripId = route?.params?.tripId;
+      if (!tripId) return;
+
+      try {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('*, appointments(*)')
+          .eq('id', tripId)
+          .single();
+
+        if (tripData) {
+          if (tripData.title) setTripName(tripData.title);
+          if (tripData.start_odometer) setOdometer(tripData.start_odometer.toString());
+          const startLoc = tripData.start_location as any;
+          if (startLoc) {
+            setStartLocationCoord({
+              latitude: startLoc.latitude || DEFAULT_BANGKOK_LOCATION.latitude,
+              longitude: startLoc.longitude || DEFAULT_BANGKOK_LOCATION.longitude,
+              name: startLoc.name || DEFAULT_BANGKOK_LOCATION.name,
+              address: startLoc.address || DEFAULT_BANGKOK_LOCATION.address,
+            });
+            setIsStartSubmitted(true);
+          }
+          if (tripData.status === 'scheduled') {
+            setTabMode('planLater');
+          }
+          if (Array.isArray(tripData.appointments) && tripData.appointments.length > 0) {
+            const sorted = [...tripData.appointments].sort(
+              (a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)
+            );
+            setStops(
+              sorted.map((a: any) => ({
+                id: a.id,
+                appointmentId: a.id,
+                name: a.company_name,
+                recipient: a.recipient_name || a.customer_name || '',
+                phone: a.recipient_phone || '',
+                items: a.agenda || '',
+                address: a.destination_address || '',
+                latitude: a.destination_lat || undefined,
+                longitude: a.destination_lng || undefined,
+                isConfirmed: !!a.confirmation_status,
+              }))
+            );
+          }
+        }
+      } catch (e) {
+        console.warn('Error loading existing trip in NewAppointmentScreen:', e);
+      }
+    }
+    loadExistingTrip();
+  }, [route?.params?.tripId]);
 
   // Format scheduled display when date/time changes
   const updateScheduledDisplayText = (date: Date, time: string) => {
@@ -333,12 +391,31 @@ export default function NewAppointmentScreen({ navigation }: any) {
   };
 
   const handleRemoveStop = (id: string) => {
+    const stopToRemove = stops.find((s) => s.id === id);
+    if (stopToRemove?.isConfirmed) {
+      Alert.alert(
+        language === 'th' ? 'ไม่สามารถลบได้' : 'Cannot Delete',
+        language === 'th'
+          ? 'จุดเข้าพบนี้ได้รับการยืนยันการเข้าพบแล้ว ไม่สามารถลบออกจากแผนงานได้'
+          : 'This client visit has already been confirmed and cannot be deleted.'
+      );
+      return;
+    }
     setStops((prev) => prev.filter((s) => s.id !== id));
   };
 
   // Manual Reordering (Move Up / Move Down)
   const handleMoveStopUp = (index: number) => {
     if (index <= 0) return;
+    if (stops[index]?.isConfirmed || stops[index - 1]?.isConfirmed) {
+      Alert.alert(
+        language === 'th' ? 'ล็อคลำดับ' : 'Locked',
+        language === 'th'
+          ? 'จุดเข้าพบที่ดำเนินการเสร็จแล้วจะถูกล็อคลำดับไว้ ไม่สามารถสลับได้'
+          : 'Completed visits cannot be reordered.'
+      );
+      return;
+    }
     const newStops = [...stops];
     const temp = newStops[index];
     newStops[index] = newStops[index - 1];
@@ -348,6 +425,15 @@ export default function NewAppointmentScreen({ navigation }: any) {
 
   const handleMoveStopDown = (index: number) => {
     if (index >= stops.length - 1) return;
+    if (stops[index]?.isConfirmed || stops[index + 1]?.isConfirmed) {
+      Alert.alert(
+        language === 'th' ? 'ล็อคลำดับ' : 'Locked',
+        language === 'th'
+          ? 'จุดเข้าพบที่ดำเนินการเสร็จแล้วจะถูกล็อคลำดับไว้ ไม่สามารถสลับได้'
+          : 'Completed visits cannot be reordered.'
+      );
+      return;
+    }
     const newStops = [...stops];
     const temp = newStops[index];
     newStops[index] = newStops[index + 1];
@@ -410,6 +496,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   };
 
   const handleStartTracking = async () => {
+    if (isSaving) return;
     // 1. Mandatory Live GPS Confirmation
     if (!isStartSubmitted) {
       Alert.alert(
@@ -459,81 +546,161 @@ export default function NewAppointmentScreen({ navigation }: any) {
         return;
       }
 
-      const tripCode = `TRP-${Date.now().toString().slice(-6)}`;
+      const existingTripId = route?.params?.tripId;
       const finalTripTitle = tripName.trim() || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
-      const startOdoNum = parseInt(odometer.trim(), 10);
+      const startOdoNum = parseInt(odometer.trim(), 10) || null;
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-      // Create in_progress trip in Supabase
-      const { data: createdTrip, error: tripErr } = await supabase
-        .from('trips')
-        .insert({
-          type: 'marketing',
-          trip_code: tripCode,
+      let activeTripId = existingTripId;
+      let tripCode = `TRP-${Date.now().toString().slice(-6)}`;
+
+      if (existingTripId) {
+        // 1. Update existing trip in trips table
+        await supabase
+          .from('trips')
+          .update({
+            title: finalTripTitle,
+            trip_date: todayStr,
+            status: 'in_progress',
+            start_odometer: startOdoNum,
+            started_at: new Date().toISOString(),
+            start_location: {
+              name: startLocationCoord.name,
+              address: startLocationCoord.address,
+              latitude: startLocationCoord.latitude,
+              longitude: startLocationCoord.longitude,
+            },
+          })
+          .eq('id', existingTripId);
+
+        // 2. Fetch db appointments
+        const { data: dbAppts } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('trip_id', existingTripId);
+
+        const dbApptIds = (dbAppts || []).map((a: any) => a.id);
+        const currentApptIds = stops.map((s) => s.appointmentId || s.id).filter(Boolean);
+
+        // Delete unconfirmed appointments removed by user
+        const toDelete = (dbAppts || [])
+          .filter((a: any) => !a.confirmation_status && !currentApptIds.includes(a.id))
+          .map((a: any) => a.id);
+
+        if (toDelete.length > 0) {
+          await supabase.from('appointments').delete().in('id', toDelete);
+        }
+
+        // Upsert stops
+        for (let idx = 0; idx < stops.length; idx++) {
+          const stop = stops[idx];
+          if (stop.appointmentId && dbApptIds.includes(stop.appointmentId)) {
+            if (!stop.isConfirmed) {
+              await supabase
+                .from('appointments')
+                .update({
+                  company_name: stop.name,
+                  customer_name: stop.recipient || stop.name,
+                  recipient_name: stop.recipient || '',
+                  recipient_phone: stop.phone || '',
+                  destination_address: stop.address,
+                  destination_lat: stop.latitude || null,
+                  destination_lng: stop.longitude || null,
+                  sequence_order: idx + 1,
+                  agenda: stop.items || '',
+                })
+                .eq('id', stop.appointmentId);
+            } else {
+              await supabase
+                .from('appointments')
+                .update({ sequence_order: idx + 1 })
+                .eq('id', stop.appointmentId);
+            }
+          } else {
+            await supabase.from('appointments').insert({
+              type: 'appointment',
+              trip_id: existingTripId,
+              staff_id: user.id,
+              company_name: stop.name,
+              customer_name: stop.recipient || stop.name,
+              recipient_name: stop.recipient || '',
+              recipient_phone: stop.phone || '',
+              destination_address: stop.address,
+              destination_lat: stop.latitude || null,
+              destination_lng: stop.longitude || null,
+              sequence_order: idx + 1,
+              agenda: stop.items || '',
+              status: 'pending',
+              confirmation_status: false,
+            });
+          }
+        }
+      } else {
+        // Create brand new in_progress trip in Supabase
+        const { data: createdTrip, error: tripErr } = await supabase
+          .from('trips')
+          .insert({
+            type: 'marketing',
+            trip_code: tripCode,
+            staff_id: user.id,
+            title: finalTripTitle,
+            trip_date: todayStr,
+            status: 'in_progress',
+            approval_status: 'draft',
+            start_odometer: startOdoNum,
+            started_at: new Date().toISOString(),
+            start_location: {
+              name: startLocationCoord.name,
+              address: startLocationCoord.address,
+              latitude: startLocationCoord.latitude,
+              longitude: startLocationCoord.longitude,
+            },
+          })
+          .select()
+          .single();
+
+        if (tripErr || !createdTrip) {
+          throw tripErr || new Error('Failed to start trip in database');
+        }
+
+        activeTripId = createdTrip.id;
+        tripCode = createdTrip.trip_code || tripCode;
+
+        const apptInserts = stops.map((stop, idx) => ({
+          type: 'appointment',
+          trip_id: createdTrip.id,
           staff_id: user.id,
-          title: finalTripTitle,
-          trip_date: new Date().toISOString().split('T')[0],
-          status: 'in_progress',
-          approval_status: 'pending',
-          start_odometer: startOdoNum,
-          started_at: new Date().toISOString(),
-          start_location: {
-            name: startLocationCoord.name,
-            address: startLocationCoord.address,
-            latitude: startLocationCoord.latitude,
-            longitude: startLocationCoord.longitude,
-          },
-        })
-        .select()
-        .single();
+          company_name: stop.name,
+          customer_name: stop.recipient || stop.name,
+          recipient_name: stop.recipient || '',
+          recipient_phone: stop.phone || '',
+          destination_address: stop.address,
+          destination_lat: stop.latitude || null,
+          destination_lng: stop.longitude || null,
+          sequence_order: idx + 1,
+          agenda: stop.items || '',
+          status: 'pending',
+          confirmation_status: false,
+        }));
 
-      if (tripErr || !createdTrip) {
-        throw tripErr || new Error('Failed to start trip in database');
+        await supabase.from('appointments').insert(apptInserts);
       }
-
-      // Insert appointments
-      const apptInserts = stops.map((stop, idx) => ({
-        type: 'appointment',
-        trip_id: createdTrip.id,
-        staff_id: user.id,
-        company_name: stop.name,
-        customer_name: stop.recipient || stop.name,
-        recipient_name: stop.recipient || '',
-        recipient_phone: stop.phone || '',
-        destination_address: stop.address,
-        destination_lat: stop.latitude || null,
-        destination_lng: stop.longitude || null,
-        sequence_order: idx + 1,
-        agenda: stop.items || '',
-        status: 'pending',
-        confirmation_status: false,
-      }));
-
-      const { data: createdAppts } = await supabase
-        .from('appointments')
-        .insert(apptInserts)
-        .select();
-
-      const formattedDrops = stops.map((stop, idx) => ({
-        ...stop,
-        appointmentId: createdAppts?.[idx]?.id || stop.id,
-        id: createdAppts?.[idx]?.id || stop.id,
-      }));
 
       setIsSaving(false);
 
-      navigation.navigate('RoutePreview', {
-        tripId: createdTrip.id,
-        tripCode: createdTrip.trip_code,
+      // Launch ActiveTracker directly so driver starts driving!
+      navigation.navigate('ActiveTracker', {
+        tripId: activeTripId,
+        tripCode: tripCode,
         tripTitle: finalTripTitle,
-        scheduledDate: 'Now',
-        selectedVehicle: 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)',
+        dropsCount: stops.length,
+        drops: stops,
         startLocation: {
           ...startLocationCoord,
           isGpsConfirmed: true,
         },
         startOdometer: odometer.trim(),
-        drops: formattedDrops,
-        roadPolyline: optimizedRoadPolyline,
       });
     } catch (err: any) {
       setIsSaving(false);
@@ -546,6 +713,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   };
 
   const handleSaveTrip = async () => {
+    if (isSaving) return;
     if (!isStartSubmitted) {
       Alert.alert(
         language === 'th' ? 'ยังไม่ได้ยืนยันจุดเริ่มต้น' : 'Start Location Pending',
@@ -575,9 +743,107 @@ export default function NewAppointmentScreen({ navigation }: any) {
         return;
       }
 
-      const tripCode = `TRP-${Date.now().toString().slice(-6)}`;
+      const existingTripId = route?.params?.tripId;
       const finalTripTitle = tripName.trim() || (language === 'th' ? 'แผนงานเข้าพบลูกค้า' : 'Client Visit Plan');
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+
+      if (existingTripId) {
+        // Update existing scheduled trip
+        await supabase
+          .from('trips')
+          .update({
+            title: finalTripTitle,
+            trip_date: dateStr,
+            status: 'scheduled',
+            start_odometer: odometer.trim() ? parseInt(odometer.trim(), 10) : null,
+            start_location: {
+              name: startLocationCoord.name,
+              address: startLocationCoord.address,
+              latitude: startLocationCoord.latitude,
+              longitude: startLocationCoord.longitude,
+            },
+          })
+          .eq('id', existingTripId);
+
+        // Fetch existing DB appointments
+        const { data: dbAppts } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('trip_id', existingTripId);
+
+        const dbApptIds = (dbAppts || []).map((a: any) => a.id);
+        const currentApptIds = stops.map((s) => s.appointmentId || s.id).filter(Boolean);
+
+        // Delete unconfirmed appointments removed by user
+        const toDelete = (dbAppts || [])
+          .filter((a: any) => !a.confirmation_status && !currentApptIds.includes(a.id))
+          .map((a: any) => a.id);
+
+        if (toDelete.length > 0) {
+          await supabase.from('appointments').delete().in('id', toDelete);
+        }
+
+        // Upsert stops
+        for (let idx = 0; idx < stops.length; idx++) {
+          const stop = stops[idx];
+          if (stop.appointmentId && dbApptIds.includes(stop.appointmentId)) {
+            if (!stop.isConfirmed) {
+              await supabase
+                .from('appointments')
+                .update({
+                  company_name: stop.name,
+                  customer_name: stop.recipient || stop.name,
+                  recipient_name: stop.recipient || '',
+                  recipient_phone: stop.phone || '',
+                  destination_address: stop.address,
+                  destination_lat: stop.latitude || null,
+                  destination_lng: stop.longitude || null,
+                  sequence_order: idx + 1,
+                  agenda: stop.items || '',
+                })
+                .eq('id', stop.appointmentId);
+            }
+          } else {
+            await supabase.from('appointments').insert({
+              type: 'appointment',
+              trip_id: existingTripId,
+              staff_id: user.id,
+              company_name: stop.name,
+              customer_name: stop.recipient || stop.name,
+              recipient_name: stop.recipient || '',
+              recipient_phone: stop.phone || '',
+              destination_address: stop.address,
+              destination_lat: stop.latitude || null,
+              destination_lng: stop.longitude || null,
+              sequence_order: idx + 1,
+              agenda: stop.items || '',
+              status: 'scheduled',
+              confirmation_status: false,
+            });
+          }
+        }
+
+        setIsSaving(false);
+        Alert.alert(
+          language === 'th' ? 'อัปเดตแผนงานสำเร็จ 📅' : 'Visit Plan Updated 📅',
+          language === 'th'
+            ? `แผนงาน "${finalTripTitle}" ได้รับการบันทึกข้อมูลเรียบร้อยแล้ว`
+            : `Plan "${finalTripTitle}" has been updated successfully.`,
+          [
+            {
+              text: language === 'th' ? 'ดูตารางงาน' : 'View Schedule',
+              onPress: () => navigation.navigate('TripSchedule'),
+            },
+            {
+              text: language === 'th' ? 'หน้าหลัก' : 'Dashboard',
+              onPress: () => navigation.navigate('Dashboard'),
+            }
+          ]
+        );
+        return;
+      }
+
+      const tripCode = `TRP-${Date.now().toString().slice(-6)}`;
 
       // 1. Insert into trips table
       const { data: createdTrip, error: tripErr } = await supabase
@@ -589,7 +855,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
           title: finalTripTitle,
           trip_date: dateStr,
           status: 'scheduled',
-          approval_status: 'pending',
+          approval_status: 'draft',
           start_odometer: odometer.trim() ? parseInt(odometer.trim(), 10) : null,
           start_location: {
             name: startLocationCoord.name,
@@ -691,7 +957,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
   }
 
   const handleSelectDay = (day: number) => {
-    const newDate = new Date(calViewYear, calViewMonth, day);
+    const newDate = new Date(calViewYear, calViewMonth, day, 12, 0, 0);
     setSelectedDate(newDate);
   };
 
@@ -702,6 +968,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
 
   const handleQuickPreset = (type: 'today' | 'tomorrow' | 'monday') => {
     const d = new Date();
+    d.setHours(12, 0, 0, 0);
     if (type === 'tomorrow') {
       d.setDate(d.getDate() + 1);
     } else if (type === 'monday') {
@@ -718,6 +985,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         style={{ flex: 1 }}
       >
         {/* Top Header */}
@@ -1072,17 +1340,45 @@ export default function NewAppointmentScreen({ navigation }: any) {
                 const displaySeqNumber = isStartSubmitted ? index + 2 : index + 1;
 
                 return (
-                  <View key={stop.id || index} style={styles.stopCard}>
+                  <View
+                    key={stop.id || index}
+                    style={[
+                      styles.stopCard,
+                      stop.isConfirmed && styles.stopCardConfirmed,
+                    ]}
+                  >
                     {/* Sequence Number */}
-                    <View style={styles.stopSequenceBadge}>
-                      <Text style={styles.stopSequenceText}>{displaySeqNumber}</Text>
+                    <View
+                      style={[
+                        styles.stopSequenceBadge,
+                        stop.isConfirmed && styles.stopSequenceBadgeConfirmed,
+                      ]}
+                    >
+                      {stop.isConfirmed ? (
+                        <CheckCircle2 size={14} color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.stopSequenceText}>{displaySeqNumber}</Text>
+                      )}
                     </View>
 
                     {/* Stop Details */}
                     <View style={styles.stopDetails}>
-                      <Text style={styles.stopName} numberOfLines={1}>
-                        {displaySeqNumber}. {stop.name}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <Text
+                          style={[styles.stopName, stop.isConfirmed && { color: '#166534' }]}
+                          numberOfLines={1}
+                        >
+                          {displaySeqNumber}. {stop.name}
+                        </Text>
+                        {stop.isConfirmed && (
+                          <View style={styles.confirmedStopPill}>
+                            <CheckCircle2 size={10} color="#166534" />
+                            <Text style={styles.confirmedStopPillText}>
+                              {language === 'th' ? 'เข้าพบแล้ว (ล็อคข้อมูล)' : 'Visited (Locked)'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.stopAddress} numberOfLines={1}>
                         {stop.address}
                       </Text>
@@ -1113,39 +1409,45 @@ export default function NewAppointmentScreen({ navigation }: any) {
                     {/* Manual Reorder Actions */}
                     <View style={styles.reorderCol}>
                       <TouchableOpacity
-                        disabled={index === 0}
+                        disabled={stop.isConfirmed || index === 0}
                         onPress={() => handleMoveStopUp(index)}
-                        style={[styles.reorderBtn, index === 0 && { opacity: 0.25 }]}
+                        style={[styles.reorderBtn, (stop.isConfirmed || index === 0) && { opacity: 0.2 }]}
                       >
                         <MoveUp size={14} color="#03246B" />
                       </TouchableOpacity>
                       <TouchableOpacity
-                        disabled={index === stops.length - 1}
+                        disabled={stop.isConfirmed || index === stops.length - 1}
                         onPress={() => handleMoveStopDown(index)}
-                        style={[styles.reorderBtn, index === stops.length - 1 && { opacity: 0.25 }]}
+                        style={[styles.reorderBtn, (stop.isConfirmed || index === stops.length - 1) && { opacity: 0.2 }]}
                       >
                         <MoveDown size={14} color="#03246B" />
                       </TouchableOpacity>
                     </View>
 
-                    {/* Edit & Delete Stop Action Icons */}
-                    <View style={styles.stopActionGroup}>
-                      <TouchableOpacity
-                        style={styles.editStopButton}
-                        onPress={() => handleEditStop(stop, index)}
-                        activeOpacity={0.7}
-                      >
-                        <Edit3 size={15} color="#1D4ED8" />
-                      </TouchableOpacity>
+                    {/* Edit & Delete Stop Action Icons or Lock for Confirmed */}
+                    {stop.isConfirmed ? (
+                      <View style={styles.lockedActionBox}>
+                        <Lock size={15} color="#166534" />
+                      </View>
+                    ) : (
+                      <View style={styles.stopActionGroup}>
+                        <TouchableOpacity
+                          style={styles.editStopButton}
+                          onPress={() => handleEditStop(stop, index)}
+                          activeOpacity={0.7}
+                        >
+                          <Edit3 size={15} color="#1D4ED8" />
+                        </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={styles.deleteStopButton}
-                        onPress={() => handleRemoveStop(stop.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Trash2 size={15} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
+                        <TouchableOpacity
+                          style={styles.deleteStopButton}
+                          onPress={() => handleRemoveStop(stop.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Trash2 size={15} color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -1197,36 +1499,52 @@ export default function NewAppointmentScreen({ navigation }: any) {
         </ScrollView>
 
         {/* Sticky Bottom Action */}
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
           {tabMode === 'startNow' ? (
             <TouchableOpacity
               style={[
                 styles.primaryActionButton,
-                !isStartSubmitted && styles.primaryActionButtonDisabled,
+                (!isStartSubmitted || isSaving) && styles.primaryActionButtonDisabled,
+                isSaving && { opacity: 0.6 },
               ]}
               onPress={handleStartTracking}
+              disabled={!isStartSubmitted || isSaving}
               activeOpacity={0.9}
             >
-              {!isStartSubmitted ? (
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : !isStartSubmitted ? (
                 <Lock size={18} color="#FFFFFF" />
               ) : (
                 <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
               )}
               <Text style={styles.primaryActionText}>
-                {isStartSubmitted ? t('btn_start_trip') : (language === 'th' ? 'กดยืนยันจุดเริ่มต้นก่อน' : 'Confirm Start First')}
+                {isSaving
+                  ? (language === 'th' ? 'กำลังเริ่มการเดินทาง...' : 'Starting Route...')
+                  : isStartSubmitted
+                  ? t('btn_start_trip')
+                  : (language === 'th' ? 'กดยืนยันจุดเริ่มต้นก่อน' : 'Confirm Start First')}
               </Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={[
                 styles.primaryActionButton,
-                !isStartSubmitted && styles.primaryActionButtonDisabled,
+                (!isStartSubmitted || isSaving) && styles.primaryActionButtonDisabled,
+                isSaving && { opacity: 0.6 },
               ]}
               onPress={handleSaveTrip}
+              disabled={!isStartSubmitted || isSaving}
               activeOpacity={0.9}
             >
-              <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
-              <Text style={styles.primaryActionText}>{t('btn_save')}</Text>
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
+              )}
+              <Text style={styles.primaryActionText}>
+                {isSaving ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...') : t('btn_save')}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1267,19 +1585,19 @@ export default function NewAppointmentScreen({ navigation }: any) {
                     style={styles.quickPresetChip}
                     onPress={() => handleQuickPreset('today')}
                   >
-                    <Text style={styles.quickPresetChipText}>วันนี้</Text>
+                    <Text style={styles.quickPresetChipText}>{language === 'th' ? 'วันนี้' : 'Today'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.quickPresetChip}
                     onPress={() => handleQuickPreset('tomorrow')}
                   >
-                    <Text style={styles.quickPresetChipText}>พรุ่งนี้</Text>
+                    <Text style={styles.quickPresetChipText}>{language === 'th' ? 'พรุ่งนี้' : 'Tomorrow'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.quickPresetChip}
                     onPress={() => handleQuickPreset('monday')}
                   >
-                    <Text style={styles.quickPresetChipText}>จันทร์หน้า</Text>
+                    <Text style={styles.quickPresetChipText}>{language === 'th' ? 'จันทร์หน้า' : 'Next Mon'}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1357,7 +1675,7 @@ export default function NewAppointmentScreen({ navigation }: any) {
                 <View style={{ gap: 10 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Clock size={16} color="#1D4ED8" />
-                    <Text style={styles.timeSectionTitle}>เลือกเวลาออกเดินทาง</Text>
+                    <Text style={styles.timeSectionTitle}>{language === 'th' ? 'เลือกเวลาออกเดินทาง' : 'Select Departure Time'}</Text>
                   </View>
 
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeSlotsScroll}>
@@ -1387,14 +1705,14 @@ export default function NewAppointmentScreen({ navigation }: any) {
                 style={styles.modalCancelBtn}
                 onPress={() => setShowDateTimePicker(false)}
               >
-                <Text style={styles.modalCancelBtnText}>ยกเลิก</Text>
+                <Text style={styles.modalCancelBtnText}>{language === 'th' ? 'ยกเลิก' : 'Cancel'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalApplyBtn}
                 onPress={handleConfirmDateTime}
                 activeOpacity={0.9}
               >
-                <Text style={styles.modalApplyBtnText}>ยืนยันวัน-เวลานัดหมาย</Text>
+                <Text style={styles.modalApplyBtnText}>{language === 'th' ? 'ยืนยันวัน-เวลา' : 'Confirm Date & Time'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1604,7 +1922,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#F2F4F7',
     gap: 14,
@@ -1670,7 +1988,7 @@ const styles = StyleSheet.create({
   scrollInner: {
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 120,
+    paddingBottom: 180,
     gap: 20,
   },
   card: {
@@ -2018,6 +2336,10 @@ const styles = StyleSheet.create({
     elevation: 2,
     gap: 10,
   },
+  stopCardConfirmed: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
   stopSequenceBadge: {
     width: 28,
     height: 28,
@@ -2025,6 +2347,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCE1FF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  stopSequenceBadgeConfirmed: {
+    backgroundColor: '#16A34A',
+  },
+  confirmedStopPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  confirmedStopPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  lockedActionBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DCFCE7',
   },
   stopSequenceText: {
     fontSize: 12,

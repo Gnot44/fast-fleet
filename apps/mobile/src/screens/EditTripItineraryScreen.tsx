@@ -14,7 +14,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   ArrowLeft,
@@ -35,7 +35,6 @@ import {
   Building,
   RotateCw,
   CheckCircle2,
-  Navigation,
 } from 'lucide-react-native';
 import {
   solveOptimalStopOrder,
@@ -59,10 +58,15 @@ interface DropItem {
   items?: string;
   latitude?: number;
   longitude?: number;
+  isConfirmed?: boolean;
+  meetingMinutes?: string;
+  photos?: string[];
+  expenses?: any[];
 }
 
 export default function EditTripItineraryScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const initialDrops: DropItem[] = Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : [];
   const currentDropIndex = typeof params.currentDropIndex === 'number' ? params.currentDropIndex : 0;
@@ -73,6 +77,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
   // AI Re-Optimize Modal State
   const [showOptimizeModal, setShowOptimizeModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [originType, setOriginType] = useState<'currentGps' | 'manualPin' | 'originalStart'>('currentGps');
   
   // Live GPS State
@@ -101,8 +106,10 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
   // Manual Reordering
   const handleMoveUp = (index: number) => {
-    if (index <= currentDropIndex) {
-      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายจุดที่ปิดงานแล้วหรือจุดปัจจุบันขึ้นไปได้');
+    if (index <= 0) return;
+    const prevItem = drops[index - 1];
+    if (prevItem?.isConfirmed || drops[index]?.isConfirmed) {
+      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายสลับกับจุดที่ปิดงานเรียบร้อยแล้วได้');
       return;
     }
     const newDrops = [...drops];
@@ -113,7 +120,15 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   };
 
   const handleMoveDown = (index: number) => {
-    if (index < currentDropIndex || index >= drops.length - 1) return;
+    if (index >= drops.length - 1 || drops[index]?.isConfirmed) {
+      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายจุดที่ปิดงานแล้วได้');
+      return;
+    }
+    const nextItem = drops[index + 1];
+    if (nextItem?.isConfirmed) {
+      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายสลับกับจุดที่ปิดงานเรียบร้อยแล้วได้');
+      return;
+    }
     const newDrops = [...drops];
     const temp = newDrops[index];
     newDrops[index] = newDrops[index + 1];
@@ -189,10 +204,15 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
   // Open Re-Optimize Modal
   const handleOpenReOptimize = () => {
-    const remaining = drops.slice(currentDropIndex);
+    const uncompleted = drops.filter((d) => !d.isConfirmed);
 
-    if (remaining.length <= 1) {
-      Alert.alert('Route Optimization', 'มีลูกค้านัดหมายที่เหลือเพียง 1 จุด ไม่จำเป็นต้องจัดลำดับใหม่');
+    if (uncompleted.length <= 1) {
+      Alert.alert(
+        language === 'th' ? 'AI จัดลำดับเส้นทาง' : 'Route Optimization',
+        language === 'th'
+          ? 'มีลูกค้านัดหมายที่ยังไม่เสร็จสิ้นเพียง 1 จุด ไม่จำเป็นต้องจัดลำดับใหม่'
+          : 'Only 1 pending stop remaining. No reordering needed.'
+      );
       return;
     }
 
@@ -317,57 +337,84 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   };
 
   // Execute AI Re-Optimization
-  const handleExecuteOptimization = () => {
-    const completed = drops.slice(0, currentDropIndex);
-    const remaining = drops.slice(currentDropIndex);
+  const handleExecuteOptimization = async () => {
+    const completed = drops.filter((d) => !!d.isConfirmed);
+    const remaining = drops.filter((d) => !d.isConfirmed);
 
     if (remaining.length <= 1) {
-      Alert.alert('Route Optimization', 'มีลูกค้านัดหมายที่เหลือเพียง 1 จุด ไม่จำเป็นต้องจัดลำดับใหม่');
+      Alert.alert(
+        language === 'th' ? 'AI จัดลำดับเส้นทาง' : 'Route Optimization',
+        language === 'th'
+          ? 'มีลูกค้านัดหมายที่ยังไม่เสร็จสิ้นเพียง 1 จุด ไม่จำเป็นต้องจัดลำดับใหม่'
+          : 'Only 1 pending stop remaining. No reordering needed.'
+      );
       setShowOptimizeModal(false);
       return;
     }
+
+    setOptimizing(true);
 
     let originCoord: Coordinates;
     let originLabel = '';
 
     if (originType === 'currentGps') {
+      let loc = currentGpsLocation;
+      if (!loc) {
+        try {
+          const fetched = await getLiveDeviceLocation();
+          loc = {
+            latitude: fetched.coords.latitude,
+            longitude: fetched.coords.longitude,
+            name: fetched.name || 'ตำแหน่งปัจจุบันของคุณ',
+            address: fetched.address,
+          };
+          setCurrentGpsLocation(loc);
+        } catch (e) {
+          console.warn('GPS fetch error in optimize:', e);
+        }
+      }
       originCoord = {
-        latitude: currentGpsLocation?.latitude || startLocation.latitude || 13.7563,
-        longitude: currentGpsLocation?.longitude || startLocation.longitude || 100.5018,
+        latitude: loc?.latitude || startLocation.latitude || 13.7563,
+        longitude: loc?.longitude || startLocation.longitude || 100.5018,
       };
-      originLabel = currentGpsLocation?.name || 'ตำแหน่ง GPS สดปัจจุบัน';
+      originLabel = loc?.name || (language === 'th' ? 'ตำแหน่ง GPS สดปัจจุบัน' : 'Current Live GPS');
     } else if (originType === 'manualPin') {
       originCoord = {
         latitude: manualPinLocation.latitude,
         longitude: manualPinLocation.longitude,
       };
-      originLabel = manualPinLocation.name || 'จุดปักหมุด Manual';
+      originLabel = manualPinLocation.name || (language === 'th' ? 'จุดปักหมุด Manual' : 'Manual Pin');
     } else {
       originCoord = {
         latitude: startLocation.latitude || 13.7563,
         longitude: startLocation.longitude || 100.5018,
       };
-      originLabel = startLocation.name || 'จุดเริ่มต้นเดิมของทริป';
+      originLabel = startLocation.name || (language === 'th' ? 'จุดเริ่มต้นเดิมของทริป' : 'Trip Start Location');
     }
 
-    setOptimizing(true);
     setTimeout(() => {
       const optimalRemainingIndices = solveOptimalStopOrder(originCoord, remaining);
       const reorderedRemaining = optimalRemainingIndices.map((idx) => remaining[idx]);
 
-      setDrops([...completed, ...reorderedRemaining]);
+      const newDrops = [...completed, ...reorderedRemaining];
+      setDrops(newDrops);
       setOptimizing(false);
       setShowOptimizeModal(false);
 
+      const firstClientName = reorderedRemaining[0]?.name || (language === 'th' ? 'จุดแรก' : '1st Stop');
       Alert.alert(
-        '✨ AI จัดลำดับใหม่สำเร็จ',
-        `จัดลำดับลูกค้านัดหมายที่เหลือ ${remaining.length} รายการให้สั้นที่สุด โดยคำนวณเริ่มจาก:\n"${originLabel}" เรียบร้อยแล้ว`
+        language === 'th' ? '✨ AI จัดลำดับใหม่สำเร็จ' : '✨ AI Optimization Completed',
+        language === 'th'
+          ? `จัดลำดับลูกค้านัดหมายที่เหลือ ${remaining.length} รายการให้สั้นที่สุด โดยคำนวณเริ่มจาก:\n"${originLabel}"\n\nจุดแรกที่แนะนำ: ${firstClientName}`
+          : `Optimized sequence for ${remaining.length} remaining stops starting from:\n"${originLabel}"\n\nRecommended first stop: ${firstClientName}`
       );
     }, 450);
   };
 
   // Apply Changes & Go Back to Tracker
   const handleApplyChanges = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
     const tripId = params.tripId;
 
     try {
@@ -390,6 +437,11 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
             .in('id', toDeleteIds);
         }
 
+        // Get staff_id from trip or current user
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: tripRow } = await supabase.from('trips').select('staff_id').eq('id', tripId).single();
+        const staffId = tripRow?.staff_id || user?.id || '42284d55-3997-4add-9226-dd9cf2f085df';
+
         // 2. Update sequence_order for remaining / newly added drops
         for (let idx = 0; idx < drops.length; idx++) {
           const d = drops[idx];
@@ -400,6 +452,9 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
               .update({
                 sequence_order: seq,
                 company_name: d.name,
+                customer_name: d.recipient || d.name,
+                recipient_name: d.recipient || d.name,
+                recipient_phone: d.phone || '',
                 destination_address: d.address,
                 destination_lat: d.latitude,
                 destination_lng: d.longitude,
@@ -407,24 +462,40 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
               })
               .eq('id', d.id);
           } else {
-            await (supabase.from('appointments' as any) as any)
+            const { data: insertedAppt, error: insertErr } = await (supabase.from('appointments' as any) as any)
               .insert({
                 trip_id: tripId,
+                staff_id: staffId,
+                type: 'appointment',
                 sequence_order: seq,
                 company_name: d.name,
                 customer_name: d.recipient || d.name,
+                recipient_name: d.recipient || d.name,
+                recipient_phone: d.phone || '',
                 destination_address: d.address,
                 destination_lat: d.latitude || 13.7563,
                 destination_lng: d.longitude || 100.5018,
                 agenda: d.items || 'เข้าพบและนำเสนอสินค้า',
                 status: 'pending',
                 confirmation_status: false,
-              });
+              })
+              .select('id')
+              .single();
+
+            if (insertErr) {
+              console.error('Error inserting new appointment to Supabase:', insertErr);
+            }
+            if (insertedAppt?.id) {
+              d.id = insertedAppt.id;
+              (d as any).appointmentId = insertedAppt.id;
+            }
           }
         }
       }
     } catch (err) {
       console.error('Error syncing reordered itinerary to Supabase:', err);
+    } finally {
+      setIsSaving(false);
     }
 
     if (route.params?.onUpdateDrops) {
@@ -445,7 +516,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
     );
   };
 
-  const remainingDropsCount = Math.max(0, drops.length - currentDropIndex);
+  const remainingDropsCount = drops.filter((d) => !d.isConfirmed).length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -634,14 +705,21 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
       </ScrollView>
 
       {/* Sticky Bottom Save CTA */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
         <TouchableOpacity
-          style={styles.applyButton}
+          style={[styles.applyButton, isSaving && { opacity: 0.6 }]}
           onPress={handleApplyChanges}
+          disabled={isSaving}
           activeOpacity={0.9}
         >
-          <Check size={18} color="#FFFFFF" />
-          <Text style={styles.applyButtonText}>{t('btn_apply')}</Text>
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Check size={18} color="#FFFFFF" />
+          )}
+          <Text style={styles.applyButtonText}>
+            {isSaving ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...') : t('btn_apply')}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -1031,8 +1109,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: '#F2F4F7',
   },
   backButton: {
@@ -1058,7 +1136,7 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 130,
     gap: 16,
   },
   noticeBanner: {

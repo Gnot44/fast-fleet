@@ -28,6 +28,11 @@ import {
   Briefcase,
   Users,
   Eye,
+  Trash2,
+  Edit3,
+  FileText,
+  RotateCw,
+  Send,
 } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
@@ -38,24 +43,73 @@ type ViewMode = 'month' | 'week' | 'day';
 
 interface TripItem {
   id: string;
+  tripCode?: string;
   title: string;
   dateKey: string; // YYYY-MM-DD
   time: string;
   startTime: string; // e.g. "08:30"
   endTime: string; // e.g. "11:45"
   dropsCount: number;
-  confirmedDropsCount: number;
-  hasUnconfirmedDrops: boolean;
+  visitedDropsCount: number;
+  completedDropsCount: number;
+  isFullyVisited: boolean;
+  isFullyCompleted: boolean;
+  hasIncompleteDrops: boolean;
+  isOverdue: boolean;
+  approvalStatus: 'draft' | 'pending' | 'approved' | 'revision_requested';
+  managerFeedback?: string;
+  revisionCount?: number;
   vehicle: string;
   status: 'In Progress' | 'Scheduled' | 'Completed';
+  startLocation?: any;
+  startOdometer?: string;
+  drops?: any[];
   stops?: {
     time: string;
     client: string;
     contact: string;
     location: string;
-    status: 'done' | 'active' | 'pending';
+    status: 'done' | 'incomplete' | 'pending';
     agenda: string;
   }[];
+}
+
+function parsePhotos(photoField?: any): string[] {
+  if (!photoField) return [];
+  const results: string[] = [];
+
+  const extract = (val: any) => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      val.forEach(extract);
+      return;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('"{') && trimmed.endsWith('}"')) ||
+        (trimmed.startsWith('"[') && trimmed.endsWith(']"'))
+      ) {
+        try {
+          const unescaped = trimmed.startsWith('"') && trimmed.endsWith('"') ? JSON.parse(trimmed) : trimmed;
+          const parsed = typeof unescaped === 'string' ? JSON.parse(unescaped) : unescaped;
+          extract(parsed);
+          return;
+        } catch (e) {}
+      }
+      if (trimmed.includes('||')) {
+        trimmed.split('||').forEach((s) => extract(s.trim()));
+        return;
+      }
+      if (trimmed.length > 5 && !trimmed.startsWith('[') && !trimmed.endsWith(']')) {
+        results.push(trimmed);
+      }
+    }
+  };
+
+  extract(photoField);
+  return Array.from(new Set(results));
 }
 
 const THAI_MONTHS = [
@@ -82,56 +136,147 @@ export default function TripScheduleScreen({ navigation }: any) {
   const [selectedDateKey, setSelectedDateKey] = useState(today.toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [allTrips, setAllTrips] = useState<TripItem[]>([]);
+  const [isOperating, setIsOperating] = useState(false);
 
-  useEffect(() => {
-    async function loadScheduleTrips() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+  const loadScheduleTrips = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-        const { data: tripsData } = await supabase
-          .from('trips')
-          .select('*, appointments(*)')
-          .eq('staff_id', user.id)
-          .order('trip_date', { ascending: true });
+      const { data: tripsData } = await supabase
+        .from('trips')
+        .select('*, appointments(*), expenses(*)')
+        .eq('staff_id', user.id)
+        .order('trip_date', { ascending: true });
 
-        if (tripsData) {
-          const mapped: TripItem[] = tripsData.map((t: any) => {
-            const appts = t.appointments || [];
-            const confirmedCount = appts.filter((a: any) => a.confirmation_status).length;
-            const hasUnconfirmed = confirmedCount < appts.length;
-            const dateStr = t.trip_date || new Date().toISOString().split('T')[0];
+      const reverseCatMap: Record<string, string> = {
+        'toll': 'ค่าทางด่วน',
+        'parking': 'ค่าที่จอดรถ',
+        'fuel': 'ค่าน้ำมัน',
+        'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
+        'other': 'อื่นๆ',
+      };
+
+      if (tripsData) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const mapped: TripItem[] = tripsData.map((t: any) => {
+          const rawAppts = t.appointments || [];
+          const tripExpenses = t.expenses || [];
+          const sortedAppts = [...rawAppts].sort(
+            (a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)
+          );
+          const visitedCount = sortedAppts.filter((a: any) => !!a.confirmation_status).length;
+          const completedDataCount = sortedAppts.filter(
+            (a: any) => !!a.confirmation_status && (a.status === 'completed' || a.status === 'Completed')
+          ).length;
+          const totalCount = sortedAppts.length;
+
+          const isFullyVisited = totalCount > 0 && visitedCount === totalCount;
+          const isFullyCompleted = totalCount > 0 && completedDataCount === totalCount;
+          const hasIncompleteDrops = totalCount > 0 && completedDataCount < totalCount;
+
+          const dateStr = t.trip_date || todayStr;
+          const isPastDate = dateStr < todayStr;
+          // Trip has active draft / progress if in_progress, has visited/confirmed stops, or has logged expenses
+          const hasDraftOrProgress = t.status === 'in_progress' || visitedCount > 0 || completedDataCount > 0 || (t.total_expenses && Number(t.total_expenses) > 0);
+          // Overdue Lock: Only past trips that were NEVER started, NEVER saved draft, and NOT submitted/approved/revision
+          const isOverdue = isPastDate && !hasDraftOrProgress && t.status !== 'completed' && t.approval_status !== 'approved' && t.approval_status !== 'revision_requested';
+          const approvalStatus = (t.approval_status as 'draft' | 'pending' | 'approved' | 'revision_requested') || 'draft';
+
+          const formattedDrops = sortedAppts.map((a: any) => {
+            const apptExps = tripExpenses.filter((e: any) => e.appointment_id === a.id);
+            const mappedExps = apptExps.map((e: any) => ({
+              id: e.id,
+              category: reverseCatMap[e.category] || e.category,
+              amount: String(e.amount),
+              receiptUri: e.receipt_url || e.receipt_image_path,
+              receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+              note: e.notes || '',
+            }));
+
+            let apptPhotos = parsePhotos(a.client_photo_url);
+            let apptExpsFinal = mappedExps;
+
+            if (a.driver_notes && typeof a.driver_notes === 'string' && (a.driver_notes.includes('hasDraft') || a.driver_notes.includes('draftPhotos'))) {
+              try {
+                const draftData = JSON.parse(a.driver_notes);
+                if (draftData && (draftData.hasDraft || Array.isArray(draftData.draftPhotos))) {
+                  apptPhotos = Array.isArray(draftData.draftPhotos) ? parsePhotos(draftData.draftPhotos) : [];
+                  if (Array.isArray(draftData.draftExpenses)) {
+                    apptExpsFinal = draftData.draftExpenses;
+                  }
+                }
+              } catch (e) {}
+            }
 
             return {
-              id: t.id,
-              title: t.title || 'เส้นทางเข้าพบลูกค้า',
-              dateKey: dateStr,
-              time: '08:30 AM - 05:00 PM',
-              startTime: '08:30',
-              endTime: '17:00',
-              dropsCount: appts.length,
-              confirmedDropsCount: confirmedCount,
-              hasUnconfirmedDrops: hasUnconfirmed,
-              vehicle: 'Isuzu D-Max (1กข-4452)',
-              status: t.status === 'in_progress' ? 'In Progress' : (t.status === 'completed' ? 'Completed' : 'Scheduled'),
-              stops: appts.map((a: any) => ({
-                time: '09:00 AM',
-                client: a.company_name,
-                contact: `${a.contact_person || 'ผู้จัดการ'} (${a.contact_phone || '081-000-0000'})`,
-                location: a.destination_address,
-                status: a.confirmation_status ? 'done' : 'pending',
-                agenda: a.visit_agenda || 'demo',
-              })),
+              id: a.id,
+              appointmentId: a.id,
+              name: a.company_name,
+              recipient: a.recipient_name || a.customer_name || '',
+              phone: a.recipient_phone || '',
+              items: a.agenda || '',
+              address: a.destination_address || '',
+              latitude: a.destination_lat || undefined,
+              longitude: a.destination_lng || undefined,
+              isConfirmed: !!a.confirmation_status,
+              isDataComplete: a.status === 'completed' || a.status === 'Completed',
+              status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
+              meetingMinutes: a.meeting_notes || '',
+              photos: apptPhotos,
+              expenses: apptExpsFinal,
             };
           });
 
-          setAllTrips(mapped);
-        }
-      } catch (err) {
-        console.error('Error fetching trips for schedule:', err);
-      }
-    }
+          return {
+            id: t.id,
+            tripCode: t.trip_code || `TRP-${t.id.slice(0, 6).toUpperCase()}`,
+            title: t.title || 'เส้นทางเข้าพบลูกค้า',
+            dateKey: dateStr,
+            time: '08:30 AM - 05:00 PM',
+            startTime: '08:30',
+            endTime: '17:00',
+            dropsCount: totalCount,
+            visitedDropsCount: visitedCount,
+            completedDropsCount: completedDataCount,
+            isFullyVisited: isFullyVisited,
+            isFullyCompleted: isFullyCompleted,
+            hasIncompleteDrops: hasIncompleteDrops,
+            isOverdue: isOverdue,
+            approvalStatus: approvalStatus,
+            managerFeedback: t.manager_feedback,
+            revisionCount: t.approval_status === 'revision_requested' ? 1 : 0,
+            vehicle: 'Isuzu D-Max (1กข-4452)',
+            status: t.status === 'in_progress' ? 'In Progress' : (t.status === 'completed' ? 'Completed' : 'Scheduled'),
+            startLocation: t.start_location || {
+              name: 'สำนักงาน / จุดปล่อยรถ (Depot)',
+              address: 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร',
+              latitude: 13.7563,
+              longitude: 100.5018,
+            },
+            startOdometer: t.start_odometer?.toString() || '45200',
+            drops: formattedDrops,
+            stops: sortedAppts.map((a: any) => ({
+              time: '09:00 AM',
+              client: a.company_name,
+              contact: `${a.recipient_name || a.customer_name || 'ผู้จัดการ'} (${a.recipient_phone || '081-000-0000'})`,
+              location: a.destination_address,
+              status: !a.confirmation_status
+                ? 'pending'
+                : (a.status === 'completed' || a.status === 'Completed' ? 'done' : 'incomplete'),
+              agenda: a.agenda || 'เข้าพบและนำเสนอสินค้า',
+            })),
+          };
+        });
 
+        setAllTrips(mapped);
+      }
+    } catch (err) {
+      console.error('Error fetching trips for schedule:', err);
+    }
+  };
+
+  useEffect(() => {
     loadScheduleTrips();
     const unsubscribe = navigation.addListener('focus', () => {
       loadScheduleTrips();
@@ -177,14 +322,22 @@ export default function TripScheduleScreen({ navigation }: any) {
 
     const dots: { color: string; id: string }[] = [];
     trips.forEach((trip: TripItem) => {
-      if (trip.status === 'In Progress') {
-        dots.push({ color: '#10B981', id: trip.id + '-progress' }); // Green
-      } else if (trip.hasUnconfirmedDrops) {
-        dots.push({ color: '#F59E0B', id: trip.id + '-amber' }); // Amber
-      } else if (trip.status === 'Completed') {
-        dots.push({ color: '#94A3B8', id: trip.id + '-done' }); // Gray / Done
+      if (trip.isOverdue) {
+        dots.push({ color: '#E11D48', id: trip.id + '-overdue' });
+      } else if (trip.approvalStatus === 'approved') {
+        dots.push({ color: '#166534', id: trip.id + '-approved' });
+      } else if (trip.approvalStatus === 'revision_requested') {
+        dots.push({ color: '#DC2626', id: trip.id + '-rev' });
+      } else if (trip.approvalStatus === 'pending') {
+        dots.push({ color: '#2563EB', id: trip.id + '-pending' });
+      } else if (trip.status === 'In Progress' && trip.isFullyCompleted) {
+        dots.push({ color: '#10B981', id: trip.id + '-complete' });
+      } else if (trip.status === 'In Progress' && trip.hasIncompleteDrops) {
+        dots.push({ color: '#F59E0B', id: trip.id + '-amber' });
+      } else if (trip.status === 'In Progress') {
+        dots.push({ color: '#3B82F6', id: trip.id + '-progress' });
       } else {
-        dots.push({ color: '#1D4ED8', id: trip.id + '-sched' }); // Blue
+        dots.push({ color: '#64748B', id: trip.id + '-sched' });
       }
     });
     return dots.slice(0, 3); // Max 3 dots in cell
@@ -195,6 +348,7 @@ export default function TripScheduleScreen({ navigation }: any) {
     const firstDay = new Date(currentYear, currentMonth, 1);
     const lastDay = new Date(currentYear, currentMonth + 1, 0);
     const daysInMonth = lastDay.getDate();
+    const todayStr = new Date().toISOString().split('T')[0];
 
     // In JS, getDay(): 0 is Sunday, 1 is Mon... 6 is Sat
     // Convert to Monday=0, Tuesday=1 ... Sunday=6
@@ -216,7 +370,7 @@ export default function TripScheduleScreen({ navigation }: any) {
       days.push({
         day: d,
         dateKey,
-        isToday: dateKey === '2026-08-19',
+        isToday: dateKey === todayStr,
       });
     }
 
@@ -240,18 +394,156 @@ export default function TripScheduleScreen({ navigation }: any) {
   };
 
   const handleTripAction = (trip: TripItem) => {
-    if (trip.status === 'In Progress') {
-      navigation.navigate('ActiveTracker', {
+    if (trip.isOverdue) {
+      navigation.navigate('RoutePreview', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
         tripTitle: trip.title,
         selectedVehicle: trip.vehicle,
+        scheduledDate: trip.dateKey,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        isOverdue: true,
       });
+    } else if (trip.approvalStatus === 'approved') {
+      navigation.navigate('TripSummary', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+        tripTitle: trip.title,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        isApproved: true,
+      });
+    } else if (trip.approvalStatus === 'pending') {
+      navigation.navigate('TripSummary', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+        tripTitle: trip.title,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        isPendingReview: true,
+      });
+    } else if (trip.approvalStatus === 'revision_requested') {
+      navigation.navigate('TripSummary', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+        tripTitle: trip.title,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        isRevision: true,
+        revisionCount: trip.revisionCount,
+        managerFeedback: trip.managerFeedback,
+      });
+    } else if (trip.status === 'In Progress') {
+      if (trip.isFullyVisited || trip.isFullyCompleted) {
+        navigation.navigate('TripSummary', {
+          tripId: trip.id,
+          tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+          tripTitle: trip.title,
+          drops: trip.drops,
+          startLocation: trip.startLocation,
+          startOdometer: trip.startOdometer,
+        });
+      } else {
+        navigation.navigate('ActiveTracker', {
+          tripId: trip.id,
+          tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+          tripTitle: trip.title,
+          selectedVehicle: trip.vehicle,
+          drops: trip.drops,
+          startLocation: trip.startLocation,
+          startOdometer: trip.startOdometer,
+        });
+      }
     } else {
       navigation.navigate('RoutePreview', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
         tripTitle: trip.title,
         selectedVehicle: trip.vehicle,
-        scheduledDate: trip.time,
+        scheduledDate: trip.dateKey,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
       });
     }
+  };
+
+  const handleDeleteTrip = (tripId: string) => {
+    Alert.alert(
+      language === 'th' ? 'ลบแผนงาน / ทริป' : 'Delete Visit Plan',
+      language === 'th'
+        ? 'คุณต้องการลบแผนงานนี้ออกจากระบบถาวรใช่หรือไม่?'
+        : 'Are you sure you want to permanently delete this plan and its stops?',
+      [
+        { text: t('btn_cancel'), style: 'cancel' },
+        {
+          text: t('btn_delete'),
+          style: 'destructive',
+          onPress: async () => {
+            if (isOperating) return;
+            setIsOperating(true);
+            try {
+              await supabase.from('appointments').delete().eq('trip_id', tripId);
+              await supabase.from('expenses').delete().eq('trip_id', tripId);
+              const { error } = await supabase.from('trips').delete().eq('id', tripId);
+              if (error) throw error;
+
+              setAllTrips((prev) => prev.filter((t) => t.id !== tripId));
+              Alert.alert(
+                language === 'th' ? 'ลบสำเร็จ' : 'Deleted',
+                language === 'th' ? 'ลบแผนงานออกจากระบบเรียบร้อยแล้ว' : 'Visit plan deleted successfully.'
+              );
+            } catch (err: any) {
+              console.error('Delete trip error:', err);
+              Alert.alert(language === 'th' ? 'เกิดข้อผิดพลาด' : 'Error', err.message || 'Could not delete trip');
+            } finally {
+              setIsOperating(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRescheduleToToday = async (trip: TripItem) => {
+    const todayKey = new Date().toISOString().split('T')[0];
+    Alert.alert(
+      language === 'th' ? 'เลื่อนวันแผนงาน' : 'Reschedule Plan',
+      language === 'th'
+        ? `คุณต้องการเลื่อนแผนงาน "${trip.title}" มาเป็นวันนี้ (${todayKey}) ใช่หรือไม่?`
+        : `Do you want to reschedule "${trip.title}" to today (${todayKey})?`,
+      [
+        { text: t('btn_cancel'), style: 'cancel' },
+        {
+          text: language === 'th' ? 'เลื่อนเป็นวันนี้' : 'Move to Today',
+          onPress: async () => {
+            if (isOperating) return;
+            setIsOperating(true);
+            try {
+              const { error } = await supabase
+                .from('trips')
+                .update({ trip_date: todayKey })
+                .eq('id', trip.id);
+              if (error) throw error;
+
+              await loadScheduleTrips();
+              setSelectedDateKey(todayKey);
+              navigation.navigate('NewAppointment', { tripId: trip.id });
+            } catch (err: any) {
+              console.error('Reschedule trip error:', err);
+              Alert.alert(language === 'th' ? 'เกิดข้อผิดพลาด' : 'Error', err.message || 'Could not reschedule');
+            } finally {
+              setIsOperating(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // 7 Days of the active week (around selected date)
@@ -639,12 +931,38 @@ export default function TripScheduleScreen({ navigation }: any) {
                   {selectedDayTrips.map((trip: TripItem) => (
                     <View key={trip.id} style={styles.timelineTripSection}>
                       <View style={styles.timelineTripHeader}>
-                        <View style={styles.tripBadgePill}>
-                          <Text style={styles.tripBadgeText}>{trip.id}</Text>
+                        <TouchableOpacity
+                          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}
+                          onPress={() => handleTripAction(trip)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.tripBadgePill}>
+                            <Text style={styles.tripBadgeText}>{trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`}</Text>
+                          </View>
+                          <Text style={styles.timelineTripTitle} numberOfLines={1}>
+                            {trip.title}
+                          </Text>
+                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          {trip.dateKey !== new Date().toISOString().split('T')[0] && trip.approvalStatus !== 'approved' && trip.approvalStatus !== 'pending' && trip.status !== 'Completed' && !trip.isOverdue && (
+                            <TouchableOpacity
+                              style={[styles.tripHeaderActionBtn, { backgroundColor: '#EFF6FF' }]}
+                              onPress={() => handleRescheduleToToday(trip)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <RotateCw size={13} color="#1D4ED8" />
+                            </TouchableOpacity>
+                          )}
+                          {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && !trip.isOverdue && (
+                            <TouchableOpacity
+                              style={[styles.tripHeaderActionBtn, { backgroundColor: '#FEE2E2' }]}
+                              onPress={() => handleDeleteTrip(trip.id)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Trash2 size={13} color="#EF4444" />
+                            </TouchableOpacity>
+                          )}
                         </View>
-                        <Text style={styles.timelineTripTitle}>
-                          {trip.title}
-                        </Text>
                       </View>
 
                       {/* Stops timeline */}
@@ -661,12 +979,14 @@ export default function TripScheduleScreen({ navigation }: any) {
                               style={[
                                 styles.timelineNodeDot,
                                 stop.status === 'done' && styles.nodeDone,
-                                stop.status === 'active' && styles.nodeActive,
+                                stop.status === 'incomplete' && { backgroundColor: '#F59E0B' },
                                 stop.status === 'pending' && styles.nodePending,
                               ]}
                             >
                               {stop.status === 'done' ? (
                                 <CheckCircle2 size={10} color="#FFFFFF" />
+                              ) : stop.status === 'incomplete' ? (
+                                <AlertTriangle size={9} color="#FFFFFF" />
                               ) : (
                                 <CircleDot size={8} color="#FFFFFF" />
                               )}
@@ -685,7 +1005,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                                 style={[
                                   styles.stopStatusBadge,
                                   stop.status === 'done' && styles.badgeDone,
-                                  stop.status === 'active' && styles.badgeActive,
+                                  stop.status === 'incomplete' && { backgroundColor: '#FEF3C7' },
                                   stop.status === 'pending' && styles.badgePending,
                                 ]}
                               >
@@ -695,8 +1015,8 @@ export default function TripScheduleScreen({ navigation }: any) {
                                     stop.status === 'done' && {
                                       color: '#166534',
                                     },
-                                    stop.status === 'active' && {
-                                      color: '#1D4ED8',
+                                    stop.status === 'incomplete' && {
+                                      color: '#B45309',
                                     },
                                     stop.status === 'pending' && {
                                       color: '#64748B',
@@ -704,9 +1024,9 @@ export default function TripScheduleScreen({ navigation }: any) {
                                   ]}
                                 >
                                   {stop.status === 'done'
-                                    ? t('btn_finish')
-                                    : stop.status === 'active'
-                                    ? t('dash_in_progress')
+                                    ? (language === 'th' ? '✓ สมบูรณ์' : '✓ Done')
+                                    : stop.status === 'incomplete'
+                                    ? (language === 'th' ? '⚠️ ไม่สมบูรณ์' : '⚠️ Incomplete')
                                     : t('dash_scheduled')}
                                 </Text>
                               </View>
@@ -739,23 +1059,83 @@ export default function TripScheduleScreen({ navigation }: any) {
                         </View>
                       ))}
 
-                      {/* Quick Start Action inside Day Timeline */}
+                      {/* Quick Action inside Day Timeline */}
                       <TouchableOpacity
                         style={[
                           styles.timelineActionBtn,
-                          trip.status === 'In Progress' && {
-                            backgroundColor: '#10B981',
+                          trip.isOverdue && { backgroundColor: '#FFE4E6', borderWidth: 1, borderColor: '#FECDD3' },
+                          trip.approvalStatus === 'approved' && { backgroundColor: '#166534' },
+                          trip.approvalStatus === 'pending' && { backgroundColor: '#2563EB' },
+                          trip.approvalStatus === 'revision_requested' && { backgroundColor: '#DC2626' },
+                          trip.status === 'In Progress' && trip.isFullyCompleted && {
+                            backgroundColor: '#16A34A',
+                          },
+                          trip.status === 'In Progress' && trip.hasIncompleteDrops && trip.visitedDropsCount > 0 && {
+                            backgroundColor: '#D97706',
                           },
                         ]}
                         onPress={() => handleTripAction(trip)}
                         activeOpacity={0.85}
                       >
-                        <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
-                        <Text style={styles.timelineActionBtnText}>
-                          {trip.status === 'In Progress'
-                            ? t('btn_start_now')
-                            : t('btn_start_trip')}
-                        </Text>
+                        {trip.isOverdue ? (
+                          <>
+                            <Eye size={14} color="#BE123C" />
+                            <Text style={[styles.timelineActionBtnText, { color: '#BE123C' }]}>
+                              {language === 'th' ? 'ดูรายละเอียด (งานค้าง)' : 'View Details (Overdue)'}
+                            </Text>
+                          </>
+                        ) : trip.approvalStatus === 'approved' ? (
+                          <>
+                            <CheckCircle2 size={14} color="#FFFFFF" />
+                            <Text style={styles.timelineActionBtnText}>
+                              {language === 'th' ? 'ดูประวัติที่อนุมัติแล้ว' : 'View Approved History'}
+                            </Text>
+                          </>
+                        ) : trip.approvalStatus === 'pending' ? (
+                          <>
+                            <Eye size={14} color="#FFFFFF" />
+                            <Text style={styles.timelineActionBtnText}>
+                              {language === 'th' ? 'ดูรายงานที่ส่งไป (รออนุมัติ)' : 'View Submitted Report'}
+                            </Text>
+                          </>
+                        ) : trip.approvalStatus === 'revision_requested' ? (
+                          <>
+                            <Edit3 size={14} color="#FFFFFF" />
+                            <Text style={styles.timelineActionBtnText}>
+                              {language === 'th' ? 'แก้ไขและส่งใหม่' : 'Edit & Resubmit'}
+                            </Text>
+                          </>
+                        ) : trip.status === 'In Progress' ? (
+                          trip.isFullyCompleted ? (
+                            <>
+                              <Send size={14} color="#FFFFFF" />
+                              <Text style={styles.timelineActionBtnText}>
+                                {language === 'th' ? 'ส่งรายงานให้ Admin' : 'Submit to Admin'}
+                              </Text>
+                            </>
+                          ) : trip.isFullyVisited ? (
+                            <>
+                              <FileText size={14} color="#FFFFFF" />
+                              <Text style={styles.timelineActionBtnText}>
+                                {language === 'th' ? 'กรอกข้อมูลที่เหลือ' : 'Fill Missing Data'}
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
+                              <Text style={styles.timelineActionBtnText}>
+                                {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
+                              </Text>
+                            </>
+                          )
+                        ) : (
+                          <>
+                            <Navigation size={14} color="#FFFFFF" />
+                            <Text style={styles.timelineActionBtnText}>
+                              {language === 'th' ? 'ดูเส้นทาง' : 'View Route'}
+                            </Text>
+                          </>
+                        )}
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -773,9 +1153,16 @@ export default function TripScheduleScreen({ navigation }: any) {
           <View style={styles.legendItemsRow}>
             <View style={styles.legendItem}>
               <View
-                style={[styles.legendDot, { backgroundColor: '#1D4ED8' }]}
+                style={[styles.legendDot, { backgroundColor: '#166534' }]}
               />
-              <Text style={styles.legendText}>{t('cal_legend_scheduled')}</Text>
+              <Text style={styles.legendText}>{language === 'th' ? 'อนุมัติแล้ว' : 'Approved'}</Text>
+            </View>
+
+            <View style={styles.legendItem}>
+              <View
+                style={[styles.legendDot, { backgroundColor: '#2563EB' }]}
+              />
+              <Text style={styles.legendText}>{language === 'th' ? 'รออนุมัติ' : 'Pending'}</Text>
             </View>
 
             <View style={styles.legendItem}>
@@ -783,7 +1170,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                 style={[styles.legendDot, { backgroundColor: '#10B981' }]}
               />
               <Text style={styles.legendText}>
-                {t('cal_legend_in_progress')}
+                {language === 'th' ? 'ข้อมูลครบ' : 'Complete'}
               </Text>
             </View>
 
@@ -792,15 +1179,24 @@ export default function TripScheduleScreen({ navigation }: any) {
                 style={[styles.legendDot, { backgroundColor: '#F59E0B' }]}
               />
               <Text style={styles.legendText}>
-                {t('cal_legend_unconfirmed')}
+                {language === 'th' ? 'ไม่สมบูรณ์' : 'Incomplete'}
               </Text>
             </View>
 
             <View style={styles.legendItem}>
               <View
-                style={[styles.legendDot, { backgroundColor: '#94A3B8' }]}
+                style={[styles.legendDot, { backgroundColor: '#E11D48' }]}
               />
-              <Text style={styles.legendText}>{t('cal_legend_completed')}</Text>
+              <Text style={styles.legendText}>
+                {language === 'th' ? 'งานค้าง' : 'Overdue'}
+              </Text>
+            </View>
+
+            <View style={styles.legendItem}>
+              <View
+                style={[styles.legendDot, { backgroundColor: '#64748B' }]}
+              />
+              <Text style={styles.legendText}>{language === 'th' ? 'นัดหมายไว้' : 'Scheduled'}</Text>
             </View>
           </View>
         </View>
@@ -860,113 +1256,261 @@ export default function TripScheduleScreen({ navigation }: any) {
               </View>
             ) : (
               <View style={styles.tripsList}>
-                {selectedDayTrips.map((trip: TripItem) => (
-                  <View key={trip.id} style={styles.tripCard}>
-                    {/* Header */}
-                    <View style={styles.tripHeaderFlex}>
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.codeRow}>
-                          <Text style={styles.tripCode}>{trip.id}</Text>
-                          {trip.hasUnconfirmedDrops && (
-                            <View style={styles.unconfirmedBadge}>
-                              <AlertTriangle size={10} color="#B45309" />
-                              <Text style={styles.unconfirmedBadgeText}>
-                                {t('dash_unconfirmed_badge')}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.tripTitle}>{trip.title}</Text>
-                      </View>
-
-                      <View
-                        style={[
-                          styles.statusPill,
-                          trip.status === 'In Progress'
-                            ? styles.statusActive
-                            : trip.status === 'Completed'
-                            ? styles.statusCompleted
-                            : styles.statusPending,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.statusPillText,
-                            trip.status === 'In Progress'
-                              ? { color: '#10B981' }
-                              : trip.status === 'Completed'
-                              ? { color: '#64748B' }
-                              : { color: '#1D4ED8' },
-                          ]}
-                        >
-                          {trip.status === 'In Progress'
-                            ? t('dash_in_progress')
-                            : trip.status === 'Completed'
-                            ? t('btn_finish')
-                            : t('dash_scheduled')}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Trip details */}
-                    <View style={styles.tripDetailsBox}>
-                      <View style={styles.detailRow}>
-                        <Clock size={13} color="#64748B" />
-                        <Text style={styles.detailText}>{trip.time}</Text>
-                      </View>
-                      <View style={styles.detailRow}>
-                        <MapPin size={13} color="#1D4ED8" />
-                        <Text style={styles.detailText}>
-                          {trip.dropsCount} {t('dash_total_clients')}
-                          {trip.confirmedDropsCount > 0 &&
-                            ` (${trip.confirmedDropsCount} ${t('dash_completed_visits')})`}
-                        </Text>
-                      </View>
-                      <View style={styles.detailRow}>
-                        <Car size={13} color="#64748B" />
-                        <Text style={styles.detailText}>{trip.vehicle}</Text>
-                      </View>
-                    </View>
-
-                    {/* Actions */}
-                    <View style={styles.tripCardActionsRow}>
+                {selectedDayTrips.map((trip: TripItem) => {
+                  return (
+                    <View key={trip.id} style={styles.tripCard}>
+                      {/* Top Row: Title, Time & Unified Status Pill */}
                       <TouchableOpacity
-                        style={styles.previewBtn}
-                        onPress={() =>
-                          navigation.navigate('RoutePreview', {
-                            tripTitle: trip.title,
-                            selectedVehicle: trip.vehicle,
-                            scheduledDate: trip.time,
-                          })
-                        }
+                        style={styles.tripCardHeader}
+                        onPress={() => handleTripAction(trip)}
                         activeOpacity={0.8}
                       >
-                        <Eye size={14} color="#1D4ED8" />
-                        <Text style={styles.previewBtnText}>
-                          {language === 'th' ? 'ดูเส้นทาง' : 'Preview'}
-                        </Text>
+                        <View style={styles.tripCardHeaderLeft}>
+                          <Text style={styles.tripCardTitle} numberOfLines={1}>
+                            {trip.title}
+                          </Text>
+                          <Text style={styles.tripCardTime}>
+                            {trip.time} • {trip.dateKey}
+                          </Text>
+                        </View>
+
+                        <View
+                          style={[
+                            styles.statusPill,
+                            trip.isOverdue
+                              ? styles.statusOverdueRose
+                              : trip.approvalStatus === 'approved'
+                              ? styles.statusApprovedGreen
+                              : trip.approvalStatus === 'pending'
+                              ? styles.statusPendingBlue
+                              : trip.approvalStatus === 'revision_requested'
+                              ? styles.statusRevisionRose
+                              : trip.status === 'In Progress'
+                              ? (trip.isFullyCompleted
+                                  ? styles.statusInProgress
+                                  : trip.hasIncompleteDrops
+                                  ? styles.statusIncompleteAmber
+                                  : styles.statusScheduled)
+                              : styles.statusScheduled,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.statusPillText,
+                              trip.isOverdue
+                                ? { color: '#BE123C' }
+                                : trip.approvalStatus === 'approved'
+                                ? { color: '#166534' }
+                                : trip.approvalStatus === 'pending'
+                                ? { color: '#1D4ED8' }
+                                : trip.approvalStatus === 'revision_requested'
+                                ? { color: '#DC2626' }
+                                : trip.status === 'In Progress'
+                                ? (trip.isFullyCompleted
+                                    ? { color: '#166534' }
+                                    : trip.hasIncompleteDrops
+                                    ? { color: '#B45309' }
+                                    : { color: '#1D4ED8' })
+                                : { color: '#1D4ED8' },
+                            ]}
+                          >
+                            {trip.isOverdue
+                              ? (language === 'th' ? '⚠️ งานค้าง' : '⚠️ Overdue')
+                              : trip.approvalStatus === 'approved'
+                              ? (language === 'th' ? '✓ อนุมัติแล้ว' : '✓ Approved')
+                              : trip.approvalStatus === 'pending'
+                              ? (language === 'th' ? '⏳ รอ Admin อนุมัติ' : '⏳ Pending Approval')
+                              : trip.approvalStatus === 'revision_requested'
+                              ? (language === 'th' ? '⚠️ ส่งกลับแก้ไข' : '⚠️ Revision Requested')
+                              : trip.status === 'In Progress'
+                              ? (trip.isFullyCompleted
+                                  ? (language === 'th' ? '✓ ข้อมูลครบ' : '✓ Complete')
+                                  : trip.hasIncompleteDrops
+                                  ? (language === 'th' ? '⚠️ ไม่สมบูรณ์' : '⚠️ Incomplete')
+                                  : t('dash_in_progress'))
+                              : t('dash_scheduled')}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={[
-                          styles.startTripButton,
-                          trip.status === 'In Progress' && {
-                            backgroundColor: '#10B981',
-                          },
-                        ]}
-                        onPress={() => handleTripAction(trip)}
-                        activeOpacity={0.85}
-                      >
-                        <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
-                        <Text style={styles.startTripButtonText}>
-                          {trip.status === 'In Progress'
-                            ? t('btn_start_now')
-                            : t('btn_start_trip')}
-                        </Text>
-                      </TouchableOpacity>
+                      {/* Meta Row: Client Count & Drop Status */}
+                      <View style={styles.tripCardMeta}>
+                        <View style={styles.tripMetaItem}>
+                          <Users size={14} color="#1D4ED8" />
+                          <Text style={styles.tripMetaText}>
+                            {trip.dropsCount} {language === 'th' ? 'ลูกค้า' : 'Clients'}
+                          </Text>
+                        </View>
+
+                        {trip.approvalStatus === 'approved' ? (
+                          <View style={[styles.confirmationBadgePill, styles.confirmationBadgeGreen]}>
+                            <CheckCircle2 size={11} color="#166534" />
+                            <Text style={[styles.confirmationBadgeText, { color: '#166534' }]}>
+                              {language === 'th' ? 'อนุมัติเรียบร้อย' : 'Approved'}
+                            </Text>
+                          </View>
+                        ) : trip.approvalStatus === 'pending' ? (
+                          <View style={[styles.confirmationBadgePill, { backgroundColor: '#EFF6FF' }]}>
+                            <Clock size={11} color="#1D4ED8" />
+                            <Text style={[styles.confirmationBadgeText, { color: '#1D4ED8' }]}>
+                              {language === 'th'
+                                ? `รอตรวจ (${trip.completedDropsCount}/${trip.dropsCount})`
+                                : `Pending (${trip.completedDropsCount}/${trip.dropsCount})`}
+                            </Text>
+                          </View>
+                        ) : trip.approvalStatus === 'revision_requested' ? (
+                          <View style={[styles.confirmationBadgePill, { backgroundColor: '#FEE2E2' }]}>
+                            <AlertTriangle size={11} color="#DC2626" />
+                            <Text style={[styles.confirmationBadgeText, { color: '#DC2626' }]}>
+                              {language === 'th' ? 'ส่งกลับแก้ไข' : 'Revision'}
+                            </Text>
+                          </View>
+                        ) : trip.isFullyCompleted ? (
+                          <View style={[styles.confirmationBadgePill, styles.confirmationBadgeGreen]}>
+                            <CheckCircle2 size={11} color="#166534" />
+                            <Text style={[styles.confirmationBadgeText, { color: '#166534' }]}>
+                              {language === 'th'
+                                ? `✓ ครบ ${trip.dropsCount}/${trip.dropsCount} จุด (พร้อมส่ง)`
+                                : `✓ Complete ${trip.dropsCount}/${trip.dropsCount}`}
+                            </Text>
+                          </View>
+                        ) : trip.hasIncompleteDrops && trip.visitedDropsCount > 0 ? (
+                          <View style={[styles.confirmationBadgePill, styles.confirmationBadgeAmber]}>
+                            <AlertTriangle size={11} color="#B45309" />
+                            <Text style={[styles.confirmationBadgeText, { color: '#B45309' }]}>
+                              {language === 'th'
+                                ? `⚠️ ขาด ${trip.dropsCount - trip.completedDropsCount} จุด`
+                                : `⚠️ Missing ${trip.dropsCount - trip.completedDropsCount}`}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {/* Progress Bar for In Progress Trips */}
+                      {trip.status === 'In Progress' && trip.approvalStatus === 'draft' && (
+                        <View style={styles.tripProgressBarTrack}>
+                          <View
+                            style={[
+                              styles.tripProgressBarFill,
+                              {
+                                width: `${Math.min(100, Math.round((trip.completedDropsCount / (trip.dropsCount || 1)) * 100))}%`,
+                                backgroundColor: trip.isFullyCompleted ? '#10B981' : '#F59E0B',
+                              },
+                            ]}
+                          />
+                        </View>
+                      )}
+
+                      {/* Actions */}
+                      <View style={styles.tripCardActions}>
+                        {trip.isOverdue ? (
+                          <TouchableOpacity
+                            style={styles.actionBtnOverdueDetails}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            <Eye size={14} color="#BE123C" />
+                            <Text style={styles.actionBtnOverdueDetailsText}>
+                              {language === 'th' ? 'ดูรายละเอียด' : 'View Details'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : trip.approvalStatus === 'approved' ? (
+                          <TouchableOpacity
+                            style={[styles.actionBtnPrimary, { backgroundColor: '#166534' }]}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            <CheckCircle2 size={14} color="#FFFFFF" />
+                            <Text style={styles.actionBtnPrimaryText}>
+                              {language === 'th' ? 'ดูประวัติที่อนุมัติแล้ว' : 'View Approved History'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : trip.approvalStatus === 'pending' ? (
+                          <TouchableOpacity
+                            style={[styles.actionBtnPrimary, { backgroundColor: '#2563EB' }]}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            <Eye size={14} color="#FFFFFF" />
+                            <Text style={styles.actionBtnPrimaryText}>
+                              {language === 'th' ? 'ดูรายงานที่ส่งไป' : 'View Submitted Report'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : trip.approvalStatus === 'revision_requested' ? (
+                          <TouchableOpacity
+                            style={[styles.actionBtnPrimary, { backgroundColor: '#DC2626' }]}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            <Edit3 size={14} color="#FFFFFF" />
+                            <Text style={styles.actionBtnPrimaryText}>
+                              {language === 'th' ? 'แก้ไขและส่งใหม่' : 'Edit & Resubmit'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : trip.status === 'In Progress' ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.actionBtnPrimary,
+                              {
+                                backgroundColor: trip.isFullyCompleted
+                                  ? '#16A34A'
+                                  : trip.isFullyVisited
+                                  ? '#D97706'
+                                  : '#1D4ED8',
+                              },
+                            ]}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            {trip.isFullyCompleted ? (
+                              <>
+                                <Send size={14} color="#FFFFFF" />
+                                <Text style={styles.actionBtnPrimaryText}>
+                                  {language === 'th' ? 'ตรวจทาน & ส่งสรุปผล' : 'Review & Submit'}
+                                </Text>
+                              </>
+                            ) : trip.isFullyVisited ? (
+                              <>
+                                <FileText size={14} color="#FFFFFF" />
+                                <Text style={styles.actionBtnPrimaryText}>
+                                  {language === 'th' ? 'แก้ไขแบบร่างสรุปผล' : 'Edit Summary Draft'}
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
+                                <Text style={styles.actionBtnPrimaryText}>
+                                  {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
+                                </Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={[styles.actionBtnPrimary, { backgroundColor: '#1D4ED8' }]}
+                            onPress={() => handleTripAction(trip)}
+                            activeOpacity={0.85}
+                          >
+                            <Navigation size={14} color="#FFFFFF" />
+                            <Text style={styles.actionBtnPrimaryText}>
+                              {language === 'th' ? 'ดูเส้นทาง' : 'View Route'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Delete Button (only if draft / scheduled / revision and not overdue) */}
+                        {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && !trip.isOverdue && (
+                          <TouchableOpacity
+                            style={styles.actionBtnSecondary}
+                            onPress={() => handleDeleteTrip(trip.id)}
+                          >
+                            <Trash2 size={14} color="#EF4444" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>
@@ -987,7 +1531,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
+    paddingTop: 12,
     paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -996,9 +1540,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   headerLeft: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    minWidth: 0,
   },
   backButton: {
     width: 36,
@@ -1023,6 +1570,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
   },
   todayButton: {
     backgroundColor: '#EFF6FF',
@@ -1095,7 +1643,7 @@ const styles = StyleSheet.create({
   scrollInner: {
     padding: 16,
     gap: 14,
-    paddingBottom: 110, // Extra space for Floating Bottom Nav
+    paddingBottom: 120, // Extra space for Floating Bottom Nav
   },
   calendarCard: {
     backgroundColor: '#FFFFFF',
@@ -1356,6 +1904,7 @@ const styles = StyleSheet.create({
   timelineTripHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
   },
   tripBadgePill: {
@@ -1375,6 +1924,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#03246B',
     flex: 1,
+  },
+  tripHeaderActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timelineItemRow: {
     flexDirection: 'row',
@@ -1620,110 +2176,178 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  tripHeaderFlex: {
+  tripCardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 8,
   },
-  codeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  tripCardHeaderLeft: {
+    flex: 1,
+    marginRight: 8,
   },
-  tripCode: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1D4ED8',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  unconfirmedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  unconfirmedBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#B45309',
-  },
-  tripTitle: {
-    fontSize: 14,
+  tripCardTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#03246B',
-    marginTop: 3,
+  },
+  tripCardTime: {
+    fontSize: 12,
+    color: '#747686',
+    marginTop: 2,
   },
   statusPill: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 10,
   },
-  statusActive: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  statusOverdueRose: {
+    backgroundColor: '#FFE4E6',
   },
-  statusPending: {
-    backgroundColor: 'rgba(29, 78, 216, 0.1)',
+  statusApprovedGreen: {
+    backgroundColor: '#DCFCE7',
   },
-  statusCompleted: {
+  statusPendingBlue: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  statusRevisionRose: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  statusInProgress: {
+    backgroundColor: '#DCFCE7',
+  },
+  statusIncompleteAmber: {
+    backgroundColor: '#FEF3C7',
+  },
+  statusScheduled: {
+    backgroundColor: '#DBEAFE',
+  },
+  statusCompletedGray: {
     backgroundColor: '#F1F5F9',
   },
   statusPillText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  tripDetailsBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    gap: 6,
-  },
-  detailRow: {
+  tripCardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
   },
-  detailText: {
-    fontSize: 12,
+  tripMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  tripMetaText: {
+    fontSize: 11,
     color: '#475569',
+    fontWeight: '600',
   },
-  tripCardActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  previewBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
+  confirmationBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  previewBtnText: {
-    fontSize: 12,
+  confirmationBadgeAmber: {
+    backgroundColor: '#FEF3C7',
+  },
+  confirmationBadgeGreen: {
+    backgroundColor: '#DCFCE7',
+  },
+  confirmationBadgeText: {
+    fontSize: 10,
     fontWeight: '700',
-    color: '#1D4ED8',
   },
-  startTripButton: {
+  tripProgressBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  tripProgressBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  tripCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  actionBtnOverdueDetails: {
+    flex: 1,
+    backgroundColor: '#FFE4E6',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  actionBtnOverdueDetailsText: {
+    color: '#BE123C',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  actionBtnRollOver: {
+    flex: 1,
+    backgroundColor: '#E11D48',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#E11D48',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  actionBtnRollOverText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  actionBtnPrimary: {
     flex: 1,
     backgroundColor: '#1D4ED8',
-    borderRadius: 14,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  startTripButtonText: {
+  actionBtnPrimaryAmber: {
+    backgroundColor: '#D97706',
+  },
+  actionBtnPrimaryText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+  actionBtnSecondary: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

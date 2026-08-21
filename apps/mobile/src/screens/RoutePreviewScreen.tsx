@@ -9,8 +9,9 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   ArrowLeft,
@@ -29,6 +30,9 @@ import {
   AlertTriangle,
   Compass,
   ShieldCheck,
+  Users,
+  Phone,
+  Home,
 } from 'lucide-react-native';
 import {
   optimizeAndFetchRoadDirections,
@@ -39,19 +43,24 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { supabase } from '../lib/supabase';
 
 export default function RoutePreviewScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const tripTitle = params.tripTitle || 'Bangkok Central Express Route';
-  const scheduledDate = params.scheduledDate || 'Today, 08:30 AM';
+  const scheduledDate = params.scheduledDate || 'Today';
   const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max (1กข-4452)';
+  const isOverdue = !!params.isOverdue;
+  const [tripDateKey, setTripDateKey] = useState<string>(params.rawDate || params.scheduledDate || '');
 
   // Start Location & Live GPS Confirmation state
   const isFromStartNow = scheduledDate === 'Now' || !!params.startOdometer;
   const initialStartLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
   const [startLocation, setStartLocation] = useState(initialStartLocation);
-  const [hasGpsConfirmed, setHasGpsConfirmed] = useState<boolean>(isFromStartNow);
+  const [hasGpsConfirmed, setHasGpsConfirmed] = useState<boolean>(isFromStartNow || !!route.params?.isGpsConfirmed);
+  const [isStarting, setIsStarting] = useState(false);
   const [fetchingGps, setFetchingGps] = useState(false);
 
   // Starting Odometer state
@@ -67,6 +76,70 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
   const [distanceText, setDistanceText] = useState('0.0 km');
   const [durationText, setDurationText] = useState('0m');
   const [loadingRoute, setLoadingRoute] = useState(true);
+
+  // Fallback: Load drops from Supabase if empty on mount but tripId exists
+  useEffect(() => {
+    async function fetchTripDropsFallback() {
+      if (drops.length === 0 && tripId) {
+        try {
+          const { data: appts } = await supabase
+            .from('appointments')
+            .select('*')
+            .eq('trip_id', tripId)
+            .order('sequence_order', { ascending: true });
+
+          const { data: dbExpenses } = await supabase
+            .from('expenses')
+            .select('*')
+            .eq('trip_id', tripId);
+
+          const reverseCatMap: Record<string, string> = {
+            'toll': 'ค่าทางด่วน',
+            'parking': 'ค่าที่จอดรถ',
+            'fuel': 'ค่าน้ำมัน',
+            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
+            'other': 'อื่นๆ',
+          };
+
+          if (appts && appts.length > 0) {
+            const mapped = appts.map((a: any) => {
+              const apptExps = (dbExpenses || []).filter((e: any) => e.appointment_id === a.id);
+              const mappedExps = apptExps.map((e: any) => ({
+                id: e.id,
+                category: reverseCatMap[e.category] || e.category,
+                amount: String(e.amount),
+                receiptUri: e.receipt_url || e.receipt_image_path,
+                receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+                note: e.notes || '',
+              }));
+
+              return {
+                id: a.id,
+                appointmentId: a.id,
+                name: a.company_name,
+                recipient: a.recipient_name || a.customer_name || '',
+                phone: a.recipient_phone || '',
+                items: a.agenda || '',
+                address: a.destination_address || '',
+                latitude: a.destination_lat || undefined,
+                longitude: a.destination_lng || undefined,
+                isConfirmed: !!a.confirmation_status,
+                isDataComplete: a.status === 'completed' || a.status === 'Completed',
+                status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
+                meetingMinutes: a.meeting_notes || '',
+                photos: a.client_photo_url ? [a.client_photo_url] : [],
+                expenses: mappedExps,
+              };
+            });
+            setDrops(mapped);
+          }
+        } catch (err) {
+          console.warn('Error fetching fallback drops in RoutePreview:', err);
+        }
+      }
+    }
+    fetchTripDropsFallback();
+  }, [tripId, drops.length]);
 
   // Fetch individual multi-colored road routing legs
   useEffect(() => {
@@ -147,8 +220,43 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
     });
   };
 
+  const proceedStartTrip = async (todayKey: string) => {
+    setIsStarting(true);
+    try {
+      // If trip exists in DB, update date to today and status to in_progress
+      if (tripId) {
+        const { error } = await supabase
+          .from('trips')
+          .update({
+            status: 'in_progress',
+            trip_date: todayKey,
+            started_at: new Date().toISOString(),
+            start_odometer: parseInt(startOdometer.trim(), 10) || null,
+          })
+          .eq('id', tripId);
+        if (error) console.warn('Error activating trip:', error);
+      }
+
+      // Both GPS & Odo confirmed -> Launch Tracker!
+      navigation.navigate('ActiveTracker', {
+        tripId,
+        tripCode,
+        tripTitle,
+        selectedVehicle,
+        startLocation,
+        startOdometer: startOdometer.trim(),
+        drops,
+        routeLegs,
+      });
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
   // Enforce Both GPS Confirmation & Start Odometer before Starting Trip
-  const handleStartTrip = () => {
+  const handleStartTrip = async () => {
+    if (isStarting) return;
+
     // 1. Enforce Current GPS Confirmation
     if (!hasGpsConfirmed) {
       Alert.alert(
@@ -178,17 +286,51 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
       return;
     }
 
-    // Both GPS & Odo confirmed -> Launch Tracker!
-    navigation.navigate('ActiveTracker', {
-      tripId,
-      tripCode,
-      tripTitle,
-      selectedVehicle,
-      startLocation,
-      startOdometer: startOdometer.trim(),
-      drops,
-      routeLegs,
-    });
+    // 3. Date check: if trip is scheduled for a different day, ask confirmation
+    const now = new Date();
+    const todayYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const targetDate = tripDateKey || params.rawDate || params.scheduledDate;
+
+    const isNotToday = !!(
+      targetDate &&
+      targetDate !== todayYMD &&
+      targetDate !== 'Today' &&
+      targetDate !== 'วันนี้' &&
+      targetDate !== 'Now' &&
+      !targetDate.includes('วันนี้')
+    );
+
+    if (isNotToday) {
+      let formattedDateText = targetDate;
+      try {
+        const d = new Date(targetDate);
+        if (!isNaN(d.getTime())) {
+          formattedDateText = d.toLocaleDateString(language === 'th' ? 'th-TH' : 'en-US', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          });
+        }
+      } catch (e) {}
+
+      Alert.alert(
+        language === 'th' ? '📅 แจ้งเตือนวันนัดหมาย' : '📅 Scheduled Date Notice',
+        language === 'th'
+          ? `แผนงานนี้กำหนดไว้สำหรับวัน:\n👉 "${formattedDateText}"\n\nคุณต้องการเริ่มออกเดินทางล่วงหน้าในวันนี้ทันทีใช่หรือไม่?`
+          : `This trip is scheduled for:\n👉 "${formattedDateText}"\n\nDo you want to start this route today ahead of schedule?`,
+        [
+          { text: language === 'th' ? 'ยังไม่เริ่ม (ยกเลิก)' : 'Cancel', style: 'cancel' },
+          {
+            text: language === 'th' ? '🚀 เริ่มเดินทางตอนนี้เลย' : '🚀 Start Trip Now',
+            onPress: () => proceedStartTrip(todayYMD),
+          },
+        ]
+      );
+      return;
+    }
+
+    await proceedStartTrip(todayYMD);
   };
 
   return (
@@ -203,7 +345,16 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
           <ArrowLeft size={20} color="#03246B" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('preview_title')}</Text>
-        <LanguageTogglePill />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <LanguageTogglePill />
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.navigate('Dashboard')}
+            activeOpacity={0.7}
+          >
+            <Home size={16} color="#03246B" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -304,42 +455,60 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
           </Text>
         </View>
 
+        {/* Overdue Frozen Banner if trip is past date */}
+        {isOverdue && (
+          <View style={styles.overdueBannerCard}>
+            <AlertTriangle size={18} color="#BE123C" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.overdueBannerTitle}>
+                {language === 'th' ? '⚠️ แผนงานค้างจากวันที่ผ่านมา (ล็อคข้อมูล)' : '⚠️ Overdue Plan (Locked)'}
+              </Text>
+              <Text style={styles.overdueBannerSub}>
+                {language === 'th'
+                  ? 'ทริปนี้เลยกำหนดแล้ว จึงเปิดให้ดูรายละเอียดเส้นทางและจุดส่งเท่านั้น หากต้องการเข้าพบกรุณาสร้างแผนงานใหม่'
+                  : 'This plan is from a past date and is locked for read-only inspection. Please create a new visit plan to visit today.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* ========================================================================= */}
         {/* PRE-DEPARTURE MANDATORY VERIFICATION CARD (GPS & ODOMETER) */}
         {/* ========================================================================= */}
-        <View style={styles.verificationCard}>
-          <View style={styles.verificationHeader}>
-            <ShieldCheck size={20} color="#1D4ED8" />
-            <Text style={styles.verificationHeaderTitle}>
-              {language === 'th' ? 'การตรวจสอบก่อนออกเดินทาง (Pre-Departure)' : 'Pre-Departure Verification'}
-            </Text>
-          </View>
-
-          {/* 1. Origin Live GPS Step */}
-          <View style={[styles.verificationStepBox, hasGpsConfirmed ? styles.stepBoxDone : styles.stepBoxPending]}>
-            <View style={styles.stepHeaderRow}>
-              <View style={styles.stepTitleLeft}>
-                <MapPin size={16} color={hasGpsConfirmed ? '#166534' : '#B45309'} />
-                <Text style={[styles.stepTitleText, { color: hasGpsConfirmed ? '#166534' : '#92400E' }]}>
-                  {language === 'th' ? '1. พิกัดจุดเริ่มต้นจริง (Live GPS)' : '1. Origin Live GPS Location'}
-                </Text>
-              </View>
-              {hasGpsConfirmed ? (
-                <View style={styles.confirmedPill}>
-                  <CheckCircle2 size={12} color="#166534" />
-                  <Text style={styles.confirmedPillText}>
-                    {language === 'th' ? 'พิกัดพร้อมแล้ว' : 'Confirmed'}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.requiredPill}>
-                  <AlertTriangle size={12} color="#B45309" />
-                  <Text style={styles.requiredPillText}>
-                    {language === 'th' ? 'ต้องดึง GPS ก่อน' : 'Required'}
-                  </Text>
-                </View>
-              )}
+        {!isOverdue && (
+          <View style={styles.verificationCard}>
+            <View style={styles.verificationHeader}>
+              <ShieldCheck size={20} color="#1D4ED8" />
+              <Text style={styles.verificationHeaderTitle}>
+                {language === 'th' ? 'การตรวจสอบก่อนออกเดินทาง (Pre-Departure)' : 'Pre-Departure Verification'}
+              </Text>
             </View>
+
+            {/* 1. Origin Live GPS Step */}
+            <View style={[styles.verificationStepBox, hasGpsConfirmed ? styles.stepBoxDone : styles.stepBoxPending]}>
+              <View style={styles.stepHeaderRow}>
+                <View style={styles.stepTitleLeft}>
+                  <MapPin size={16} color={hasGpsConfirmed ? '#166534' : '#B45309'} />
+                  <Text style={[styles.stepTitleText, { color: hasGpsConfirmed ? '#166534' : '#92400E' }]}>
+                    {language === 'th' ? '1. พิกัดจุดเริ่มต้นจริง (Live GPS)' : '1. Origin Live GPS Location'}
+                  </Text>
+                </View>
+                {hasGpsConfirmed ? (
+                  <View style={styles.confirmedPill}>
+                    <CheckCircle2 size={12} color="#166534" />
+                    <Text style={styles.confirmedPillText}>
+                      {language === 'th' ? 'พิกัดพร้อมแล้ว' : 'Confirmed'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.requiredPill}>
+                    <AlertTriangle size={12} color="#B45309" />
+                    <Text style={styles.requiredPillText}>
+                      {language === 'th' ? 'ต้องดึง GPS ก่อน' : 'Required'}
+                    </Text>
+                  </View>
+                )}
+              </View>
 
             <Text style={styles.stepAddressText} numberOfLines={2}>
               {startLocation.name ? `${startLocation.name} — ` : ''}{startLocation.address}
@@ -367,47 +536,48 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* 2. Start Odometer Step */}
-          <View style={styles.verificationStepBox}>
-            <View style={styles.stepHeaderRow}>
-              <View style={styles.stepTitleLeft}>
-                <Gauge size={16} color="#1D4ED8" />
-                <Text style={styles.stepTitleText}>
-                  {language === 'th' ? '2. เลขไมล์เริ่มต้น (Start Odo)' : '2. Starting Odometer'}
-                </Text>
+            {/* 2. Start Odometer Step */}
+            <View style={styles.verificationStepBox}>
+              <View style={styles.stepHeaderRow}>
+                <View style={styles.stepTitleLeft}>
+                  <Gauge size={16} color="#1D4ED8" />
+                  <Text style={styles.stepTitleText}>
+                    {language === 'th' ? '2. เลขไมล์เริ่มต้น (Start Odo)' : '2. Starting Odometer'}
+                  </Text>
+                </View>
+                {startOdometer.trim().length > 0 ? (
+                  <View style={styles.confirmedPill}>
+                    <CheckCircle2 size={12} color="#166534" />
+                    <Text style={styles.confirmedPillText}>
+                      {language === 'th' ? 'ระบุแล้ว' : 'Ready'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.requiredPill}>
+                    <AlertTriangle size={12} color="#B45309" />
+                    <Text style={styles.requiredPillText}>
+                      {language === 'th' ? 'รอกรอกไมล์' : 'Required'}
+                    </Text>
+                  </View>
+                )}
               </View>
-              {startOdometer.trim().length > 0 ? (
-                <View style={styles.confirmedPill}>
-                  <CheckCircle2 size={12} color="#166534" />
-                  <Text style={styles.confirmedPillText}>
-                    {language === 'th' ? 'ระบุแล้ว' : 'Ready'}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.requiredPill}>
-                  <AlertTriangle size={12} color="#B45309" />
-                  <Text style={styles.requiredPillText}>
-                    {language === 'th' ? 'รอกรอกไมล์' : 'Required'}
-                  </Text>
-                </View>
-              )}
-            </View>
 
-            <View style={styles.odoInputRow}>
-              <TextInput
-                style={styles.odoTextInput}
-                placeholder={language === 'th' ? 'กรอกเลขไมล์ เช่น 45200' : 'e.g. 45200'}
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={startOdometer}
-                onChangeText={setStartOdometer}
-              />
-              <View style={styles.odoUnitBadge}>
-                <Text style={styles.odoUnitText}>{language === 'th' ? 'กม. (km)' : 'km'}</Text>
+              <View style={styles.odoInputRow}>
+                <TextInput
+                  style={styles.odoTextInput}
+                  placeholder={language === 'th' ? 'กรอกเลขไมล์ เช่น 45200' : 'e.g. 45200'}
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="numeric"
+                  value={startOdometer}
+                  onChangeText={setStartOdometer}
+                />
+                <View style={styles.odoUnitBadge}>
+                  <Text style={styles.odoUnitText}>{language === 'th' ? 'กม. (km)' : 'km'}</Text>
+                </View>
               </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Legs Color Legend Scroll Bar (ช่วงที่ 1, ช่วงที่ 2, ช่วงที่ 3) */}
         {routeLegs.length > 0 && (
@@ -431,20 +601,32 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
         <View style={styles.timelineCard}>
           <View style={styles.timelineCardHeaderRow}>
             <Text style={styles.timelineTitle}>{t('preview_sequence')}</Text>
+            {tripId && !isOverdue && (
+              <TouchableOpacity
+                style={styles.editPlanQuickBtn}
+                onPress={() => navigation.navigate('NewAppointment', { tripId })}
+                activeOpacity={0.8}
+              >
+                <Edit3 size={13} color="#1D4ED8" />
+                <Text style={styles.editPlanQuickBtnText}>
+                  {language === 'th' ? 'แก้ไขแผนงาน / จุดส่ง' : 'Edit Plan'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.stopsTimeline}>
             {/* Origin Start */}
             <View style={styles.timelineItem}>
               <View style={styles.timelineLeftCol}>
-                <View style={[styles.timelineNode, { borderColor: '#10B981', backgroundColor: '#DCFCE7' }]}>
-                  <View style={[styles.timelineInnerDot, { backgroundColor: '#10B981' }]} />
+                <View style={[styles.timelineNode, { borderColor: '#10B981', backgroundColor: '#FFFFFF' }]}>
+                  <Text style={[styles.nodeNumberText, { color: '#10B981' }]}>1</Text>
                 </View>
                 {drops.length > 0 && (
                   <View
                     style={[
                       styles.timelineLine,
-                      { backgroundColor: routeLegs[0]?.color || '#2563EB' },
+                      { backgroundColor: routeLegs[0]?.color || '#10B981' },
                     ]}
                   />
                 )}
@@ -456,16 +638,15 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                     <Text style={[styles.legTagText, { color: '#166534' }]}>#1 Start</Text>
                   </View>
                 </View>
-                <Text style={styles.stopNameText}>{startLocation.name || 'จุดเริ่มต้นเดินทาง'}</Text>
+                <Text style={styles.stopNameText}>{startLocation.name || 'จุดเริ่มต้น / Depot'}</Text>
                 <Text style={styles.stopAddressText}>{startLocation.address}</Text>
               </View>
             </View>
 
-            {/* Destination Drops */}
+            {/* Waypoints Destination Drops */}
             {drops.map((drop: any, index: number) => {
               const legColor = LEG_COLORS[index % LEG_COLORS.length];
               const isLast = index === drops.length - 1;
-              const nextLegColor = !isLast ? LEG_COLORS[(index + 1) % LEG_COLORS.length] : undefined;
 
               return (
                 <View key={drop.id || index} style={styles.timelineItem}>
@@ -477,7 +658,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                       <View
                         style={[
                           styles.timelineLine,
-                          { backgroundColor: nextLegColor || '#1D4ED8' },
+                          { backgroundColor: routeLegs[index + 1]?.color || legColor },
                         ]}
                       />
                     )}
@@ -485,7 +666,9 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
 
                   <View style={styles.timelineContent}>
                     <View style={styles.stopHeaderRow}>
-                      <Text style={styles.stopTypeTag}>{t('preview_client')} #{index + 1}</Text>
+                      <Text style={styles.stopTypeTag}>
+                        {t('preview_client')} #{index + 1}
+                      </Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={[styles.legTag, { backgroundColor: `${legColor}18` }]}>
                           <View style={[styles.legendColorDot, { backgroundColor: legColor, width: 8, height: 8 }]} />
@@ -493,19 +676,41 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                             {routeLegs[index]?.distanceText || ''}
                           </Text>
                         </View>
-
-                        <TouchableOpacity
-                          style={styles.editDropBtn}
-                          onPress={() => handleEditDrop(drop, index)}
-                          activeOpacity={0.7}
-                        >
-                          <Edit3 size={11} color="#1D4ED8" />
-                          <Text style={styles.editDropBtnText}>{t('btn_edit')}</Text>
-                        </TouchableOpacity>
+                        {!isOverdue && (
+                          <TouchableOpacity
+                            style={styles.editDropBtn}
+                            onPress={() => handleEditDrop(drop, index)}
+                            activeOpacity={0.7}
+                          >
+                            <Edit3 size={11} color="#1D4ED8" />
+                            <Text style={styles.editDropBtnText}>{t('btn_edit')}</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                     <Text style={styles.stopNameText}>{drop.name}</Text>
                     <Text style={styles.stopAddressText}>{drop.address}</Text>
+
+                    {/* Recipient Contact & Direct Phone Call Button */}
+                    {drop.recipient ? (
+                      <View style={styles.recipientRow}>
+                        <Users size={12} color="#64748B" />
+                        <Text style={styles.recipientText} numberOfLines={1}>
+                          {drop.recipient}
+                        </Text>
+                        {drop.phone ? (
+                          <TouchableOpacity
+                            style={styles.callPillBtn}
+                            onPress={() => Linking.openURL(`tel:${drop.phone}`)}
+                            activeOpacity={0.75}
+                          >
+                            <Phone size={10} color="#1D4ED8" />
+                            <Text style={styles.callPillText}>{drop.phone}</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ) : null}
+
                     {drop.items && (
                       <Text style={styles.itemsBadge}>📌 {drop.items}</Text>
                     )}
@@ -518,19 +723,42 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
       </ScrollView>
 
       {/* Sticky Bottom Action */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.startTripButton, !hasGpsConfirmed && styles.startTripButtonPending]}
-          onPress={handleStartTrip}
-          activeOpacity={0.9}
-        >
-          <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
-          <Text style={styles.startTripButtonText}>
-            {hasGpsConfirmed
-              ? t('btn_start_trip')
-              : (language === 'th' ? 'ดึง GPS เพื่อเริ่มเดินทาง' : 'Fetch GPS & Start Route')}
-          </Text>
-        </TouchableOpacity>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
+        {isOverdue ? (
+          <TouchableOpacity
+            style={styles.closeOverdueButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.closeOverdueButtonText}>
+              {language === 'th' ? 'ปิดหน้ารายละเอียด' : 'Close Preview'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.startTripButton,
+              !hasGpsConfirmed && styles.startTripButtonPending,
+              isStarting && { opacity: 0.6 },
+            ]}
+            onPress={handleStartTrip}
+            disabled={isStarting}
+            activeOpacity={0.9}
+          >
+            {isStarting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
+            )}
+            <Text style={styles.startTripButtonText}>
+              {isStarting
+                ? (language === 'th' ? 'กำลังเริ่มการเดินทาง...' : 'Starting Route...')
+                : hasGpsConfirmed
+                ? t('btn_start_trip')
+                : (language === 'th' ? 'ดึง GPS เพื่อเริ่มเดินทาง' : 'Fetch GPS & Start Route')}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -546,8 +774,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: '#F2F4F7',
   },
   backButton: {
@@ -573,7 +801,7 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 130,
     gap: 16,
   },
   mapCard: {
@@ -885,6 +1113,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#03246B',
   },
+  editPlanQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  editPlanQuickBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
   stopsTimeline: {
     gap: 0,
   },
@@ -958,6 +1202,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748B',
   },
+  recipientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  recipientText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+    flexShrink: 1,
+  },
+  callPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  callPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
   itemsBadge: {
     fontSize: 11,
     color: '#1D4ED8',
@@ -1011,6 +1283,45 @@ const styles = StyleSheet.create({
   startTripButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '700',
+  },
+  overdueBannerCard: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderWidth: 1.5,
+    borderColor: '#FECDD3',
+  },
+  overdueBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#BE123C',
+    marginBottom: 4,
+  },
+  overdueBannerSub: {
+    fontSize: 12,
+    color: '#9F1239',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  closeOverdueButton: {
+    backgroundColor: '#64748B',
+    borderRadius: 32,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  closeOverdueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '700',
   },
 });

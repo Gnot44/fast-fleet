@@ -63,14 +63,14 @@ export interface SpecialistActiveTrip {
   routeCoordinates: [number, number][];
 }
 
-function formatRelativeTime(dateString: string | null, isOnline: boolean): string {
+function formatRelativeTime(dateString?: string | null): string {
   if (!dateString) {
-    return isOnline ? 'ออนไลน์ขณะนี้' : 'ออฟไลน์';
+    return 'ยังไม่มีพิกัด';
   }
   const date = new Date(dateString);
   const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-  if (diffSec < 15) {
-    return 'ออนไลน์ (สด)';
+  if (diffSec < 20) {
+    return 'สด (Real-time)';
   }
   if (diffSec < 60) {
     return `${diffSec} วิที่แล้ว`;
@@ -81,7 +81,8 @@ function formatRelativeTime(dateString: string | null, isOnline: boolean): strin
   if (diffSec < 86400) {
     return `${Math.floor(diffSec / 3600)} ชม.ที่แล้ว`;
   }
-  return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+  const days = Math.floor(diffSec / 86400);
+  return `${days} วันที่แล้ว`;
 }
 
 // Smoothly focus and fit map bounds to the selected specialist's journey
@@ -98,7 +99,7 @@ function MapFocusController({
 
   useEffect(() => {
     if (selectedSpecialist && selectedSpecialist.telemetry.hasGpsFix) {
-      if (selectedSpecialist.routeCoordinates && selectedSpecialist.routeCoordinates.length > 1) {
+      if (selectedSpecialist.hasActiveTrip && selectedSpecialist.routeCoordinates && selectedSpecialist.routeCoordinates.length > 1) {
         const bounds = L.latLngBounds(selectedSpecialist.routeCoordinates);
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15, animate: true });
       } else {
@@ -189,12 +190,13 @@ export default function Dashboard() {
       if (profiles && profiles.length > 0) {
         const mapped: SpecialistActiveTrip[] = profiles.map((p: any) => {
           const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
+          // Only trips currently in_progress are considered active on the live map
           const activeTrip = Array.isArray(p.trips)
-            ? p.trips.find((t: any) => t.status === 'in_progress' || t.status === 'pending') || p.trips[0]
+            ? p.trips.find((t: any) => t.status === 'in_progress')
             : null;
 
-          const hasActiveTrip = !!activeTrip && activeTrip.status !== 'completed';
-          const appts = activeTrip?.appointments || [];
+          const hasActiveTrip = !!activeTrip;
+          const appts = hasActiveTrip ? (activeTrip?.appointments || []) : [];
           
           const hasGps = typeof p.current_lat === 'number' && typeof p.current_lng === 'number' && p.current_lat !== 0;
           const lat = hasGps ? p.current_lat : 13.7563;
@@ -202,26 +204,28 @@ export default function Dashboard() {
 
           const sortedAppts = [...appts].sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0));
 
-          const drops: DropItem[] = sortedAppts.map((a: any, idx: number) => {
-            const dropLat = typeof a.destination_lat === 'number' && a.destination_lat !== 0
-              ? a.destination_lat
-              : (hasGps ? lat : 13.7563);
-            const dropLng = typeof a.destination_lng === 'number' && a.destination_lng !== 0
-              ? a.destination_lng
-              : (hasGps ? lng : 100.5018);
+          const drops: DropItem[] = hasActiveTrip
+            ? sortedAppts.map((a: any, idx: number) => {
+                const dropLat = typeof a.destination_lat === 'number' && a.destination_lat !== 0
+                  ? a.destination_lat
+                  : (hasGps ? lat : 13.7563);
+                const dropLng = typeof a.destination_lng === 'number' && a.destination_lng !== 0
+                  ? a.destination_lng
+                  : (hasGps ? lng : 100.5018);
 
-            return {
-              dropNumber: a.sequence_order || idx + 1,
-              clientName: a.company_name || a.customer_name || `ลูกค้ารายที่ ${idx + 1}`,
-              address: a.destination_address || 'กรุงเทพมหานคร',
-              agenda: a.agenda || 'เข้าพบและนำเสนอสินค้า',
-              lat: dropLat,
-              lng: dropLng,
-              isClosed: a.status === 'completed' || a.confirmation_status === true,
-            };
-          });
+                return {
+                  dropNumber: a.sequence_order || idx + 1,
+                  clientName: a.company_name || a.customer_name || `ลูกค้ารายที่ ${idx + 1}`,
+                  address: a.destination_address || 'กรุงเทพมหานคร',
+                  agenda: a.agenda || 'เข้าพบและนำเสนอสินค้า',
+                  lat: dropLat,
+                  lng: dropLng,
+                  isClosed: a.status === 'completed' || a.confirmation_status === true,
+                };
+              })
+            : [];
 
-          const routeCoords: [number, number][] = drops.length > 0
+          const routeCoords: [number, number][] = hasActiveTrip && drops.length > 0
             ? drops.map((d) => [d.lat, d.lng] as [number, number])
             : (hasGps ? [[lat, lng]] : []);
 
@@ -235,7 +239,10 @@ export default function Dashboard() {
             ? (p.current_address || `พิกัด: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
             : 'ยังไม่ได้รับสัญญาณ GPS จากอุปกรณ์';
 
-          const relativePing = formatRelativeTime(p.last_seen_at, p.is_online);
+          const relativePing = formatRelativeTime(p.last_seen_at);
+
+          const pingDiffMs = p.last_seen_at ? Date.now() - new Date(p.last_seen_at).getTime() : Infinity;
+          const effectiveOnline = p.is_online === true && pingDiffMs <= 600000;
 
           return {
             id: p.id,
@@ -249,12 +256,12 @@ export default function Dashboard() {
             department: p.department || 'Key Accounts & Enterprise',
             territory: staffObj?.territory || p.department || 'Wat Donmuang',
             vehiclePlate: staffObj?.vehicle_plate || p.assigned_vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)',
-            isOnline: p.is_online === true,
+            isOnline: effectiveOnline,
             lastSeenRaw: p.last_seen_at,
             hasActiveTrip,
-            tripCode: activeTrip?.trip_code || 'STANDBY',
-            tripTitle: activeTrip?.title || 'พร้อมปฏิบัติงาน (Standby)',
-            startTime: activeTrip ? new Date(activeTrip.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' : '-',
+            tripCode: hasActiveTrip ? (activeTrip?.trip_code || 'IN_PROGRESS') : 'STANDBY',
+            tripTitle: hasActiveTrip ? (activeTrip?.title || 'เส้นทางเข้าพบลูกค้า') : 'พร้อมปฏิบัติงาน (ไม่มีทริป)',
+            startTime: hasActiveTrip && activeTrip?.created_at ? new Date(activeTrip.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' : '-',
             telemetry: {
               lat,
               lng,
@@ -349,68 +356,91 @@ export default function Dashboard() {
   }, [specialists, soloId]);
 
   const getDerivedStatus = (spec: SpecialistActiveTrip) => {
-    const isStale = spec.lastSeenRaw
-      ? Date.now() - new Date(spec.lastSeenRaw).getTime() > 240000 // > 4 minutes without ping
-      : false;
+    const diffMs = spec.lastSeenRaw
+      ? Date.now() - new Date(spec.lastSeenRaw).getTime()
+      : Infinity;
 
-    if (!spec.isOnline || (isStale && !spec.lastSeenRaw)) {
+    const isStale = diffMs > 180000 && diffMs <= 600000; // 3 - 10 minutes without ping (GPS Stale / Signal lost)
+    const isVeryStale = diffMs > 600000; // > 10 minutes -> App closed or offline
+
+    // If marked offline in DB, or ping is > 10 minutes old, or no timestamp
+    if (!spec.isOnline || isVeryStale || !spec.lastSeenRaw) {
       return {
-        status: 'Offline',
+        status: 'Offline' as const,
         label: '⚫ ออฟไลน์ (Offline)',
         badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
         dotClass: 'bg-slate-400',
         isMoving: false,
+        isOnline: false,
+        isSignalLost: false,
+        isOffline: true,
       };
     }
 
-    // If marked online in DB but no location ping received for > 4 mins (GPS turned off / permission revoked)
-    if (spec.isOnline && isStale) {
+    // If marked online in DB but no ping for 3 - 10 minutes (temporary tunnel / signal loss / GPS turned off)
+    if (isStale) {
       return {
-        status: 'SignalLost',
+        status: 'SignalLost' as const,
         label: '⚠️ สัญญาณขาดหาย / ปิด GPS',
         badgeClass: 'bg-amber-50 text-amber-800 border-amber-300',
         dotClass: 'bg-amber-500 animate-pulse',
         isMoving: false,
+        isOnline: false,
+        isSignalLost: true,
+        isOffline: false,
       };
     }
 
+    // Active Online (< 3 mins)
     if (!spec.hasActiveTrip) {
       return {
-        status: 'Online',
+        status: 'Online' as const,
         label: '🟢 ออนไลน์ (พร้อมรับงาน)',
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         dotClass: 'bg-emerald-500 animate-pulse',
         isMoving: false,
+        isOnline: true,
+        isSignalLost: false,
+        isOffline: false,
       };
     }
 
     const allClosed = spec.drops.length > 0 && spec.drops.every((d) => d.isClosed);
     if (allClosed) {
       return {
-        status: 'Completed',
+        status: 'Completed' as const,
         label: t('live_status_complete'),
         badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
         dotClass: 'bg-purple-500',
         isMoving: false,
+        isOnline: true,
+        isSignalLost: false,
+        isOffline: false,
       };
     }
     // Smartphone GPS Engine: Speed >= 4.0 km/h is Running
     if (spec.telemetry.speedKmH >= 4.0) {
       return {
-        status: 'Running',
+        status: 'Running' as const,
         label: t('live_status_running'),
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         dotClass: 'bg-emerald-500 animate-pulse',
         isMoving: true,
+        isOnline: true,
+        isSignalLost: false,
+        isOffline: false,
       };
     }
-    // Speed <= 1.5 km/h is Stopped
+    // Speed < 4.0 km/h is Stopped
     return {
-      status: 'Stopped',
+      status: 'Stopped' as const,
       label: t('live_status_stopped'),
       badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
       dotClass: 'bg-blue-500',
       isMoving: false,
+      isOnline: true,
+      isSignalLost: false,
+      isOffline: false,
     };
   };
 
@@ -419,13 +449,13 @@ export default function Dashboard() {
       const derived = getDerivedStatus(s);
       let matchFilter = true;
       if (motionFilter === 'online') {
-        matchFilter = s.isOnline;
+        matchFilter = derived.isOnline;
       } else if (motionFilter === 'offline') {
-        matchFilter = !s.isOnline;
+        matchFilter = derived.isOffline || derived.isSignalLost;
       } else if (motionFilter === 'moving') {
-        matchFilter = s.isOnline && derived.isMoving;
+        matchFilter = derived.isMoving;
       } else if (motionFilter === 'stationary') {
-        matchFilter = s.isOnline && !derived.isMoving;
+        matchFilter = derived.isOnline && !derived.isMoving;
       }
 
       const matchSearch =
@@ -437,7 +467,7 @@ export default function Dashboard() {
 
       return matchFilter && matchSearch;
     });
-  }, [specialists, motionFilter, searchQuery]);
+  }, [specialists, motionFilter, searchQuery, t]);
 
   const mapVisibleSpecialists = useMemo(() => {
     if (soloId) {
@@ -446,18 +476,60 @@ export default function Dashboard() {
     return specialists;
   }, [specialists, soloId]);
 
-  // Clean Modern Marker Creator
+  // Clean Modern Marker Creator with Pulse Effect
   const createSpecialistLivePin = (spec: SpecialistActiveTrip) => {
     const isSelected = selectedSpecialist?.id === spec.id || soloId === spec.id;
-    const isMoving = spec.telemetry.speedKmH > 0;
-    const borderCol = !spec.isOnline ? '#94A3B8' : isMoving ? '#2563EB' : '#059669';
-    const statusDotCol = !spec.isOnline ? '#94A3B8' : isMoving ? '#3B82F6' : '#10B981';
+    const derived = getDerivedStatus(spec);
+    const borderCol = derived.isOffline
+      ? '#94A3B8'
+      : derived.isSignalLost
+      ? '#F59E0B'
+      : derived.isMoving
+      ? '#2563EB'
+      : '#059669';
+
+    const statusDotCol = derived.isOffline
+      ? '#94A3B8'
+      : derived.isSignalLost
+      ? '#F59E0B'
+      : derived.isMoving
+      ? '#3B82F6'
+      : '#10B981';
+
+    const pulseCol = derived.isOffline
+      ? 'rgba(148, 163, 184, 0.45)'
+      : derived.isSignalLost
+      ? 'rgba(245, 158, 11, 0.65)'
+      : derived.isMoving
+      ? 'rgba(37, 99, 235, 0.65)'
+      : 'rgba(16, 185, 129, 0.65)';
+
+    const statusText = derived.isOffline
+      ? '(Offline)'
+      : derived.isSignalLost
+      ? '⚠️ GPS ขาด'
+      : derived.isMoving
+      ? spec.telemetry.speedText
+      : '🟢 Online';
+
+    const statusTextColor = derived.isOffline
+      ? '#CBD5E1'
+      : derived.isSignalLost
+      ? '#FCD34D'
+      : derived.isMoving
+      ? '#93C5FD'
+      : '#86EFAC';
+
+    const showPulse = derived.isOnline || isSelected;
 
     return L.divIcon({
       className: 'clean-live-marker',
       html: `
         <div style="position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer;">
+          ${showPulse ? `<div class="gps-pulse-beacon" style="background: ${pulseCol}; ${isSelected ? 'transform: scale(1.15);' : ''}"></div>` : ''}
           <div style="
+            position: relative;
+            z-index: 2;
             background: white;
             border: 2.5px solid ${borderCol};
             color: #0F172A;
@@ -486,6 +558,8 @@ export default function Dashboard() {
             "></span>
           </div>
           <div style="
+            position: relative;
+            z-index: 2;
             background: rgba(15, 23, 42, 0.92);
             color: white;
             padding: 2px 6px;
@@ -500,8 +574,8 @@ export default function Dashboard() {
             gap: 3px;
           ">
             <span>${spec.nickname}</span>
-            <span style="color: ${!spec.isOnline ? '#CBD5E1' : isMoving ? '#93C5FD' : '#86EFAC'};">
-              ${!spec.isOnline ? '(Offline)' : isMoving ? spec.telemetry.speedText : '🟢 Online'}
+            <span style="color: ${statusTextColor};">
+              ${statusText}
             </span>
           </div>
         </div>
@@ -581,21 +655,17 @@ export default function Dashboard() {
             <h1 className="font-bold text-lg text-on-surface tracking-tight">
               {t('live_title')}
             </h1>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-primary border border-blue-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              {specialists.filter((s) => s.isOnline).length} {t('live_badge')} Online
-            </span>
             <button
               onClick={() => {
                 fetchLiveSpecialists();
                 setCountdown(60);
                 showToast('🔄 อัปเดตพิกัดสดล่าสุดเรียบร้อยแล้ว');
               }}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
               title="คลิกเพื่อรีเฟรชพิกัดสดทันที"
             >
-              <span className="material-symbols-outlined text-[13px] text-primary">sync</span>
-              <span>รีเฟรชใน <strong className="text-primary font-black">{countdown}s</strong></span>
+              <span className="material-symbols-outlined text-[13px]">sync</span>
+              <span>รีเฟรชใน {countdown}s</span>
             </button>
           </div>
           <p className="text-on-surface-variant text-xs mt-0.5">
@@ -608,10 +678,10 @@ export default function Dashboard() {
           {(
             [
               { key: 'all', label: `ทั้งหมด (${specialists.length})` },
-              { key: 'online', label: `🟢 ออนไลน์ (${specialists.filter((s) => s.isOnline).length})` },
-              { key: 'moving', label: `กำลังเดินทาง (${specialists.filter((s) => s.isOnline && s.telemetry.speedKmH >= 4.0).length})` },
-              { key: 'stationary', label: `จอด/Standby (${specialists.filter((s) => s.isOnline && s.telemetry.speedKmH < 4.0).length})` },
-              { key: 'offline', label: `⚫ ออฟไลน์ (${specialists.filter((s) => !s.isOnline).length})` },
+              { key: 'online', label: `🟢 ออนไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOnline).length})` },
+              { key: 'moving', label: `กำลังเดินทาง (${specialists.filter((s) => getDerivedStatus(s).isMoving).length})` },
+              { key: 'stationary', label: `จอด/Standby (${specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length})` },
+              { key: 'offline', label: `⚫ ออฟไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOffline || getDerivedStatus(s).isSignalLost).length})` },
             ] as const
           ).map((item) => (
             <button
@@ -633,60 +703,41 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[720px]">
         {/* Left 7 Cols: Interactive Map Canvas */}
         <div className="lg:col-span-7 bg-surface-container-lowest rounded-2xl border border-outline-variant/60 overflow-hidden shadow-xs flex flex-col relative h-full">
-          {/* Floating Sub-Header inside Map with Direct Specialist Jump Buttons */}
-          <div className="px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2 z-10">
-            <div className="flex items-center gap-2 flex-wrap">
+          {/* Clean Map Sub-Header & Focus Controller Bar */}
+          <div className="px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-outline-variant/50 flex items-center justify-between gap-2 z-10">
+            <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-primary text-[18px]">
-                {soloId ? 'filter_center_focus' : 'location_on'}
+                {soloId || selectedSpecialist ? 'filter_center_focus' : 'location_on'}
               </span>
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
                     setSelectedId(null);
                     setSoloId(null);
                     showToast(t('live_show_all'));
                   }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     !selectedId && !soloId
                       ? 'bg-primary text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                   }`}
                 >
-                  🌐 {t('live_show_all')}
+                  <span className="material-symbols-outlined text-[14px]">public</span>
+                  <span>{t('live_show_all')}</span>
                 </button>
-                {specialists.map((s) => {
-                  const isFocused = (selectedId === s.id && !soloId) || soloId === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        setSelectedId(s.id);
-                        showToast(`🎯 โฟกัสพิกัด ${s.name} (${s.nickname})`);
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                        isFocused
-                          ? 'bg-blue-600 text-white shadow-2xs'
-                          : s.isOnline
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                          : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          s.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                        }`}
-                      ></span>
-                      <span>{s.nickname}</span>
-                      <span className="text-[10px] opacity-85">
-                        ({s.isOnline ? 'Online' : 'Offline'})
-                      </span>
-                    </button>
-                  );
-                })}
+
+                {(selectedSpecialist || soloSpecialist) && (
+                  <span className="text-xs font-bold text-slate-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                    <span>
+                      {soloId ? 'Solo Focus' : 'โฟกัส'}: {(soloSpecialist || selectedSpecialist)?.name} ({(soloSpecialist || selectedSpecialist)?.nickname})
+                    </span>
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Reset View Button */}
+            {/* Reset / Fit All Map View Button */}
             {(soloId || selectedSpecialist) && (
               <button
                 onClick={() => {
@@ -694,10 +745,11 @@ export default function Dashboard() {
                   setSelectedId(null);
                   showToast(t('live_show_all'));
                 }}
-                className="text-[11px] font-bold text-primary hover:bg-blue-50 px-2 py-1 rounded-lg border border-blue-200 transition-all flex items-center gap-1"
+                className="text-[11px] font-bold text-primary hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 transition-all flex items-center gap-1 cursor-pointer"
+                title="กลับสู่มุมมองภาพรวมพนักงานทั้งหมด"
               >
-                <span className="material-symbols-outlined text-[13px]">zoom_out_map</span>
-                {t('live_show_all')}
+                <span className="material-symbols-outlined text-[14px]">zoom_out_map</span>
+                <span>{t('live_show_all')}</span>
               </button>
             )}
           </div>
@@ -734,8 +786,9 @@ export default function Dashboard() {
                 />
               )}
 
-              {/* Draw Drop Pins if single specialist is focused */}
-              {(soloId ? soloSpecialist?.drops : selectedSpecialist?.drops)?.map((drop) => {
+              {/* Draw Drop Pins only if the specialist has an active in-progress trip */}
+              {(soloId ? soloSpecialist : selectedSpecialist)?.hasActiveTrip &&
+                (soloId ? soloSpecialist?.drops : selectedSpecialist?.drops)?.map((drop) => {
                 const nextUnclosed = (soloId ? soloSpecialist : selectedSpecialist)?.drops.find((d) => !d.isClosed);
                 const isNext = nextUnclosed?.dropNumber === drop.dropNumber;
 
@@ -802,7 +855,9 @@ export default function Dashboard() {
                   <Popup>
                     <div className="p-1 space-y-1 font-sans text-xs">
                       <div className="font-bold text-slate-900 text-sm">{spec.name} ({spec.nickname})</div>
-                      <div className="text-emerald-700 font-semibold">{spec.isOnline ? '🟢 ออนไลน์ (Online)' : '⚫ ออฟไลน์ (Offline)'}</div>
+                      <div className={getDerivedStatus(spec).isOnline ? 'text-emerald-700 font-semibold' : getDerivedStatus(spec).isSignalLost ? 'text-amber-700 font-semibold' : 'text-slate-600 font-semibold'}>
+                        {getDerivedStatus(spec).label}
+                      </div>
                       <div className="text-blue-700 font-semibold">{spec.tripTitle} ({spec.tripCode})</div>
                       <div className="text-slate-600 text-[11px]">📍 พิกัดปัจจุบัน: {spec.telemetry.currentAddress}</div>
                       <div className="text-slate-500 text-[11px] py-1 border-y border-slate-200 flex justify-between">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,10 @@ import {
   Switch,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Camera,
@@ -30,8 +32,15 @@ import {
   X,
   Eye,
   Paperclip,
+  ImageIcon,
 } from 'lucide-react-native';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { supabase } from '../lib/supabase';
+import {
+  uploadImageToSupabase,
+  pickImageFromCamera,
+  pickImageFromLibrary,
+} from '../lib/storageServices';
 
 export interface ExpenseItem {
   id: string;
@@ -42,29 +51,47 @@ export interface ExpenseItem {
   note?: string;
 }
 
-const SAMPLE_RECEIPT_SLIPS = [
-  {
-    name: 'Slip-Toll-M9.jpg',
-    category: 'ค่าทางด่วน',
-    amount: '60.00',
-    uri: 'https://images.unsplash.com/photo-1554415707-9e49016a3e06?w=600&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Slip-Coffee-Meeting.jpg',
-    category: 'ค่าอาหาร / เลี้ยงรับรอง',
-    amount: '150.00',
-    uri: 'https://images.unsplash.com/photo-1580828343064-fde4fc206bc6?w=600&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Slip-Parking-Sathorn.jpg',
-    category: 'ค่าที่จอดรถ',
-    amount: '80.00',
-    uri: 'https://images.unsplash.com/photo-1628527304948-06157ee3c8a7?w=600&auto=format&fit=crop&q=80',
-  },
-];
+function parsePhotos(photoField?: any): string[] {
+  if (!photoField) return [];
+  const results: string[] = [];
+
+  const extract = (val: any) => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      val.forEach(extract);
+      return;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('"{') && trimmed.endsWith('}"')) ||
+        (trimmed.startsWith('"[') && trimmed.endsWith(']"'))
+      ) {
+        try {
+          const unescaped = trimmed.startsWith('"') && trimmed.endsWith('"') ? JSON.parse(trimmed) : trimmed;
+          const parsed = typeof unescaped === 'string' ? JSON.parse(unescaped) : unescaped;
+          extract(parsed);
+          return;
+        } catch (e) {}
+      }
+      if (trimmed.includes('||')) {
+        trimmed.split('||').forEach((s) => extract(s.trim()));
+        return;
+      }
+      if (trimmed.length > 5 && !trimmed.startsWith('[') && !trimmed.endsWith(']')) {
+        results.push(trimmed);
+      }
+    }
+  };
+
+  extract(photoField);
+  return Array.from(new Set(results));
+}
 
 export default function DropReportingScreen({ navigation, route }: any) {
   const { t, language, expenseCategories, noteTemplates } = useLanguage();
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const isEditingFromSummary = !!params.isEditingFromSummary;
   const drop = params.drop || { name: language === 'th' ? 'จุดเข้าพบลูกค้า' : 'Client Location', address: '', contact: '' };
@@ -72,25 +99,41 @@ export default function DropReportingScreen({ navigation, route }: any) {
   const drops = Array.isArray(params.drops) ? params.drops : [];
   const totalDrops = drops.length > 0 ? drops.length : (typeof params.totalDrops === 'number' ? params.totalDrops : 1);
 
-  // Confirmation Status (Default to false / OFF as requested)
-  const [isConfirmed, setIsConfirmed] = useState(drop.isConfirmed !== undefined ? !!drop.isConfirmed : false);
+  // Data Completeness Status (Default to false unless verified/checked by user)
+  // If not ticked → status = Incomplete on TripSummary, if ticked → Complete
+  const [isDataComplete, setIsDataComplete] = useState<boolean>(
+    drop.isDataComplete !== undefined
+      ? !!drop.isDataComplete
+      : (drop.status === 'completed' || drop.status === 'Completed')
+  );
 
-  // Odometer
-  const [odometer, setOdometer] = useState(drop.odometer || params.odometer || '45280');
+  // Odometer (Do NOT prefill fake numbers. Leave empty unless already recorded for this drop)
+  const [odometer, setOdometer] = useState<string>(
+    drop.odometer ? String(drop.odometer) : (drop.odometer_reading ? String(drop.odometer_reading) : '')
+  );
 
-  // Visit Agenda State
-  const initialAgenda = drop.items || drop.agenda || 'นำเสนอโปรเจกต์ (Pitch & Proposal)';
+  // Visit Agenda State (Strictly default to the agenda created for this drop)
+  const initialAgenda = drop.agenda || drop.items || params.agenda || params.items || '';
   const [visitAgenda, setVisitAgenda] = useState(initialAgenda);
   const [selectedAgendaKey, setSelectedAgendaKey] = useState<string>(() => {
-    if (initialAgenda.includes('นำเสนอ')) return 'pitch';
-    if (initialAgenda.includes('ต่อสัญญา')) return 'renewal';
-    if (initialAgenda.includes('ตรวจระบบ')) return 'healthcheck';
-    if (initialAgenda.includes('แนะนำสินค้า') || initialAgenda.includes('เดโม')) return 'demo';
-    if (initialAgenda.startsWith('อื่นๆ')) return 'other';
-    return 'pitch';
+    if (!initialAgenda) return 'pitch';
+    if (initialAgenda.includes('นำเสนอ') || initialAgenda.toLowerCase().includes('pitch')) return 'pitch';
+    if (initialAgenda.includes('ต่อสัญญา') || initialAgenda.toLowerCase().includes('renewal')) return 'renewal';
+    if (initialAgenda.includes('ตรวจระบบ') || initialAgenda.toLowerCase().includes('health')) return 'healthcheck';
+    if (initialAgenda.includes('แนะนำสินค้า') || initialAgenda.includes('เดโม') || initialAgenda.toLowerCase().includes('demo')) return 'demo';
+    if (initialAgenda.startsWith('อื่นๆ') || initialAgenda.toLowerCase().startsWith('other')) return 'other';
+    return 'other';
   });
   const [customAgendaText, setCustomAgendaText] = useState(
-    initialAgenda.startsWith('อื่นๆ:') ? initialAgenda.replace('อื่นๆ:', '').trim() : ''
+    initialAgenda.startsWith('อื่นๆ:')
+      ? initialAgenda.replace('อื่นๆ:', '').trim()
+      : (!['pitch', 'renewal', 'healthcheck', 'demo'].some((k) => initialAgenda.toLowerCase().includes(k)) &&
+         !initialAgenda.includes('นำเสนอ') &&
+         !initialAgenda.includes('ต่อสัญญา') &&
+         !initialAgenda.includes('ตรวจระบบ') &&
+         !initialAgenda.includes('แนะนำสินค้า')
+          ? initialAgenda
+          : '')
   );
 
   // Stop Note State
@@ -105,14 +148,12 @@ export default function DropReportingScreen({ navigation, route }: any) {
     defaultInitialNote;
   const [note, setNote] = useState(initialNote);
 
-  // Expenses
-  const [expenses, setExpenses] = useState<ExpenseItem[]>(
-    Array.isArray(drop.expenses) && drop.expenses.length > 0
-      ? drop.expenses
-      : Array.isArray(params.expenses) && params.expenses.length > 0
-      ? params.expenses
-      : []
-  );
+  // Expenses (Strictly preserve array from drop/params if passed)
+  const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
+    if (Array.isArray(drop.expenses) && drop.expenses.length > 0) return drop.expenses;
+    if (Array.isArray(params.expenses) && params.expenses.length > 0) return params.expenses;
+    return [];
+  });
 
   // Form State for Adding/Editing Expense
   const [newCategory, setNewCategory] = useState('');
@@ -123,20 +164,91 @@ export default function DropReportingScreen({ navigation, route }: any) {
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
 
-  // Photos
-  const [photos, setPhotos] = useState<string[]>(
-    Array.isArray(drop.photos) && drop.photos.length > 0
-      ? drop.photos
-      : [
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuAeTqc_HT_3pN_On_ZrF2W3ESYrPMFFsiv79VwK7REGnL_tk0tWaYCjCw67CdjhSUpUaouy2nOgdMSccuayqwS7_QDebndi-cuGs1nG-bvRKTDvMDJv-TTJQJNBfmMuOm94O7zvZwOI8DejNsLh-PFycsxOVDxTb76Q8diw0pF7OivqhjwATuirnFPrKkv9cK17FPQXWZpDqxpEhqdBpJtugdrY19m7xUyIUaruXQeMqimq1XP_k-hU',
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBMzooyTS01enI1NNFi_RG4W9dnQcGCT5YQa5T9fEIWL3F94-10RiazETtCfnYAnqyTzjuy__h-EvnZmIYobs4_pU2KOhbdPdDfq1Jv8paG2qWzkWytebfeVK9Pte-nFnPpWYS5R6WAHpMNiyGc90ye0aiXYWw5_9pdjQr5F_FJxj8-KjvCd--IFqCkCEvxvAT_QrTWGYF0ydvikBZFtUdQGYdqDLGn9v4V-w3g2U74kCe3vU70JKtF',
-        ]
-  );
+  // Photos (Start with real existing photos if any, preserving all items in array)
+  const [photos, setPhotos] = useState<string[]>(() => {
+    if (Array.isArray(drop.photos)) return parsePhotos(drop.photos);
+    if (Array.isArray(params.photos)) return parsePhotos(params.photos);
+    return parsePhotos(drop.client_photo_url);
+  });
 
-  // Modals
-  const [previewImage, setPreviewImage] = useState<{ uri: string; title: string; subtitle?: string } | null>(null);
+  // Modals & Upload State
+  const [previewImage, setPreviewImage] = useState<{ uri: string; title: string; subtitle?: string; latitude?: number; longitude?: number; timestamp?: string } | null>(null);
   const [isReceiptPickerOpen, setIsReceiptPickerOpen] = useState(false);
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false);
   const [targetExpenseIdForSlip, setTargetExpenseIdForSlip] = useState<string | null>(null);
+  const [uploadingSlip, setUploadingSlip] = useState(false);
+  const [uploadingProofPhoto, setUploadingProofPhoto] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Reset / Sync local form states whenever route params change (e.g. when editing a drop from summary)
+  useEffect(() => {
+    const currentDrop = params.drop || {};
+    const passedExps = Array.isArray(currentDrop.expenses)
+      ? currentDrop.expenses
+      : Array.isArray(params.expenses)
+      ? params.expenses
+      : [];
+    setExpenses(passedExps);
+
+    const passedPhotos = Array.isArray(currentDrop.photos)
+      ? parsePhotos(currentDrop.photos)
+      : Array.isArray(params.photos)
+      ? parsePhotos(params.photos)
+      : parsePhotos(currentDrop.client_photo_url);
+    setPhotos(passedPhotos);
+
+    const currentAgenda = currentDrop.agenda || currentDrop.items || params.agenda || params.items || '';
+    if (currentAgenda) setVisitAgenda(currentAgenda);
+
+    const currentNote = currentDrop.note || (typeof currentDrop.meetingMinutes === 'string' ? currentDrop.meetingMinutes : currentDrop.meetingMinutes?.notes) || params.note || '';
+    setNote(currentNote);
+
+    const currentOdo = currentDrop.odometer !== undefined ? String(currentDrop.odometer) : (currentDrop.odometer_reading ? String(currentDrop.odometer_reading) : '');
+    setOdometer(currentOdo);
+
+    if (currentDrop.isDataComplete !== undefined) {
+      setIsDataComplete(!!currentDrop.isDataComplete);
+    }
+  }, [params.drop, params.dropIndex, params.expenses, params.photos, params.note]);
+
+  // Fetch existing expenses from Supabase for this appointment if not populated
+  useEffect(() => {
+    async function loadAppointmentData() {
+      const apptId = drop.appointmentId || drop.id;
+      if (apptId) {
+        try {
+          const { data: dbExpenses } = await supabase
+            .from('expenses')
+            .select('*')
+            .eq('appointment_id', apptId);
+
+          if (dbExpenses && dbExpenses.length > 0) {
+            const reverseCatMap: Record<string, string> = {
+              'toll': 'ค่าทางด่วน',
+              'parking': 'ค่าที่จอดรถ',
+              'fuel': 'ค่าน้ำมัน',
+              'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
+              'other': 'อื่นๆ',
+            };
+            const mappedExps: ExpenseItem[] = dbExpenses.map((exp: any) => ({
+              id: exp.id,
+              category: reverseCatMap[exp.category] || exp.category || 'ค่าใช้จ่ายเข้าพบ',
+              amount: String(exp.amount),
+              receiptUri: exp.receipt_url || exp.receipt_image_path,
+              receiptName: exp.title || (exp.receipt_url ? 'Receipt.jpg' : undefined),
+              note: exp.notes || '',
+            }));
+            setExpenses(mappedExps);
+          }
+        } catch (err) {
+          console.warn('Error loading appointment expenses:', err);
+        }
+      }
+    }
+    if ((!drop.expenses || drop.expenses.length === 0) && (!params.expenses || params.expenses.length === 0)) {
+      loadAppointmentData();
+    }
+  }, [drop.id, drop.appointmentId]);
 
   const handleEditExpense = (exp: ExpenseItem) => {
     setEditingExpenseId(exp.id);
@@ -195,59 +307,188 @@ export default function DropReportingScreen({ navigation, route }: any) {
     setIsAddingExpense(false);
   };
 
-  const handleSelectReceiptSlip = (sample: typeof SAMPLE_RECEIPT_SLIPS[0]) => {
-    if (targetExpenseIdForSlip) {
-      setExpenses((prev) =>
-        prev.map((e) =>
-          e.id === targetExpenseIdForSlip
-            ? { ...e, receiptUri: sample.uri, receiptName: sample.name }
-            : e
-        )
-      );
-      setTargetExpenseIdForSlip(null);
-    } else {
-      setNewReceiptUri(sample.uri);
-      setNewReceiptName(sample.name);
-      if (!newCategory) setNewCategory(sample.category);
-      if (!newAmount) setNewAmount(sample.amount);
-    }
+  const handleCaptureReceiptFromCamera = async () => {
     setIsReceiptPickerOpen(false);
-  };
+    try {
+      setUploadingSlip(true);
+      const picked = await pickImageFromCamera();
+      if (picked) {
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
+        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
+        const slipName = picked.name || `Slip-${Date.now().toString().slice(-4)}.jpg`;
 
-  const handleSimulateCameraCapture = () => {
-    const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const newUri = 'https://images.unsplash.com/photo-1554415707-9e49016a3e06?w=600&auto=format&fit=crop&q=80';
-    const slipName = `Camera-Slip-${timestamp.replace(/[:\s]/g, '')}.jpg`;
-
-    if (targetExpenseIdForSlip) {
-      setExpenses((prev) =>
-        prev.map((e) =>
-          e.id === targetExpenseIdForSlip
-            ? { ...e, receiptUri: newUri, receiptName: slipName }
-            : e
-        )
-      );
-      setTargetExpenseIdForSlip(null);
-    } else {
-      setNewReceiptUri(newUri);
-      setNewReceiptName(slipName);
+        if (targetExpenseIdForSlip) {
+          setExpenses((prev) =>
+            prev.map((e) =>
+              e.id === targetExpenseIdForSlip
+                ? { ...e, receiptUri: finalUri, receiptName: slipName }
+                : e
+            )
+          );
+          setTargetExpenseIdForSlip(null);
+        } else {
+          setNewReceiptUri(finalUri);
+          setNewReceiptName(slipName);
+        }
+      }
+    } catch (e) {
+      console.warn('Error capturing receipt slip:', e);
+    } finally {
+      setUploadingSlip(false);
     }
+  };
+
+  const handlePickReceiptFromLibrary = async () => {
     setIsReceiptPickerOpen(false);
+    try {
+      setUploadingSlip(true);
+      const picked = await pickImageFromLibrary();
+      if (picked) {
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
+        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
+        const slipName = picked.name || `Slip-${Date.now().toString().slice(-4)}.jpg`;
+
+        if (targetExpenseIdForSlip) {
+          setExpenses((prev) =>
+            prev.map((e) =>
+              e.id === targetExpenseIdForSlip
+                ? { ...e, receiptUri: finalUri, receiptName: slipName }
+                : e
+            )
+          );
+          setTargetExpenseIdForSlip(null);
+        } else {
+          setNewReceiptUri(finalUri);
+          setNewReceiptName(slipName);
+        }
+      }
+    } catch (e) {
+      console.warn('Error selecting receipt slip:', e);
+    } finally {
+      setUploadingSlip(false);
+    }
   };
 
-  const handleTakePhoto = () => {
-    const demoPhotos = [
-      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=600&auto=format&fit=crop&q=80',
-    ];
-    const picked = demoPhotos[photos.length % demoPhotos.length];
-    setPhotos((prev) => [...prev, picked]);
+  // Proof Photos Handlers
+  const handleCapturePhotoFromCamera = async () => {
+    setIsPhotoPickerOpen(false);
+    try {
+      setUploadingProofPhoto(true);
+      const picked = await pickImageFromCamera();
+      if (picked) {
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'trip_photos', picked.name, picked.base64);
+        const finalPhotoUrl = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
+        setPhotos((prev) => [...prev, finalPhotoUrl]);
+      }
+    } catch (e) {
+      console.warn('Error capturing proof photo:', e);
+    } finally {
+      setUploadingProofPhoto(false);
+    }
   };
 
-  const handleSaveAndClose = () => {
-    const updatedDrop = {
+  const handlePickPhotoFromLibrary = async () => {
+    setIsPhotoPickerOpen(false);
+    try {
+      setUploadingProofPhoto(true);
+      const picked = await pickImageFromLibrary();
+      if (picked) {
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'trip_photos', picked.name, picked.base64);
+        const finalPhotoUrl = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
+        setPhotos((prev) => [...prev, finalPhotoUrl]);
+      }
+    } catch (e) {
+      console.warn('Error picking photo from gallery:', e);
+    } finally {
+      setUploadingProofPhoto(false);
+    }
+  };
+
+  const saveDropToDatabase = async (updatedDrop: any) => {
+    try {
+      const apptId = updatedDrop.appointmentId || updatedDrop.id;
+      const tripId = params.tripId;
+      const { data: { user } } = await supabase.auth.getUser();
+      const staffId = user?.id || drop.staff_id || params.staffId || '42284d55-3997-4add-9226-dd9cf2f085df';
+
+      if (apptId) {
+        // 1. Update appointment record in Supabase
+        await supabase
+          .from('appointments')
+          .update({
+            confirmation_status: !!updatedDrop.isConfirmed,
+            status: updatedDrop.isConfirmed ? (updatedDrop.isDataComplete ? 'completed' : 'incomplete') : 'pending',
+            meeting_notes: updatedDrop.note || updatedDrop.meetingMinutes || '',
+            odometer_reading: updatedDrop.odometer ? parseFloat(updatedDrop.odometer) : null,
+            agenda: updatedDrop.agenda || updatedDrop.items || '',
+            client_photo_url: (() => {
+              const cleanedPhotos = parsePhotos(updatedDrop.photos || drop.photos);
+              return cleanedPhotos.length > 0 ? (cleanedPhotos.length === 1 ? cleanedPhotos[0] : JSON.stringify(cleanedPhotos)) : null;
+            })(),
+            completed_at: updatedDrop.isConfirmed ? new Date().toISOString() : null,
+            arrived_at: new Date().toISOString(),
+          })
+          .eq('id', apptId);
+
+        // 2. Sync expenses for this appointment
+        if (tripId && Array.isArray(updatedDrop.expenses)) {
+          await supabase
+            .from('expenses')
+            .delete()
+            .eq('appointment_id', apptId);
+
+          for (const exp of updatedDrop.expenses) {
+            const amt = parseFloat(exp.amount);
+            if (amt > 0) {
+              const catMap: Record<string, string> = {
+                'ค่าทางด่วน': 'toll',
+                'ค่าที่จอดรถ': 'parking',
+                'ค่าน้ำมัน': 'fuel',
+                'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
+                'ค่าเลี้ยงรับรอง': 'entertainment',
+                'อื่นๆ': 'other',
+              };
+              const cat = catMap[exp.category] || exp.category || 'other';
+
+              await supabase.from('expenses').insert({
+                staff_id: staffId,
+                trip_id: tripId,
+                appointment_id: apptId,
+                category: cat,
+                title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
+                amount: amt,
+                receipt_url: exp.receiptUri,
+                receipt_image_path: exp.receiptUri,
+                notes: exp.note,
+                status: 'pending',
+              });
+            }
+          }
+        }
+      }
+
+      // Update current odometer of trip if provided
+      if (tripId && updatedDrop.odometer) {
+        const odoVal = parseFloat(updatedDrop.odometer);
+        if (!isNaN(odoVal) && odoVal > 0) {
+          await supabase
+            .from('trips')
+            .update({ current_odometer: odoVal })
+            .eq('id', tripId);
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Error auto-saving drop to Supabase:', dbErr);
+    }
+  };
+
+  const buildUpdatedDrop = (markConfirmed: boolean = true) => {
+    const isConf = markConfirmed ? true : !!drop.isConfirmed;
+    return {
       ...drop,
-      isConfirmed,
+      isConfirmed: isConf,
+      isDataComplete: isDataComplete,
+      isVisited: isConf,
       odometer,
       items: visitAgenda,
       agenda: visitAgenda,
@@ -255,64 +496,120 @@ export default function DropReportingScreen({ navigation, route }: any) {
       meetingMinutes: note,
       expenses,
       photos,
-      status: isConfirmed ? 'Completed' : 'Pending Confirmation',
+      status: isConf ? (isDataComplete ? 'Completed' : 'Incomplete') : (drop.status || 'pending'),
     };
+  };
 
+  const handleGoBack = () => {
+    if (isSaving) return;
     if (isEditingFromSummary) {
       navigation.navigate('TripSummary', {
         tripId: params.tripId,
-        updatedDropIndex: dropIndex,
-        updatedDrop: updatedDrop,
+        drops: drops,
+        tripTitle: params.tripTitle,
+        selectedVehicle: params.selectedVehicle,
+        startLocation: params.startLocation,
+        startOdometer: params.startOdometer,
+        isRevision: params.isRevision,
+        revisionCount: params.revisionCount,
+        managerFeedback: params.managerFeedback,
+        isApproved: params.isApproved,
+        isPendingReview: params.isPendingReview,
       });
       return;
     }
 
-    const nextIndex = dropIndex + 1;
-    const isFinished = nextIndex >= totalDrops;
-
-    if (isFinished) {
-      const allUpdatedDrops = drops.map((d: any, idx: number) =>
-        idx === dropIndex ? updatedDrop : d
-      );
-      navigation.navigate('TripSummary', {
-        tripId: params.tripId,
-        drops: allUpdatedDrops,
-        tripTitle: params.tripTitle,
-        selectedVehicle: params.selectedVehicle,
-        totalExpenseAmount: expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0),
-      });
+    // Normal Go Back during Active Tracking: Simply go back without modifying or saving any data
+    if (navigation.canGoBack()) {
+      navigation.goBack();
     } else {
       navigation.navigate('ActiveTracker', {
         ...params,
-        dropIndex: nextIndex,
+        dropIndex: dropIndex,
+        drops: drops,
+      });
+    }
+  };
+
+  const handleSaveAndClose = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const updatedDrop = buildUpdatedDrop(true);
+
+      const allUpdatedDrops = drops.map((d: any, idx: number) =>
+        idx === dropIndex ? updatedDrop : d
+      );
+
+      if (isEditingFromSummary) {
+        // Pass staged updates back in memory to TripSummary (will be saved when user saves draft or submits)
+        navigation.navigate('TripSummary', {
+          tripId: params.tripId,
+          drops: allUpdatedDrops,
+          tripTitle: params.tripTitle,
+          selectedVehicle: params.selectedVehicle,
+          startLocation: params.startLocation,
+          startOdometer: params.startOdometer,
+          updatedDropIndex: dropIndex,
+          updatedDrop: updatedDrop,
+          isRevision: params.isRevision,
+          revisionCount: params.revisionCount,
+          managerFeedback: params.managerFeedback,
+          isApproved: params.isApproved,
+          isPendingReview: params.isPendingReview,
+        });
+        return;
+      }
+
+      // Persist immediately to Supabase during Active Tracking
+      await saveDropToDatabase(updatedDrop);
+
+      // Find next unconfirmed drop (not just dropIndex + 1)
+      const nextUnconfirmedIdx = allUpdatedDrops.findIndex((d: any, idx: number) => idx > dropIndex && !d.isConfirmed);
+      const fallbackNextIdx = allUpdatedDrops.findIndex((d: any) => !d.isConfirmed);
+      const isFinished = fallbackNextIdx === -1;
+
+      // Always return to ActiveTracker so user can review, add more drops, or click Summary button when ready
+      const targetIdx = isFinished ? dropIndex : (nextUnconfirmedIdx !== -1 ? nextUnconfirmedIdx : fallbackNextIdx);
+      navigation.navigate('ActiveTracker', {
+        ...params,
+        dropIndex: targetIdx,
+        drops: allUpdatedDrops,
         completedDropIndex: dropIndex,
         lastCompletedDrop: updatedDrop,
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top App Bar */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.8}
-        >
-          <ArrowLeft size={20} color="#0F172A" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{drop.name}</Text>
-        <LanguageTogglePill />
-      </View>
-
-      <ScrollView
-        style={styles.scrollContent}
-        contentContainerStyle={styles.scrollInner}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
       >
-        {/* Context Card */}
-        <View style={[styles.contextCard, isEditingFromSummary && styles.contextCardEditing]}>
+        {/* Top App Bar */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleGoBack}
+            activeOpacity={0.8}
+          >
+            <ArrowLeft size={20} color="#0F172A" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>{drop.name}</Text>
+          <LanguageTogglePill />
+        </View>
+
+        <ScrollView
+          style={styles.scrollContent}
+          contentContainerStyle={styles.scrollInner}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Context Card */}
+          <View style={[styles.contextCard, isEditingFromSummary && styles.contextCardEditing]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.contextSub}>
               {isEditingFromSummary
@@ -332,11 +629,15 @@ export default function DropReportingScreen({ navigation, route }: any) {
           </View>
         </View>
 
-        {/* 1. Confirmation Toggle */}
-        <View style={[styles.card, isConfirmed ? styles.cardConfirmedActive : styles.cardUnconfirmedActive]}>
+        {/* Data Completeness Toggle: ข้อมูลครบถ้วนสมบูรณ์ (Default OFF = Incomplete on summary) */}
+        <TouchableOpacity
+          style={[styles.card, isDataComplete ? styles.cardConfirmedActive : styles.cardUnconfirmedActive]}
+          onPress={() => setIsDataComplete(!isDataComplete)}
+          activeOpacity={0.85}
+        >
           <View style={styles.cardHeaderRow}>
-            <View style={[styles.iconCircle, isConfirmed ? { backgroundColor: '#DCFCE7' } : { backgroundColor: '#FEF3C7' }]}>
-              {isConfirmed ? (
+            <View style={[styles.iconCircle, isDataComplete ? { backgroundColor: '#DCFCE7' } : { backgroundColor: '#FEF3C7' }]}>
+              {isDataComplete ? (
                 <CheckCircle2 size={18} color="#16A34A" />
               ) : (
                 <AlertTriangle size={18} color="#D97706" />
@@ -344,33 +645,41 @@ export default function DropReportingScreen({ navigation, route }: any) {
             </View>
             <View style={{ flex: 1, paddingRight: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Text style={styles.cardTitle}>{t('report_confirm_status')}</Text>
+                <Text style={styles.cardTitle}>
+                  {language === 'th' ? 'ยืนยันข้อมูลครบถ้วน' : 'Confirm Data Complete'}
+                </Text>
                 <View
                   style={[
                     styles.confirmStatusPill,
-                    isConfirmed ? styles.confirmStatusPillGreen : styles.confirmStatusPillAmber,
+                    isDataComplete ? styles.confirmStatusPillGreen : styles.confirmStatusPillAmber,
                   ]}
                 >
                   <Text
                     style={[
                       styles.confirmStatusPillText,
-                      isConfirmed ? { color: '#166534' } : { color: '#B45309' },
+                      isDataComplete ? { color: '#166534' } : { color: '#B45309' },
                     ]}
                   >
-                    {isConfirmed ? `✓ ${t('report_confirmed_status_text')}` : `⚠️ ${t('report_unconfirmed_status_text')}`}
+                    {isDataComplete
+                      ? (language === 'th' ? '✓ สมบูรณ์' : '✓ Complete')
+                      : (language === 'th' ? '⚠️ ไม่สมบูรณ์' : '⚠️ Incomplete')}
                   </Text>
                 </View>
               </View>
-              <Text style={styles.cardSub} numberOfLines={1}>{t('report_confirm_sub')}</Text>
+              <Text style={styles.cardSub} numberOfLines={2}>
+                {language === 'th'
+                  ? 'ติ๊กเมื่อกรอกข้อมูลเรียบร้อยแล้ว (ถ้าไม่ติ๊ก สถานะจะเป็น ไม่สมบูรณ์ เพื่อกลับมาใส่ข้อมูลทีหลัง)'
+                  : 'Check when details are filled (if unchecked, marked as Incomplete to finish later)'}
+              </Text>
             </View>
             <Switch
-              value={isConfirmed}
-              onValueChange={setIsConfirmed}
+              value={isDataComplete}
+              onValueChange={setIsDataComplete}
               trackColor={{ false: '#CBD5E1', true: '#16A34A' }}
               thumbColor="#FFFFFF"
             />
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* 2. Odometer Input */}
         <View style={styles.card}>
@@ -534,6 +843,16 @@ export default function DropReportingScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </View>
 
+          {/* Loading indicator while uploading receipt slip */}
+          {uploadingSlip && (
+            <View style={styles.uploadingBanner}>
+              <ActivityIndicator size="small" color="#1D4ED8" />
+              <Text style={styles.uploadingText}>
+                {language === 'th' ? 'กำลังอัปโหลดสลิปไปยังคลาวด์...' : 'Uploading slip to cloud...'}
+              </Text>
+            </View>
+          )}
+
           {/* Expense Items List */}
           <View style={styles.expenseList}>
             {expenses.map((exp) => (
@@ -582,8 +901,10 @@ export default function DropReportingScreen({ navigation, route }: any) {
                       onPress={() =>
                         setPreviewImage({
                           uri: exp.receiptUri!,
-                          title: exp.category,
+                          title: `${drop.name || 'สถานที่'} • ${exp.category}`,
                           subtitle: `฿${exp.amount} • ${exp.receiptName || 'Receipt'}`,
+                          latitude: drop.latitude,
+                          longitude: drop.longitude,
                         })
                       }
                       activeOpacity={0.8}
@@ -675,12 +996,26 @@ export default function DropReportingScreen({ navigation, route }: any) {
               <View style={styles.newExpenseSlipSection}>
                 {newReceiptUri ? (
                   <View style={styles.newExpenseSlipPreview}>
-                    <Image source={{ uri: newReceiptUri }} style={styles.newSlipThumb} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.newSlipName} numberOfLines={1}>
-                        {newReceiptName || 'Slip-attached.jpg'}
-                      </Text>
-                    </View>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setPreviewImage({
+                          uri: newReceiptUri!,
+                          title: `${drop.name || 'สถานที่'} • ${newCategory || 'สลิปค่าใช้จ่าย'}`,
+                          subtitle: `฿${newAmount || '0.00'} • ${newReceiptName || 'Slip'}`,
+                          latitude: drop.latitude,
+                          longitude: drop.longitude,
+                        })
+                      }
+                      activeOpacity={0.8}
+                      style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
+                    >
+                      <Image source={{ uri: newReceiptUri }} style={styles.newSlipThumb} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.newSlipName} numberOfLines={1}>
+                          {newReceiptName || 'Slip-attached.jpg'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
                         setNewReceiptUri(undefined);
@@ -738,9 +1073,23 @@ export default function DropReportingScreen({ navigation, route }: any) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>{t('report_photos')}</Text>
-              <Text style={styles.cardSub}>{t('report_photos_sub')}</Text>
+              <Text style={styles.cardSub}>
+                {language === 'th'
+                  ? 'ถ่ายรูปหน้าร้าน ป้ายบริษัท หรือรูปถ่ายคู่ลูกค้าเพื่อเป็นหลักฐาน'
+                  : 'Capture storefront, sign, or client proof photos'}
+              </Text>
             </View>
           </View>
+
+          {/* Loading indicator while uploading proof photo */}
+          {uploadingProofPhoto && (
+            <View style={styles.uploadingBanner}>
+              <ActivityIndicator size="small" color="#1D4ED8" />
+              <Text style={styles.uploadingText}>
+                {language === 'th' ? 'กำลังอัปโหลดรูปภาพไปยังคลาวด์...' : 'Uploading photo to cloud...'}
+              </Text>
+            </View>
+          )}
 
           {/* Photo Thumbnails Grid */}
           <View style={styles.photosGrid}>
@@ -751,13 +1100,21 @@ export default function DropReportingScreen({ navigation, route }: any) {
                     setPreviewImage({
                       uri,
                       title: `${t('report_photos')} #${idx + 1}`,
-                      subtitle: drop.name,
+                      subtitle: drop.name || drop.recipient || (language === 'th' ? 'สถานที่เข้าพบ' : 'Visit Location'),
+                      latitude: drop.latitude,
+                      longitude: drop.longitude,
                     })
                   }
                   activeOpacity={0.8}
                   style={{ width: '100%', height: '100%' }}
                 >
                   <Image source={{ uri }} style={styles.photoImage} />
+                  {/* Watermark Tag on Thumbnail */}
+                  <View style={styles.photoThumbnailWatermark}>
+                    <Text style={styles.photoThumbnailWatermarkText} numberOfLines={1}>
+                      📍 {drop.name || 'Check-in'}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.deletePhotoBtn}
@@ -773,30 +1130,49 @@ export default function DropReportingScreen({ navigation, route }: any) {
             {/* Take Photo CTA */}
             <TouchableOpacity
               style={styles.takePhotoBtn}
-              onPress={handleTakePhoto}
+              onPress={() => setIsPhotoPickerOpen(true)}
               activeOpacity={0.8}
             >
               <Camera size={22} color="#1D4ED8" />
               <Text style={styles.takePhotoText}>{t('btn_take_photo')}</Text>
             </TouchableOpacity>
           </View>
+
+          {photos.length === 0 && !uploadingProofPhoto && (
+            <Text style={styles.emptyPhotosNotice}>
+              {language === 'th'
+                ? 'ยังไม่มีรูปภาพหลักฐาน — กดปุ่มกล้องเพื่อถ่ายภาพจริงหรือแนบรูปจากอัลบั้ม'
+                : 'No proof photos yet. Tap the camera button to capture or pick an image.'}
+            </Text>
+          )}
         </View>
       </ScrollView>
 
       {/* Bottom Sticky Action Bar */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
         <TouchableOpacity
-          style={[styles.saveButton, isEditingFromSummary && styles.saveButtonEditing]}
+          style={[
+            styles.saveButton,
+            isEditingFromSummary && styles.saveButtonEditing,
+            isSaving && { opacity: 0.6 },
+          ]}
           onPress={handleSaveAndClose}
+          disabled={isSaving}
           activeOpacity={0.9}
         >
-          <CheckCircle2 size={18} color="#FFFFFF" fill="#FFFFFF" />
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <CheckCircle2 size={18} color="#FFFFFF" fill="#FFFFFF" />
+          )}
           <Text style={styles.saveButtonText}>
-            {isEditingFromSummary
-              ? t('report_save_return')
+            {isSaving
+              ? (language === 'th' ? 'กำลังบันทึกข้อมูล...' : 'Saving...')
+              : isEditingFromSummary
+              ? (language === 'th' ? '✓ บันทึกการแก้ไข' : 'Save Changes')
               : dropIndex >= totalDrops - 1
-              ? t('btn_finish')
-              : t('report_save_next')}
+              ? (language === 'th' ? '✓ เช็คอิน & ปิดทริป' : 'Check-in & Finish')
+              : (language === 'th' ? '✓ เช็คอิน & ไปจุดถัดไป' : 'Check-in & Next Stop')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -808,8 +1184,20 @@ export default function DropReportingScreen({ navigation, route }: any) {
         animationType="fade"
         onRequestClose={() => setPreviewImage(null)}
       >
-        <View style={styles.modalBackdrop}>
-          <SafeAreaView style={styles.modalSafeArea}>
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setPreviewImage(null)}
+        >
+          <View
+            style={[
+              styles.modalSafeArea,
+              {
+                paddingTop: Math.max(insets.top, 24) + 12,
+                paddingBottom: Math.max(insets.bottom, 20) + 12,
+              },
+            ]}
+          >
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalHeaderTitle} numberOfLines={1}>
@@ -822,21 +1210,122 @@ export default function DropReportingScreen({ navigation, route }: any) {
               <TouchableOpacity
                 style={styles.modalCloseBtn}
                 onPress={() => setPreviewImage(null)}
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                activeOpacity={0.7}
               >
-                <X size={20} color="#FFFFFF" />
+                <X size={22} color="#FFFFFF" strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.modalImageContainer}>
               {previewImage && (
-                <Image
-                  source={{ uri: previewImage.uri }}
-                  style={styles.modalFullImage}
-                  resizeMode="contain"
-                />
+                <View style={styles.modalFullImageWrapper}>
+                  <Image
+                    source={{ uri: previewImage.uri }}
+                    style={styles.modalFullImage}
+                    resizeMode="contain"
+                  />
+                  {/* Non-intrusive Watermark Stamp */}
+                  <View style={styles.photoWatermarkOverlay}>
+                    <View style={styles.photoWatermarkContent}>
+                      <Text style={styles.watermarkLocationText} numberOfLines={1}>
+                        📍 {previewImage.subtitle || drop.name || (language === 'th' ? 'สถานที่เข้าพบ' : 'Visit Location')}
+                      </Text>
+                      {(previewImage.latitude || drop.latitude) && (
+                        <Text style={styles.watermarkCoordText}>
+                          🌐 GPS: {(previewImage.latitude || drop.latitude).toFixed(5)}, {(previewImage.longitude || drop.longitude).toFixed(5)}
+                        </Text>
+                      )}
+                      <Text style={styles.watermarkTimeText}>
+                        🕒 {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })} {new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
               )}
             </View>
-          </SafeAreaView>
+
+            {/* Bottom floating tap-to-close bar */}
+            <View style={styles.modalBottomActionWrap}>
+              <TouchableOpacity
+                style={styles.modalBottomClosePill}
+                onPress={() => setPreviewImage(null)}
+                activeOpacity={0.85}
+              >
+                <X size={16} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={styles.modalBottomCloseText}>
+                  {language === 'th' ? 'แตะที่ใดก็ได้เพื่อปิด' : 'Tap anywhere to close'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Proof Photo Action Modal */}
+      <Modal
+        visible={isPhotoPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsPhotoPickerOpen(false)}
+      >
+        <View style={styles.bottomSheetBackdrop}>
+          <View style={styles.bottomSheetCard}>
+            <View style={styles.bottomSheetHeader}>
+              <View>
+                <Text style={styles.bottomSheetTitle}>
+                  {language === 'th' ? 'ถ่ายรูปหรือแนบรูปหลักฐาน' : 'Add Proof Photo'}
+                </Text>
+                <Text style={styles.bottomSheetSub}>
+                  {language === 'th' ? 'ถ่ายภาพสดหน้างานจริงหรือเลือกจากอัลบั้ม' : 'Capture live photo or pick from gallery'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.bottomSheetClose}
+                onPress={() => setIsPhotoPickerOpen(false)}
+              >
+                <X size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Camera Option */}
+            <TouchableOpacity
+              style={styles.cameraPickerOption}
+              onPress={handleCapturePhotoFromCamera}
+              activeOpacity={0.8}
+            >
+              <View style={styles.cameraPickerIcon}>
+                <Camera size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cameraOptionTitle}>
+                  {language === 'th' ? 'ถ่ายรูปจากกล้อง (Camera)' : 'Take Photo with Camera'}
+                </Text>
+                <Text style={styles.cameraOptionSub}>
+                  {language === 'th' ? 'เปิดกล้องถ่ายภาพหน้างานสด' : 'Launch camera to capture live photo'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Gallery Option */}
+            <TouchableOpacity
+              style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
+              onPress={handlePickPhotoFromLibrary}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
+                <ImageIcon size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
+                  {language === 'th' ? 'เลือกจากคลังรูปภาพ (Gallery)' : 'Pick from Gallery'}
+                </Text>
+                <Text style={styles.cameraOptionSub}>
+                  {language === 'th' ? 'เลือกรูปภาพที่มีอยู่ในเครื่อง' : 'Choose existing photo from device'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -853,7 +1342,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
               <View>
                 <Text style={styles.bottomSheetTitle}>{t('btn_attach_slip')}</Text>
                 <Text style={styles.bottomSheetSub}>
-                  {language === 'th' ? 'ถ่ายรูปใหม่หรือเลือกจากสลิปตัวอย่าง' : 'Capture photo or select from sample slips'}
+                  {language === 'th' ? 'ถ่ายรูปใหม่หรือเลือกสลิปจากอัลบั้ม' : 'Capture photo or pick slip from gallery'}
                 </Text>
               </View>
               <TouchableOpacity
@@ -867,7 +1356,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
             {/* Camera Option */}
             <TouchableOpacity
               style={styles.cameraPickerOption}
-              onPress={handleSimulateCameraCapture}
+              onPress={handleCaptureReceiptFromCamera}
               activeOpacity={0.8}
             >
               <View style={styles.cameraPickerIcon}>
@@ -875,39 +1364,36 @@ export default function DropReportingScreen({ navigation, route }: any) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cameraOptionTitle}>
-                  {language === 'th' ? 'เปิดกล้องถ่ายรูปสลิป' : 'Open Camera to Capture Slip'}
+                  {language === 'th' ? 'ถ่ายรูปสลิปจากกล้อง (Camera)' : 'Capture Slip with Camera'}
+                </Text>
+                <Text style={styles.cameraOptionSub}>
+                  {language === 'th' ? 'เปิดกล้องถ่ายใบเสร็จ / สลิปโอนเงิน' : 'Take photo of receipt / slip'}
                 </Text>
               </View>
             </TouchableOpacity>
 
-            {/* Sample Slips */}
-            <Text style={styles.sampleListTitle}>
-              {language === 'th' ? 'หรือเลือกจากตัวอย่างสลิป' : 'Or select from sample slips'}
-            </Text>
-            <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator={false}>
-              {SAMPLE_RECEIPT_SLIPS.map((sample, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.sampleItemCard}
-                  onPress={() => handleSelectReceiptSlip(sample)}
-                  activeOpacity={0.8}
-                >
-                  <Image source={{ uri: sample.uri }} style={styles.sampleSlipThumb} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sampleName}>{sample.name}</Text>
-                    <Text style={styles.sampleDetails}>
-                      ฿{sample.amount}
-                    </Text>
-                  </View>
-                  <View style={styles.sampleSelectBtn}>
-                    <Text style={styles.sampleSelectText}>{t('btn_confirm')}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {/* Gallery Option */}
+            <TouchableOpacity
+              style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
+              onPress={handlePickReceiptFromLibrary}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
+                <ImageIcon size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
+                  {language === 'th' ? 'เลือกสลิปจากคลังรูปภาพ (Gallery)' : 'Pick Slip from Gallery'}
+                </Text>
+                <Text style={styles.cameraOptionSub}>
+                  {language === 'th' ? 'เลือกรูปภาพสลิปที่มีอยู่ในเครื่อง' : 'Choose receipt image from device'}
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -922,8 +1408,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -950,7 +1436,7 @@ const styles = StyleSheet.create({
   scrollInner: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 110,
+    paddingBottom: 130,
     gap: 14,
   },
   contextCard: {
@@ -1402,12 +1888,14 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
   },
   modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   modalImageContainer: {
     flex: 1,
@@ -1418,6 +1906,27 @@ const styles = StyleSheet.create({
   modalFullImage: {
     width: '100%',
     height: '100%',
+  },
+  modalBottomActionWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 8,
+  },
+  modalBottomClosePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  modalBottomCloseText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   bottomSheetBackdrop: {
     flex: 1,
@@ -1454,6 +1963,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  uploadingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EFF6FF',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  uploadingText: {
+    fontSize: 12,
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  emptyPhotosNotice: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
   cameraPickerOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1476,6 +2007,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#1D4ED8',
+  },
+  cameraOptionSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
   },
   sampleListTitle: {
     fontSize: 12,
@@ -1554,5 +2090,60 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#1D4ED8',
+  },
+  photoThumbnailWatermark: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+  },
+  photoThumbnailWatermarkText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '700',
+  },
+  modalFullImageWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoWatermarkOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    alignItems: 'flex-start',
+  },
+  photoWatermarkContent: {
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    gap: 2,
+  },
+  watermarkLocationText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  watermarkCoordText: {
+    color: '#93C5FD',
+    fontSize: 10,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  watermarkTimeText: {
+    color: '#CBD5E1',
+    fontSize: 9,
+    fontWeight: '500',
   },
 });

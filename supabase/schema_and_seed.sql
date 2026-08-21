@@ -8,7 +8,19 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
 
--- 2. System Profiles Table (Linked with Supabase Auth Users)
+-- 2. Master Departments Table
+CREATE TABLE IF NOT EXISTS public.departments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.departments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read access to departments" ON public.departments FOR SELECT USING (true);
+CREATE POLICY "Allow all access to departments" ON public.departments FOR ALL USING (true);
+
+-- 3. System Profiles Table (Linked with Supabase Auth Users)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT NOT NULL UNIQUE,
@@ -17,12 +29,26 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     phone TEXT,
     avatar_url TEXT,
     role TEXT NOT NULL DEFAULT 'specialist' CHECK (role IN ('admin', 'manager', 'specialist')),
+    position TEXT DEFAULT 'Field Marketing Specialist',
     department TEXT DEFAULT 'Field Marketing Operations',
     timezone TEXT DEFAULT 'Asia/Bangkok (GMT+7)',
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
     two_factor_enabled BOOLEAN DEFAULT FALSE,
     push_token TEXT,
     bio TEXT,
+    is_online BOOLEAN DEFAULT FALSE,
+    last_seen_at TIMESTAMPTZ,
+    current_lat DOUBLE PRECISION,
+    current_lng DOUBLE PRECISION,
+    current_address TEXT,
+    current_speed DOUBLE PRECISION DEFAULT 0.0,
+    battery_level INTEGER DEFAULT 100,
+    assigned_vehicle TEXT,
+    assigned_vehicle_plate TEXT,
+    assigned_vehicle_model TEXT,
+    driving_license_no TEXT,
+    driving_license_type TEXT,
+    driving_license_expiry DATE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -32,8 +58,15 @@ CREATE TABLE IF NOT EXISTS public.staff (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     profile_id UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
     staff_id TEXT NOT NULL UNIQUE,
+    position TEXT DEFAULT 'Field Marketing Specialist',
     territory TEXT DEFAULT 'Bangkok Central (B2B)',
     assigned_vehicle TEXT DEFAULT 'Isuzu D-Max (1กข-4452)',
+    vehicle_plate TEXT DEFAULT '1กข-4452 กทม.',
+    vehicle_model TEXT DEFAULT 'Isuzu D-Max SpaceCab',
+    vehicle_type TEXT DEFAULT 'Pickup Truck',
+    driving_license_no TEXT,
+    driving_license_type TEXT,
+    driving_license_expiry DATE,
     current_location TEXT,
     total_trips INTEGER DEFAULT 0,
     total_distance_km NUMERIC(10, 2) DEFAULT 0.00,
@@ -168,13 +201,17 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
     company_name TEXT DEFAULT 'FastFleet Field Marketing Co., Ltd.',
     timezone TEXT DEFAULT 'Asia/Bangkok (GMT+7)',
     currency TEXT DEFAULT 'THB (฿)',
+    operating_hours JSONB DEFAULT '{"start": "08:00", "end": "19:00"}'::JSONB,
+    gps_config JSONB DEFAULT '{"mbSpeedMoving": 4.0, "mbDistMoving": 10.0, "mbSpeedStatic": 1.5, "mbStaticRadius": 15.0, "dropIgnoreData": true}'::JSONB,
+    approval_rules JSONB DEFAULT '{"requireAllDropsConfirmed": true, "requireReceiptSlips": true, "maxExpensePerTrip": 3000, "requireStartOdometer": true}'::JSONB,
+    notifications_config JSONB DEFAULT '{"tripSubmitted": true, "tripRevision": true, "dropCheckin": true, "lowBattery": true}'::JSONB,
+    api_key TEXT DEFAULT 'flt_live_mkt_99a8b7c6d5e4f3a2b1c0987654321',
     gps_ping_interval_sec INTEGER DEFAULT 10,
     max_speed_limit NUMERIC(5, 2) DEFAULT 120.00,
     excessive_idle_minutes INTEGER DEFAULT 15,
     auto_dispatch BOOLEAN DEFAULT TRUE,
     geofence_opacity NUMERIC(3, 2) DEFAULT 0.35,
     map_defaults JSONB DEFAULT '{"lat": 13.7563, "lng": 100.5018, "zoom": 12}'::JSONB,
-    notifications_config JSONB DEFAULT '{"tripSubmitted": true, "tripRevision": true, "dropCheckin": true, "lowBattery": true}'::JSONB,
     tenant_id TEXT DEFAULT 'FASTFLEET_DEFAULT',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -231,6 +268,48 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER trigger_sync_trip_expenses
     AFTER INSERT OR UPDATE OR DELETE ON public.expenses
     FOR EACH ROW EXECUTE FUNCTION public.sync_trip_total_expenses();
+
+-- Realtime Presence & GPS Telemetry Update Function
+CREATE OR REPLACE FUNCTION public.update_specialist_presence(
+    p_is_online BOOLEAN,
+    p_lat DOUBLE PRECISION DEFAULT NULL,
+    p_lng DOUBLE PRECISION DEFAULT NULL,
+    p_address TEXT DEFAULT NULL,
+    p_speed DOUBLE PRECISION DEFAULT 0.0,
+    p_battery INTEGER DEFAULT NULL
+)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE public.profiles
+    SET 
+        is_online = p_is_online,
+        last_seen_at = NOW(),
+        current_lat = COALESCE(p_lat, current_lat),
+        current_lng = COALESCE(p_lng, current_lng),
+        current_address = COALESCE(p_address, current_address),
+        current_speed = COALESCE(p_speed, current_speed),
+        battery_level = COALESCE(p_battery, battery_level),
+        updated_at = NOW()
+    WHERE id = auth.uid();
+
+    -- Also record into location_logs if online and coordinates are provided
+    IF p_is_online AND p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
+        INSERT INTO public.location_logs (
+            staff_id,
+            lat,
+            lng,
+            speed,
+            battery_level
+        ) VALUES (
+            auth.uid(),
+            p_lat,
+            p_lng,
+            p_speed,
+            p_battery
+        );
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ==============================================================================
 -- 11. Row Level Security (RLS) Policies
