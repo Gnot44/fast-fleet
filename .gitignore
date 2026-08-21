@@ -47,3 +47,8 @@ Desktop.ini
 .system_generated/
 scratch/
 temp/
+
+# Internal Developer API Docs
+*API_Documentation.md
+*api_doc*
+
