@@ -225,6 +225,8 @@ export default function TripScheduleScreen({ navigation }: any) {
               meetingMinutes: a.meeting_notes || '',
               photos: apptPhotos,
               expenses: apptExpsFinal,
+              odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
+              odometer_reading: a.odometer_reading,
             };
           });
 

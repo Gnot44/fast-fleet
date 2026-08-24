@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     driving_license_no TEXT,
     driving_license_type TEXT,
     driving_license_expiry DATE,
+    is_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    user_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

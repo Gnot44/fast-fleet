@@ -314,11 +314,27 @@ export type Database = {
           id: string
           nickname: string | null
           phone: string | null
+          position: string | null
           push_token: string | null
           role: string
           status: string
           timezone: string | null
           two_factor_enabled: boolean | null
+          is_online: boolean | null
+          last_seen_at: string | null
+          current_lat: number | null
+          current_lng: number | null
+          current_address: string | null
+          current_speed: number | null
+          battery_level: number | null
+          assigned_vehicle: string | null
+          assigned_vehicle_plate: string | null
+          assigned_vehicle_model: string | null
+          driving_license_no: string | null
+          driving_license_type: string | null
+          driving_license_expiry: string | null
+          is_tracking_enabled: boolean
+          user_tracking_enabled: boolean
           updated_at: string
         }
         Insert: {
@@ -331,11 +347,27 @@ export type Database = {
           id: string
           nickname?: string | null
           phone?: string | null
+          position?: string | null
           push_token?: string | null
           role?: string
           status?: string
           timezone?: string | null
           two_factor_enabled?: boolean | null
+          is_online?: boolean | null
+          last_seen_at?: string | null
+          current_lat?: number | null
+          current_lng?: number | null
+          current_address?: string | null
+          current_speed?: number | null
+          battery_level?: number | null
+          assigned_vehicle?: string | null
+          assigned_vehicle_plate?: string | null
+          assigned_vehicle_model?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
+          driving_license_expiry?: string | null
+          is_tracking_enabled?: boolean
+          user_tracking_enabled?: boolean
           updated_at?: string
         }
         Update: {
@@ -348,11 +380,27 @@ export type Database = {
           id?: string
           nickname?: string | null
           phone?: string | null
+          position?: string | null
           push_token?: string | null
           role?: string
           status?: string
           timezone?: string | null
           two_factor_enabled?: boolean | null
+          is_online?: boolean | null
+          last_seen_at?: string | null
+          current_lat?: number | null
+          current_lng?: number | null
+          current_address?: string | null
+          current_speed?: number | null
+          battery_level?: number | null
+          assigned_vehicle?: string | null
+          assigned_vehicle_plate?: string | null
+          assigned_vehicle_model?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
+          driving_license_expiry?: string | null
+          is_tracking_enabled?: boolean
+          user_tracking_enabled?: boolean
           updated_at?: string
         }
         Relationships: []

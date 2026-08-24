@@ -126,7 +126,7 @@ function MapFocusController({
 }
 
 export default function Dashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [motionFilter, setMotionFilter] = useState<'all' | 'online' | 'moving' | 'stationary' | 'offline'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -642,17 +642,17 @@ export default function Dashboard() {
     <div className="w-full space-y-4">
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 animate-fade-in text-xs font-medium">
+        <div className="fixed top-20 right-6 z-50 bg-slate-900/95 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 backdrop-blur-md animate-fade-in text-xs font-semibold">
           <span className="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
           {toastMessage}
         </div>
       )}
 
       {/* Top Header & Motion Filter Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 shadow-xs">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 lg:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="font-bold text-lg text-on-surface tracking-tight">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            <h1 className="font-extrabold text-lg sm:text-xl lg:text-2xl text-slate-900 dark:text-white tracking-tight leading-none">
               {t('live_title')}
             </h1>
             <button
@@ -661,36 +661,36 @@ export default function Dashboard() {
                 setCountdown(60);
                 showToast('🔄 อัปเดตพิกัดสดล่าสุดเรียบร้อยแล้ว');
               }}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/60 dark:border-slate-700/60 transition-all tactile-btn cursor-pointer shrink-0"
               title="คลิกเพื่อรีเฟรชพิกัดสดทันที"
             >
-              <span className="material-symbols-outlined text-[13px]">sync</span>
-              <span>รีเฟรชใน {countdown}s</span>
+              <span className="material-symbols-outlined text-[15px] text-blue-600 dark:text-blue-400">sync</span>
+              <span className="font-mono text-[11px] tnum">{language === 'th' ? `รีเฟรชใน ${countdown}s` : `Auto-sync in ${countdown}s`}</span>
             </button>
           </div>
-          <p className="text-on-surface-variant text-xs mt-0.5">
+          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 font-normal">
             {t('live_subtitle')}
           </p>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-xl border border-outline-variant/50 flex-wrap">
+        {/* Filter Quick Switcher Pills (Touch scrollable on mobile/tablet) */}
+        <div className="w-full md:w-auto flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 overflow-x-auto scrollbar-hide">
           {(
             [
-              { key: 'all', label: `ทั้งหมด (${specialists.length})` },
-              { key: 'online', label: `🟢 ออนไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOnline).length})` },
-              { key: 'moving', label: `กำลังเดินทาง (${specialists.filter((s) => getDerivedStatus(s).isMoving).length})` },
-              { key: 'stationary', label: `จอด/Standby (${specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length})` },
-              { key: 'offline', label: `⚫ ออฟไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOffline || getDerivedStatus(s).isSignalLost).length})` },
+              { key: 'all', label: language === 'th' ? `ทั้งหมด (${specialists.length})` : `All (${specialists.length})` },
+              { key: 'online', label: language === 'th' ? `ออนไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOnline).length})` : `Online (${specialists.filter((s) => getDerivedStatus(s).isOnline).length})` },
+              { key: 'moving', label: language === 'th' ? `กำลังเดินทาง (${specialists.filter((s) => getDerivedStatus(s).isMoving).length})` : `Moving (${specialists.filter((s) => getDerivedStatus(s).isMoving).length})` },
+              { key: 'stationary', label: language === 'th' ? `จอด/Standby (${specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length})` : `Standby (${specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length})` },
+              { key: 'offline', label: language === 'th' ? `ออฟไลน์ (${specialists.filter((s) => getDerivedStatus(s).isOffline || getDerivedStatus(s).isSignalLost).length})` : `Offline (${specialists.filter((s) => getDerivedStatus(s).isOffline || getDerivedStatus(s).isSignalLost).length})` },
             ] as const
           ).map((item) => (
             <button
               key={item.key}
               onClick={() => setMotionFilter(item.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 tactile-btn cursor-pointer ${
                 motionFilter === item.key
-                  ? 'bg-primary text-white shadow-xs'
-                  : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/80 dark:hover:bg-slate-700/60'
               }`}
             >
               {item.label}
@@ -699,16 +699,154 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Split Layout: Leaflet Map (7 Cols) + Clean Specialists Cards (5 Cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[720px]">
+      {/* 4 Soft Tinted Minimalist Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* 1. Online Specialists - Soft Emerald Tint */}
+        <div
+          onClick={() => setMotionFilter('online')}
+          className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-emerald ${
+            motionFilter === 'online'
+              ? 'ring-2 ring-emerald-500/40 border-emerald-400 dark:border-emerald-600 shadow-xs'
+              : 'hover:border-emerald-300 dark:hover:border-emerald-700'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
+              {language === 'th' ? 'พนักงานออนไลน์' : 'Online Specialists'}
+            </span>
+            <div className="w-9 h-9 rounded-2xl bg-white dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200/70 dark:border-emerald-800/70 shrink-0">
+              <span className="material-symbols-outlined text-[19px]">radar</span>
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-emerald-950 dark:text-emerald-100 font-mono tnum tracking-tight">
+              {specialists.filter((s) => getDerivedStatus(s).isOnline).length}
+            </span>
+            <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80 font-medium tnum">
+              / {specialists.length} {language === 'th' ? 'คน' : 'staff'}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-emerald-700/80 dark:text-emerald-400/80 font-medium flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>{language === 'th' ? 'ส่งพิกัดสดเข้าสู่ระบบ' : 'Live GPS signal connected'}</span>
+          </div>
+        </div>
+
+        {/* 2. Moving En Route - Soft Blue Tint */}
+        <div
+          onClick={() => setMotionFilter('moving')}
+          className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-blue ${
+            motionFilter === 'moving'
+              ? 'ring-2 ring-blue-500/40 border-blue-400 dark:border-blue-600 shadow-xs'
+              : 'hover:border-blue-300 dark:hover:border-blue-700'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">
+              {language === 'th' ? 'กำลังเดินทาง' : 'En Route / Moving'}
+            </span>
+            <div className="w-9 h-9 rounded-2xl bg-white dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-200/70 dark:border-blue-800/70 shrink-0">
+              <span className="material-symbols-outlined text-[19px]">directions_car</span>
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-blue-950 dark:text-blue-100 font-mono tnum tracking-tight">
+              {specialists.filter((s) => getDerivedStatus(s).isMoving).length}
+            </span>
+            <span className="text-xs text-blue-700/80 dark:text-blue-400/80 font-medium">
+              {language === 'th' ? 'คันบนถนน' : 'active en route'}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-blue-700/80 dark:text-blue-400/80 font-medium flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+            <span>{language === 'th' ? 'ความเร็ว > 4.0 กม./ชม.' : 'Speed > 4.0 km/h'}</span>
+          </div>
+        </div>
+
+        {/* 3. Standby / Stationary - Soft Amber Tint */}
+        <div
+          onClick={() => setMotionFilter('stationary')}
+          className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-amber ${
+            motionFilter === 'stationary'
+              ? 'ring-2 ring-amber-500/40 border-amber-400 dark:border-amber-600 shadow-xs'
+              : 'hover:border-amber-300 dark:hover:border-amber-700'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+              {language === 'th' ? 'จอดเข้าพบ / Standby' : 'Stationary / Standby'}
+            </span>
+            <div className="w-9 h-9 rounded-2xl bg-white dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-200/70 dark:border-amber-800/70 shrink-0">
+              <span className="material-symbols-outlined text-[19px]">local_parking</span>
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-amber-950 dark:text-amber-100 font-mono tnum tracking-tight">
+              {specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length}
+            </span>
+            <span className="text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">
+              {language === 'th' ? 'จุดลูกค้า' : 'on-site / parked'}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-400/80 font-medium flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+            <span>{language === 'th' ? 'จอดหน้างาน / พบลูกค้า' : 'Stationary at client site'}</span>
+          </div>
+        </div>
+
+        {/* 4. Drop Visits Progress - Soft Purple Tint */}
+        <div
+          onClick={() => setMotionFilter('all')}
+          className="p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-purple hover:border-purple-300 dark:hover:border-purple-700"
+        >
+          {(() => {
+            const allDrops = specialists.flatMap((s) => s.drops);
+            const totalDrops = allDrops.length;
+            const completedDrops = allDrops.filter((d) => d.isClosed).length;
+            const activeTripsCount = specialists.filter((s) => s.hasActiveTrip).length;
+
+            return (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 uppercase tracking-wider">
+                    {language === 'th' ? 'ความคืบหน้าการเข้าพบ' : 'Drop Visits Progress'}
+                  </span>
+                  <div className="w-9 h-9 rounded-2xl bg-white dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-200/70 dark:border-purple-800/70 shrink-0">
+                    <span className="material-symbols-outlined text-[19px]">task_alt</span>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-purple-950 dark:text-purple-100 font-mono tnum tracking-tight">
+                    {completedDrops}
+                  </span>
+                  <span className="text-xs text-purple-700/80 dark:text-purple-400/80 font-medium tnum">
+                    / {totalDrops > 0 ? totalDrops : 0} {language === 'th' ? 'จุดเสร็จสิ้น' : 'drops closed'}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-purple-700/80 dark:text-purple-400/80 font-medium flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                  <span>
+                    {language === 'th' ? `${activeTripsCount} ทริปกำลังดำเนินงาน` : `${activeTripsCount} active trips running`}
+                  </span>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* Main Split Layout: Interactive Map Canvas (7 Cols) + Specialists Telemetry Cards (5 Cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:h-[720px]">
         {/* Left 7 Cols: Interactive Map Canvas */}
-        <div className="lg:col-span-7 bg-surface-container-lowest rounded-2xl border border-outline-variant/60 overflow-hidden shadow-xs flex flex-col relative h-full">
-          {/* Clean Map Sub-Header & Focus Controller Bar */}
-          <div className="px-4 py-2 bg-white/95 backdrop-blur-xs border-b border-outline-variant/50 flex items-center justify-between gap-2 z-10">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-[18px]">
-                {soloId || selectedSpecialist ? 'filter_center_focus' : 'location_on'}
-              </span>
+        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden flex flex-col relative h-[420px] sm:h-[500px] lg:h-full">
+          {/* Glass HUD Focus Controller Bar */}
+          <div className="px-4 sm:px-5 py-3 glass-hud border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2 z-10">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-200/60 dark:border-blue-800/60 shrink-0">
+                <span className="material-symbols-outlined text-[18px]">
+                  {soloId || selectedSpecialist ? 'filter_center_focus' : 'map'}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
@@ -716,10 +854,10 @@ export default function Dashboard() {
                     setSoloId(null);
                     showToast(t('live_show_all'));
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 tactile-btn cursor-pointer ${
                     !selectedId && !soloId
-                      ? 'bg-primary text-white shadow-2xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[14px]">public</span>
@@ -727,10 +865,10 @@ export default function Dashboard() {
                 </button>
 
                 {(selectedSpecialist || soloSpecialist) && (
-                  <span className="text-xs font-bold text-slate-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-                    <span>
-                      {soloId ? 'Solo Focus' : 'โฟกัส'}: {(soloSpecialist || selectedSpecialist)?.name} ({(soloSpecialist || selectedSpecialist)?.nickname})
+                  <span className="text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50/90 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800/70 px-3 py-1 rounded-xl flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                    <span className="truncate max-w-[150px] sm:max-w-[220px]">
+                      {soloId ? 'Solo Focus' : 'โฟกัส'}: {(soloSpecialist || selectedSpecialist)?.name}
                     </span>
                   </span>
                 )}
@@ -745,7 +883,7 @@ export default function Dashboard() {
                   setSelectedId(null);
                   showToast(t('live_show_all'));
                 }}
-                className="text-[11px] font-bold text-primary hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 transition-all flex items-center gap-1 cursor-pointer"
+                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-800 transition-all flex items-center gap-1 tactile-btn cursor-pointer"
                 title="กลับสู่มุมมองภาพรวมพนักงานทั้งหมด"
               >
                 <span className="material-symbols-outlined text-[14px]">zoom_out_map</span>
@@ -772,7 +910,7 @@ export default function Dashboard() {
                 specialists={specialists}
               />
 
-              {/* Draw Route Polyline from Specialist Position -> Drop 1 -> Drop 2 -> Drop 3 */}
+              {/* Route Polyline */}
               {selectedSpecialist && selectedSpecialist.hasActiveTrip && selectedSpecialist.drops.length > 0 && (
                 <Polyline
                   positions={[
@@ -786,7 +924,7 @@ export default function Dashboard() {
                 />
               )}
 
-              {/* Draw Drop Pins only if the specialist has an active in-progress trip */}
+              {/* Drop Pins */}
               {(soloId ? soloSpecialist : selectedSpecialist)?.hasActiveTrip &&
                 (soloId ? soloSpecialist?.drops : selectedSpecialist?.drops)?.map((drop) => {
                 const nextUnclosed = (soloId ? soloSpecialist : selectedSpecialist)?.drops.find((d) => !d.isClosed);
@@ -800,7 +938,7 @@ export default function Dashboard() {
                   >
                     <Popup>
                       <div className="p-1 space-y-1.5 font-sans text-xs min-w-[210px]">
-                        <div className="font-bold text-slate-900 flex items-center justify-between gap-2">
+                        <div className="font-bold text-slate-900 dark:text-white flex items-center justify-between gap-2">
                           <span className="text-[13px]">Drop #{drop.dropNumber}: {drop.clientName}</span>
                           <span
                             className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
@@ -814,21 +952,21 @@ export default function Dashboard() {
                             {drop.isClosed ? '✓ เสร็จแล้ว' : isNext ? 'กำลังเข้าพบ' : 'รอคิว'}
                           </span>
                         </div>
-                        <div className="text-slate-600 text-[11px] leading-tight">
+                        <div className="text-slate-600 dark:text-slate-300 text-[11px] leading-tight">
                           📍 {drop.address}
                         </div>
-                        <div className="text-blue-700 font-medium text-[11px]">
+                        <div className="text-blue-700 dark:text-blue-400 font-medium text-[11px]">
                           📋 {drop.agenda}
                         </div>
-                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <span className="text-[10px] text-slate-400 font-mono">
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono tnum">
                             {drop.lat.toFixed(5)}, {drop.lng.toFixed(5)}
                           </span>
                           <a
                             href={`https://www.google.com/maps/search/?api=1&query=${drop.lat},${drop.lng}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 hover:border-blue-300 transition-all shadow-2xs"
+                            className="inline-flex items-center gap-1 bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 text-slate-700 dark:text-slate-300 hover:text-blue-700 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 dark:border-slate-700 transition-all tactile-btn"
                             title="เปิดใน Google Maps"
                           >
                             <span className="material-symbols-outlined text-[13px] text-blue-600">map</span>
@@ -842,7 +980,7 @@ export default function Dashboard() {
                 );
               })}
 
-              {/* Live Specialist Vehicle / Presence Marker */}
+              {/* Live Specialist Markers */}
               {mapVisibleSpecialists.map((spec) => (
                 <Marker
                   key={spec.id}
@@ -854,13 +992,13 @@ export default function Dashboard() {
                 >
                   <Popup>
                     <div className="p-1 space-y-1 font-sans text-xs">
-                      <div className="font-bold text-slate-900 text-sm">{spec.name} ({spec.nickname})</div>
-                      <div className={getDerivedStatus(spec).isOnline ? 'text-emerald-700 font-semibold' : getDerivedStatus(spec).isSignalLost ? 'text-amber-700 font-semibold' : 'text-slate-600 font-semibold'}>
+                      <div className="font-bold text-slate-900 dark:text-white text-sm">{spec.name} ({spec.nickname})</div>
+                      <div className={getDerivedStatus(spec).isOnline ? 'text-emerald-600 font-semibold' : 'text-slate-400 font-semibold'}>
                         {getDerivedStatus(spec).label}
                       </div>
-                      <div className="text-blue-700 font-semibold">{spec.tripTitle} ({spec.tripCode})</div>
-                      <div className="text-slate-600 text-[11px]">📍 พิกัดปัจจุบัน: {spec.telemetry.currentAddress}</div>
-                      <div className="text-slate-500 text-[11px] py-1 border-y border-slate-200 flex justify-between">
+                      <div className="text-blue-600 font-semibold">{spec.tripTitle} ({spec.tripCode})</div>
+                      <div className="text-slate-600 dark:text-slate-300 text-[11px]">📍 พิกัด: {spec.telemetry.currentAddress}</div>
+                      <div className="text-slate-500 text-[11px] py-1 border-y border-slate-200 dark:border-slate-700 flex justify-between font-mono tnum">
                         <span>ความเร็ว: <strong>{spec.telemetry.speedText}</strong></span>
                         <span>แบตเตอรี่: <strong>{spec.telemetry.batteryPercent}%</strong></span>
                       </div>
@@ -869,7 +1007,7 @@ export default function Dashboard() {
                           href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 hover:border-blue-300 transition-all"
+                          className="inline-flex items-center gap-1 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10.5px] px-2 py-0.8 rounded-md border border-slate-200 dark:border-slate-700 transition-all tactile-btn"
                           title="เปิดพิกัดสดบน Google Maps"
                         >
                           <span className="material-symbols-outlined text-[13px] text-blue-600">map</span>
@@ -884,25 +1022,25 @@ export default function Dashboard() {
             </MapContainer>
 
             {/* Map Legend Overlay */}
-            <div className="absolute bottom-3 left-3 z-[400] bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm text-[11px] flex items-center gap-3">
-              <span className="flex items-center gap-1 font-medium text-slate-700">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span> ออนไลน์ (Live)
+            <div className="absolute bottom-3 left-3 z-[400] glass-hud px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 shadow-md text-[11px] flex items-center gap-3">
+              <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> ออนไลน์
               </span>
-              <span className="flex items-center gap-1 font-medium text-slate-700">
-                <span className="w-2 h-2 rounded-full bg-blue-600"></span> กำลังเดินทาง
+              <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-blue-600"></span> เดินทาง
               </span>
-              <span className="flex items-center gap-1 font-medium text-slate-700">
+              <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
                 <span className="w-2 h-2 rounded-full bg-slate-400"></span> ออฟไลน์
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right 5 Cols: Modern Compact Specialists List */}
-        <div className="lg:col-span-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/60 p-4 shadow-xs flex flex-col h-full overflow-hidden">
+        {/* Right 5 Cols: Specialist Telemetry Cards */}
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-4 sm:p-5 flex flex-col h-[540px] lg:h-full overflow-hidden">
           {/* Search Box */}
-          <div className="relative mb-3">
-            <span className="material-symbols-outlined absolute left-3 top-2 text-on-surface-variant text-[16px]">
+          <div className="relative mb-3.5">
+            <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-slate-400 dark:text-slate-500 text-[18px]">
               search
             </span>
             <input
@@ -910,14 +1048,14 @@ export default function Dashboard() {
               placeholder={t('header_search_placeholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-surface-container-low pl-8 pr-3 py-1.5 rounded-xl text-xs text-on-surface border border-outline-variant/60 focus:outline-none focus:border-primary"
+              className="w-full bg-slate-50/90 dark:bg-slate-800/60 pl-10 pr-3.5 py-2.5 rounded-2xl text-xs text-slate-900 dark:text-white border border-slate-200/80 dark:border-slate-700/70 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium placeholder:text-slate-400"
             />
           </div>
 
           {/* Cards List */}
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
             {filteredSpecialists.length === 0 ? (
-              <div className="text-center py-12 text-on-surface-variant text-xs">
+              <div className="text-center py-16 text-slate-400 text-xs">
                 {loading ? 'กำลังโหลดข้อมูลพนักงานภาคสนาม...' : 'ไม่พบข้อมูลพนักงานตามเงื่อนไขที่ค้นหา'}
               </div>
             ) : (
@@ -934,35 +1072,40 @@ export default function Dashboard() {
                   <div
                     key={spec.id}
                     onClick={() => setSelectedId(spec.id)}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2.5 ${
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer space-y-3 ${
                       isSolo
-                        ? 'bg-blue-50/90 border-blue-600 shadow-sm ring-1.5 ring-blue-500'
+                        ? 'soft-tint-blue ring-2 ring-blue-500/50 border-blue-400 dark:border-blue-600 shadow-xs'
                         : isSelected
-                        ? 'bg-blue-50/50 border-primary/80 shadow-xs'
-                        : 'bg-surface-container-low/30 hover:bg-surface-container-low/80 border-outline-variant/50'
+                        ? 'bg-slate-50/90 dark:bg-slate-800/80 border-blue-400/80 dark:border-blue-600/80'
+                        : 'bg-white dark:bg-slate-900/80 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 border-slate-200/80 dark:border-slate-800/80'
                     }`}
                   >
-                    {/* Top Bar: Profile + Solo Map Button + Status Badge */}
+                    {/* Profile Header & Solo Toggle */}
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <img
-                          src={spec.avatar}
-                          alt={spec.name}
-                          className="w-8 h-8 rounded-full object-cover shrink-0 border border-blue-200"
-                        />
-                        <div className="min-w-0">
-                          <div className="font-bold text-xs text-on-surface truncate flex items-center gap-1.5">
-                            <span className="truncate">{spec.name}</span>
-                            <span className="text-on-surface-variant font-normal">({spec.nickname})</span>
+                      <div className="flex items-center gap-3 min-w-0">
+                        {spec.avatar ? (
+                          <img
+                            src={spec.avatar}
+                            alt={spec.name}
+                            className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200 dark:border-slate-700"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-bold text-xs flex items-center justify-center border border-blue-200 dark:border-blue-800 shrink-0">
+                            {spec.initials}
                           </div>
-                          <div className="text-[10px] text-on-surface-variant truncate">
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+                            <span className="truncate">{spec.name}</span>
+                            <span className="text-slate-400 font-normal text-xs">({spec.nickname})</span>
+                          </div>
+                          <div className="text-[10.5px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
                             {spec.territory} • {spec.vehiclePlate}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Compact Solo Focus Toggle Button */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -975,10 +1118,10 @@ export default function Dashboard() {
                               showToast(`${t('live_focus_single')}: ${spec.nickname}`);
                             }
                           }}
-                          className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 ${
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 tactile-btn cursor-pointer ${
                             isSolo
                               ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-white hover:bg-blue-50 text-primary border border-primary/30'
+                              : 'bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                           }`}
                           title={isSolo ? t('live_show_all') : t('live_focus_single')}
                         >
@@ -988,7 +1131,6 @@ export default function Dashboard() {
                           {isSolo ? 'Solo Map' : 'Solo'}
                         </button>
 
-                        {/* Status Tag */}
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${derivedStatus.badgeClass}`}>
                           {derivedStatus.label}
                         </span>
@@ -996,65 +1138,65 @@ export default function Dashboard() {
                     </div>
 
                     {/* Active Trip Strip */}
-                    <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-surface-container-lowest rounded-xl border border-outline-variant/40">
-                      <span className="font-bold text-primary truncate max-w-[200px]">
+                    <div className="flex items-center justify-between text-[11px] px-3 py-2 bg-slate-50/80 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                      <span className="font-bold text-blue-600 dark:text-blue-400 truncate max-w-[200px]">
                         {spec.tripTitle}
                       </span>
-                      <span className="text-[10px] font-semibold text-slate-700 shrink-0">
-                        {spec.hasActiveTrip ? `${totalDropsCount} Drops (${closedCount}/${totalDropsCount})` : 'Standby / ไม่มีทริป'}
+                      <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0 font-mono tnum">
+                        {spec.hasActiveTrip ? `${totalDropsCount} Drops (${closedCount}/${totalDropsCount})` : 'Standby'}
                       </span>
                     </div>
 
-                    {/* Live Location & Telemetry (Speed, Battery, Google Maps Link) */}
-                    <div className="bg-white p-2 rounded-xl border border-slate-200/80 space-y-1">
+                    {/* Live Telemetry Info Bar */}
+                    <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/70 dark:border-slate-700/60 space-y-2">
                       <div className="flex items-center justify-between text-[11px] gap-1">
-                        <div className="flex items-center gap-1 text-slate-800 truncate min-w-0">
-                          <span className="material-symbols-outlined text-[14px] text-primary shrink-0">my_location</span>
-                          <span className="truncate"><strong>{t('live_current_location')}</strong> {spec.telemetry.currentAddress}</span>
+                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 truncate min-w-0">
+                          <span className="material-symbols-outlined text-[15px] text-blue-600 dark:text-blue-400 shrink-0">my_location</span>
+                          <span className="truncate text-slate-600 dark:text-slate-300 font-medium">
+                            {spec.telemetry.currentAddress}
+                          </span>
                         </div>
 
-                        {/* Google Maps External Link (Icon Only) */}
                         {spec.telemetry.hasGpsFix ? (
                           <a
                             href={`https://www.google.com/maps/search/?api=1&query=${spec.telemetry.lat},${spec.telemetry.lng}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 border border-slate-200/80 hover:border-blue-300 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                            className="w-6 h-6 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-slate-500 hover:text-blue-600 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition-all shrink-0 tactile-btn shadow-2xs"
                             title={t('live_open_google_maps')}
                           >
                             <span className="material-symbols-outlined text-[13px]">map</span>
                           </a>
                         ) : (
-                          <span className="text-[10px] text-slate-400 font-medium shrink-0 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-medium shrink-0 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
                             รอพิกัด
                           </span>
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-100 text-slate-600">
-                        <span>{t('live_speed')} <strong className="text-blue-700">{spec.telemetry.speedText}</strong></span>
+                      <div className="flex items-center justify-between text-[10.5px] pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 font-mono tnum">
+                        <span>Speed: <strong className="text-blue-600 dark:text-blue-400">{spec.telemetry.speedText}</strong></span>
                         {spec.telemetry.batteryPercent !== null ? (
-                          <span className="flex items-center gap-0.5 font-bold text-emerald-700">
-                            <span className="material-symbols-outlined text-[11px]">
+                          <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
+                            <span className="material-symbols-outlined text-[13px]">
                               {spec.telemetry.isCharging ? 'battery_charging_full' : 'battery_full'}
                             </span>
                             {spec.telemetry.batteryPercent}% ({spec.telemetry.lastPing})
                           </span>
                         ) : (
-                          <span className="text-slate-500 font-medium">
+                          <span className="text-slate-400">
                             ({spec.telemetry.lastPing})
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Collapsible Drop Sequence & Minimalist Icon-Only Maps Link */}
+                    {/* Collapsible Drop Sequence */}
                     {spec.hasActiveTrip && spec.drops.length > 0 && (() => {
                       const isExpanded = !!expandedDrops[spec.id];
                       return (
-                        <div className="space-y-1 text-xs pt-1 border-t border-slate-200/60">
-                          {/* Collapsible Header Accordion */}
+                        <div className="space-y-1.5 text-xs pt-1 border-t border-slate-200/60 dark:border-slate-800/80">
                           <div
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1063,18 +1205,18 @@ export default function Dashboard() {
                                 [spec.id]: !prev[spec.id],
                               }));
                             }}
-                            className="flex items-center justify-between text-[11px] font-bold text-slate-700 cursor-pointer hover:text-primary transition-colors py-0.5 select-none"
+                            className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:text-blue-600 transition-colors py-0.5 select-none"
                           >
-                            <div className="flex items-center gap-1 min-w-0">
-                              <span className="material-symbols-outlined text-[13px] text-primary shrink-0">route</span>
-                              <span className="shrink-0">จุดนัดหมาย ({spec.drops.length} จุด)</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="material-symbols-outlined text-[14px] text-blue-600 dark:text-blue-400 shrink-0">route</span>
+                              <span className="shrink-0">แผนจุดนัด ({spec.drops.length} จุด)</span>
                               {!isExpanded && nextDrop && (
-                                <span className="text-[10px] font-normal text-blue-600 ml-1 truncate max-w-[130px]">
+                                <span className="text-[10px] font-normal text-blue-600 dark:text-blue-400 ml-1 truncate max-w-[130px]">
                                   • ถัดไป: #{nextDrop.dropNumber} {nextDrop.clientName}
                                 </span>
                               )}
                             </div>
-                            <span className="flex items-center gap-0.5 text-[10px] text-slate-500 font-medium bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md border border-slate-200/70 shrink-0 transition-all">
+                            <span className="flex items-center gap-0.5 text-[10px] text-slate-500 font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2 py-0.5 rounded-lg border border-slate-200/70 dark:border-slate-700/70 shrink-0 transition-all">
                               <span>{isExpanded ? 'ย่อ' : 'ขยาย'}</span>
                               <span className={`material-symbols-outlined text-[14px] transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
                                 expand_more
@@ -1082,23 +1224,22 @@ export default function Dashboard() {
                             </span>
                           </div>
 
-                          {/* Expanded Drop List (Only shown when expanded) */}
                           {isExpanded && (
-                            <div className="space-y-1 pt-1 animate-fade-in">
+                            <div className="space-y-1.5 pt-1">
                               {spec.drops.map((d) => {
                                 const isCurrentNext = nextDrop?.dropNumber === d.dropNumber;
                                 return (
                                   <div
                                     key={d.dropNumber}
-                                    className={`flex items-center justify-between gap-2 p-1.5 rounded-xl border text-[11px] transition-all ${
+                                    className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-[11px] transition-all ${
                                       d.isClosed
-                                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
                                         : isCurrentNext
-                                        ? 'bg-blue-50/90 border-blue-300 text-blue-900 font-semibold ring-1 ring-blue-400/40 shadow-2xs'
-                                        : 'bg-white/80 border-slate-200/80 text-slate-700'
+                                        ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 font-semibold shadow-2xs'
+                                        : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-300'
                                     }`}
                                   >
-                                    <div className="flex items-center gap-1.5 truncate min-w-0">
+                                    <div className="flex items-center gap-2 truncate min-w-0">
                                       <span
                                         className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black shrink-0 ${
                                           d.isClosed
@@ -1123,13 +1264,12 @@ export default function Dashboard() {
                                       </div>
                                     </div>
 
-                                    {/* Icon-Only Google Maps Link Button */}
                                     <a
                                       href={`https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       onClick={(e) => e.stopPropagation()}
-                                      className="w-5 h-5 rounded-md bg-white hover:bg-blue-50 text-slate-400 hover:text-blue-600 border border-slate-200 hover:border-blue-300 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                                      className="w-5 h-5 rounded-md bg-white dark:bg-slate-700 hover:bg-blue-50 text-slate-400 hover:text-blue-600 border border-slate-200 dark:border-slate-600 flex items-center justify-center transition-all shrink-0 tactile-btn"
                                       title={`เปิด Google Maps: ${d.clientName}`}
                                     >
                                       <span className="material-symbols-outlined text-[13px]">map</span>

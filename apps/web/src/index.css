@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-surface-container-high: #dce9ff;
   --color-status-running: #10B981;
@@ -9,7 +11,7 @@
   --color-surface-variant: #d3e4fe;
   --color-on-surface: #0b1c30;
   --color-primary-fixed: #dbe1ff;
-  --color-surface: #f8f9ff;
+  --color-surface: #ffffff;
   --color-on-surface-variant: #434655;
   --color-on-tertiary: #ffffff;
   --color-on-tertiary-container: #ffede6;
@@ -32,23 +34,23 @@
   --color-error-container: #ffdad6;
   --color-status-idle: #F59E0B;
   --color-surface-container-lowest: #ffffff;
-  --color-background: #f8f9ff;
-  --color-surface-container: #e5eeff;
+  --color-background: #ffffff;
+  --color-surface-container: #f1f5f9;
   --color-tertiary-fixed: #ffdbcd;
   --color-on-secondary-container: #fffbff;
   --color-primary-container: #2563eb;
-  --color-surface-dim: #cbdbf5;
+  --color-surface-dim: #f8fafc;
   --color-status-offline: #94A3B8;
   --color-on-error-container: #93000a;
-  --color-surface-container-low: #eff4ff;
+  --color-surface-container-low: #f8fafc;
   --color-on-tertiary-fixed-variant: #7d2d00;
   --color-secondary-container: #8a4cfc;
   --color-error: #ba1a1a;
   --color-outline-variant: #c3c6d7;
-  --color-surface-bg: #F4F5F7;
+  --color-surface-bg: #ffffff;
   --color-secondary-fixed-dim: #d2bbff;
   --color-on-error: #ffffff;
-  --color-surface-bright: #f8f9ff;
+  --color-surface-bright: #ffffff;
   --color-on-primary-fixed: #00174b;
   --color-tertiary-container: #bc4800;
   --color-on-primary: #ffffff;
@@ -64,15 +66,16 @@
   --spacing-sidebar-expanded: 240px;
   --spacing-sidebar-collapsed: 72px;
 
-  --font-headline-xl: Prompt;
-  --font-label-sm: Inter;
-  --font-headline-lg-mobile: Prompt;
-  --font-kpi-value: Prompt;
-  --font-body-md: Inter;
-  --font-headline-md: Prompt;
-  --font-body-lg: Inter;
-  --font-headline-lg: Prompt;
-  --font-label-md: Inter;
+  --font-sans: 'Inter', 'Prompt', 'Noto Sans Thai', 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-headline-xl: 'Prompt', 'Inter', sans-serif;
+  --font-label-sm: 'Inter', 'Noto Sans Thai', sans-serif;
+  --font-headline-lg-mobile: 'Prompt', 'Inter', sans-serif;
+  --font-kpi-value: 'Inter', 'Prompt', monospace;
+  --font-body-md: 'Inter', 'Prompt', 'Noto Sans Thai', sans-serif;
+  --font-headline-md: 'Prompt', 'Inter', sans-serif;
+  --font-body-lg: 'Inter', 'Prompt', 'Noto Sans Thai', sans-serif;
+  --font-headline-lg: 'Prompt', 'Inter', sans-serif;
+  --font-label-md: 'Inter', 'Noto Sans Thai', sans-serif;
 
   /* Custom text sizes with line-heights */
   --text-headline-xl: 24px;
@@ -115,7 +118,69 @@
 }
 
 body {
-  @apply bg-background font-body-md text-on-surface antialiased overflow-hidden;
+  @apply bg-white dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased overflow-hidden;
+  background-color: #ffffff;
+  font-family: var(--font-sans);
+}
+
+.tnum, .tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv02" 1, "cv03" 1, "cv04" 1;
+}
+
+/* Soft Tinted Card Styles */
+.soft-tint-blue {
+  background-color: rgba(239, 246, 255, 0.65);
+  border: 1px solid rgba(219, 234, 254, 0.85);
+}
+.dark .soft-tint-blue {
+  background-color: rgba(30, 58, 138, 0.18);
+  border: 1px solid rgba(30, 58, 138, 0.45);
+}
+
+.soft-tint-emerald {
+  background-color: rgba(236, 253, 245, 0.65);
+  border: 1px solid rgba(209, 250, 229, 0.85);
+}
+.dark .soft-tint-emerald {
+  background-color: rgba(6, 78, 59, 0.18);
+  border: 1px solid rgba(6, 78, 59, 0.45);
+}
+
+.soft-tint-amber {
+  background-color: rgba(254, 252, 232, 0.65);
+  border: 1px solid rgba(254, 240, 138, 0.85);
+}
+.dark .soft-tint-amber {
+  background-color: rgba(120, 53, 15, 0.18);
+  border: 1px solid rgba(120, 53, 15, 0.45);
+}
+
+.soft-tint-purple {
+  background-color: rgba(250, 245, 255, 0.65);
+  border: 1px solid rgba(233, 213, 255, 0.85);
+}
+.dark .soft-tint-purple {
+  background-color: rgba(88, 28, 135, 0.18);
+  border: 1px solid rgba(88, 28, 135, 0.45);
+}
+
+.soft-tint-rose {
+  background-color: rgba(255, 241, 242, 0.65);
+  border: 1px solid rgba(254, 205, 211, 0.85);
+}
+.dark .soft-tint-rose {
+  background-color: rgba(136, 19, 55, 0.18);
+  border: 1px solid rgba(136, 19, 55, 0.45);
+}
+
+.soft-tint-slate {
+  background-color: rgba(248, 250, 252, 0.75);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+}
+.dark .soft-tint-slate {
+  background-color: rgba(30, 41, 59, 0.28);
+  border: 1px solid rgba(51, 65, 85, 0.45);
 }
 
 html.dark {
@@ -136,92 +201,6 @@ html.dark {
 html.dark body {
   background-color: #060b14;
   color: #f8fafc;
-}
-
-/* Dark mode comprehensive style overrides for instant visual excellence */
-html.dark .bg-surface-container-lowest,
-html.dark .bg-white {
-  background-color: #0f172a !important;
-  color: #f8fafc;
-}
-
-html.dark .bg-surface-bg,
-html.dark .bg-slate-50,
-html.dark .bg-slate-50\/50,
-html.dark .bg-slate-100 {
-  background-color: #0b1120 !important;
-}
-
-html.dark .bg-slate-100\/80,
-html.dark .bg-slate-100\/90,
-html.dark .bg-slate-200 {
-  background-color: #1e293b !important;
-}
-
-html.dark .border-slate-200,
-html.dark .border-slate-100,
-html.dark .border-slate-300,
-html.dark .border-outline-variant {
-  border-color: #1e293b !important;
-}
-
-html.dark .text-slate-900,
-html.dark .text-slate-800 {
-  color: #f8fafc !important;
-}
-
-html.dark .text-slate-700,
-html.dark .text-slate-600 {
-  color: #cbd5e1 !important;
-}
-
-html.dark .text-slate-500,
-html.dark .text-slate-400 {
-  color: #94a3b8 !important;
-}
-
-html.dark input:not([type="checkbox"]):not([type="radio"]),
-html.dark select,
-html.dark textarea {
-  background-color: #0b1120 !important;
-  color: #f8fafc !important;
-  border-color: #334155 !important;
-}
-
-html.dark input::placeholder,
-html.dark textarea::placeholder {
-  color: #64748b !important;
-}
-
-html.dark .hover\:bg-slate-50:hover,
-html.dark .hover\:bg-slate-100:hover {
-  background-color: #1e293b !important;
-}
-
-html.dark .bg-blue-50,
-html.dark .bg-blue-50\/70,
-html.dark .bg-blue-50\/80 {
-  background-color: rgba(37, 99, 235, 0.18) !important;
-}
-
-html.dark .bg-emerald-50,
-html.dark .bg-emerald-50\/70 {
-  background-color: rgba(16, 185, 129, 0.18) !important;
-}
-
-html.dark .bg-amber-50,
-html.dark .bg-amber-50\/70 {
-  background-color: rgba(245, 158, 11, 0.18) !important;
-}
-
-html.dark .bg-rose-50,
-html.dark .bg-rose-50\/70 {
-  background-color: rgba(239, 68, 68, 0.18) !important;
-}
-
-html.dark .bg-purple-50,
-html.dark .bg-purple-50\/70 {
-  background-color: rgba(168, 85, 247, 0.18) !important;
 }
 
 /* Leaflet maps dark contrast layer */

@@ -47,6 +47,9 @@ Desktop.ini
 .system_generated/
 scratch/
 temp/
+.agents/
+.claude/
+skills-lock.json
 
 # Internal Developer API Docs
 *API_Documentation.md

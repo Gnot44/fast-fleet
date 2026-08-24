@@ -9,6 +9,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -24,9 +25,14 @@ import {
   Globe,
   User,
   ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Unlock,
+  MapPin,
+  Radio,
 } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
-import { stopLivePresenceTracking } from '../lib/presenceService';
+import { startLivePresenceTracking, stopLivePresenceTracking } from '../lib/presenceService';
 import { useLanguage } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
@@ -36,6 +42,7 @@ export default function UserProfileScreen({ navigation }: any) {
   const { theme, setTheme, colors, isDark } = useTheme();
 
   const [loading, setLoading] = useState(true);
+  const [isUpdatingTracking, setIsUpdatingTracking] = useState(false);
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
     initials: 'MK',
@@ -51,6 +58,8 @@ export default function UserProfileScreen({ navigation }: any) {
     rating: 5.0,
     tripsCompleted: 0,
     avatar: null,
+    isTrackingEnforced: true,
+    userTrackingEnabled: true,
   });
 
   useEffect(() => {
@@ -86,6 +95,8 @@ export default function UserProfileScreen({ navigation }: any) {
             rating: staffObj?.rating || 5.0,
             tripsCompleted: staffObj?.total_trips || 0,
             avatar: profData?.avatar_url || null,
+            isTrackingEnforced: profData?.is_tracking_enabled !== false,
+            userTrackingEnabled: profData?.user_tracking_enabled !== false,
           });
         }
       } catch (err) {
@@ -104,6 +115,61 @@ export default function UserProfileScreen({ navigation }: any) {
 
   const [pushNotif, setPushNotif] = useState(true);
   const [telemetrySync, setTelemetrySync] = useState(true);
+
+  const handleToggleTracking = async (value: boolean) => {
+    if (profile.isTrackingEnforced) {
+      Alert.alert(
+        language === 'th' ? '🔒 นโยบายความปลอดภัยองค์กร' : '🔒 Organization Policy',
+        language === 'th'
+          ? 'ผู้ดูแลระบบกำหนดให้นโยบายความปลอดภัยต้องเปิดการติดตามพิกัดตลอดเวลาเพื่อความปลอดภัยและการคำนวณเบี้ยเลี้ยง ไม่สามารถปิดได้'
+          : 'Location tracking is enforced by organization policy and cannot be disabled.'
+      );
+      return;
+    }
+
+    try {
+      setIsUpdatingTracking(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await (supabase.from('profiles' as any) as any)
+        .update({ user_tracking_enabled: value })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setProfile((prev: any) => ({
+        ...prev,
+        userTrackingEnabled: value,
+      }));
+
+      if (value) {
+        await startLivePresenceTracking();
+        Alert.alert(
+          language === 'th' ? '🟢 เปิดการติดตามตำแหน่ง' : '🟢 Tracking Activated',
+          language === 'th'
+            ? 'ระบบเริ่มส่งสัญญาณพิกัด GPS เพื่อการทำงานแบบเรียลไทม์เรียบร้อยแล้ว'
+            : 'Live GPS telemetry is now active.'
+        );
+      } else {
+        await stopLivePresenceTracking();
+        Alert.alert(
+          language === 'th' ? '⚪ ปิดการติดตามตำแหน่ง' : '⚪ Tracking Paused',
+          language === 'th'
+            ? 'ระบบหยุดการส่งพิกัด GPS เรียบร้อยแล้ว (ไม่ระบุตำแหน่ง)'
+            : 'Live GPS telemetry has been paused.'
+        );
+      }
+    } catch (err: any) {
+      console.error('Error updating tracking setting:', err);
+      Alert.alert(
+        language === 'th' ? 'เกิดข้อผิดพลาด' : 'Error',
+        err.message || 'ไม่สามารถอัปเดตการตั้งค่าได้'
+      );
+    } finally {
+      setIsUpdatingTracking(false);
+    }
+  };
 
   const handleLogout = async () => {
     Alert.alert(t('profile_sign_out'), language === 'th' ? 'คุณต้องการออกจากระบบใช่หรือไม่?' : 'Are you sure you want to sign out?', [
@@ -301,20 +367,101 @@ export default function UserProfileScreen({ navigation }: any) {
 
         {/* Section 4: Privacy & Presence System */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.cardSectionTitle, { color: colors.text }]}>
-            {language === 'th' ? 'ระบบความปลอดภัย & การติดตาม' : 'Safety & Tracking System'}
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.cardSectionTitle, { color: colors.text }]}>
+              {language === 'th' ? 'ระบบความปลอดภัย & การติดตาม' : 'Safety & Tracking System'}
+            </Text>
+            <View
+              style={[
+                styles.trackingPolicyBadge,
+                {
+                  backgroundColor: profile.isTrackingEnforced ? '#EFF6FF' : '#F1F5F9',
+                  borderColor: profile.isTrackingEnforced ? '#BFDBFE' : '#CBD5E1',
+                },
+              ]}
+            >
+              {profile.isTrackingEnforced ? (
+                <Lock size={11} color="#2563EB" />
+              ) : (
+                <Unlock size={11} color="#64748B" />
+              )}
+              <Text
+                style={[
+                  styles.trackingPolicyBadgeText,
+                  { color: profile.isTrackingEnforced ? '#1E40AF' : '#475569' },
+                ]}
+              >
+                {profile.isTrackingEnforced
+                  ? language === 'th' ? 'บังคับโดยองค์กร' : 'Enforced'
+                  : language === 'th' ? 'เลือกเปิด/ปิดเองได้' : 'User Managed'}
+              </Text>
+            </View>
+          </View>
 
+          {/* Location Tracking Interactive Switch Card */}
+          <View
+            style={[
+              styles.trackingControlCard,
+              {
+                backgroundColor: isDark ? '#1E293B' : '#F8FAFC',
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <View style={{ flex: 1, gap: 3, paddingRight: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MapPin
+                  size={16}
+                  color={
+                    (profile.isTrackingEnforced || profile.userTrackingEnabled)
+                      ? colors.primary
+                      : colors.textSecondary
+                  }
+                />
+                <Text style={[styles.trackingToggleTitle, { color: colors.text }]}>
+                  {language === 'th' ? 'การส่งพิกัดตำแหน่ง GPS' : 'Live GPS Telemetry'}
+                </Text>
+              </View>
+              <Text style={[styles.trackingToggleDesc, { color: colors.textSecondary }]}>
+                {profile.isTrackingEnforced
+                  ? language === 'th'
+                    ? '🔒 องค์กรบังคับเปิดการติดตามพิกัดตลอดเวลาเพื่อความปลอดภัยและการคำนวณเบี้ยเลี้ยง ไม่สามารถปิดได้'
+                    : '🔒 Location tracking is required by company safety policy and locked to ON.'
+                  : profile.userTrackingEnabled
+                  ? language === 'th'
+                    ? '🟢 กำลังส่งสัญญาณพิกัด GPS แบบเรียลไทม์ (แตะสวิตช์เพื่อปิดการติดตาม)'
+                    : '🟢 Real-time GPS active. Tap switch to turn off tracking.'
+                  : language === 'th'
+                    ? '⚪ ปิดการส่งพิกัดตำแหน่งอยู่ (แตะสวิตช์เพื่อเริ่มส่งพิกัด)'
+                    : '⚪ GPS tracking is paused. Tap switch to enable.'}
+              </Text>
+            </View>
+
+            {isUpdatingTracking ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Switch
+                value={profile.isTrackingEnforced ? true : !!profile.userTrackingEnabled}
+                disabled={profile.isTrackingEnforced || isUpdatingTracking}
+                onValueChange={handleToggleTracking}
+                trackColor={{ false: '#CBD5E1', true: colors.primary }}
+                thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
+                ios_backgroundColor="#CBD5E1"
+              />
+            )}
+          </View>
+
+          {/* Privacy & Presence Information Box */}
           <View style={styles.presenceInfoBox}>
-            <ShieldCheck size={20} color={colors.success} />
+            <ShieldCheck size={18} color={colors.success} style={{ marginTop: 2 }} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.presenceTitle, { color: colors.text }]}>
-                {language === 'th' ? 'ระบบส่งพิกัดการทำงานแบบเรียลไทม์' : 'Real-time Presence System'}
+                {language === 'th' ? 'การปกป้องข้อมูลและความปลอดภัย' : 'Data Privacy & Security'}
               </Text>
               <Text style={[styles.presenceDesc, { color: colors.textSecondary }]}>
                 {language === 'th'
-                  ? 'ระบบจะส่งพิกัดอย่างต่อเนื่องเพื่อความปลอดภัยและการคำนวณเบี้ยเลี้ยง และจะหยุดส่งทันทีเมื่อกดออกจากระบบ'
-                  : 'Continuous GPS telemetry active for safety and route analytics. Stops automatically upon signing out.'}
+                  ? 'ข้อมูลพิกัดจะถูกเข้ารหัสความปลอดภัยตามมาตรฐาน PDPA และระบบจะหยุดส่งทันทีเมื่อกดออกจากระบบ'
+                  : 'Telemetry is securely encrypted under enterprise privacy standards and stops upon logout.'}
               </Text>
             </View>
           </View>
@@ -503,6 +650,35 @@ const styles = StyleSheet.create({
   prefSegmentText: {
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  trackingPolicyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  trackingPolicyBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  trackingControlCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  trackingToggleTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  trackingToggleDesc: {
+    fontSize: 11,
+    lineHeight: 15,
   },
   presenceInfoBox: {
     flexDirection: 'row',

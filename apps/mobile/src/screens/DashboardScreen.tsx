@@ -259,8 +259,11 @@ export default function DashboardScreen({ navigation }: any) {
                 meetingMinutes: a.meeting_notes || '',
                 photos: apptPhotos,
                 expenses: apptExpsFinal,
+                odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
+                odometer_reading: a.odometer_reading,
               };
             }),
+            currentOdometer: t.current_odometer?.toString() || '',
           };
 
           if (t.approval_status === 'revision_requested') {

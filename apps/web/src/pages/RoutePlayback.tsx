@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
+import { useLanguage } from '../context/LanguageContext';
 
 // Leaflet default icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -122,6 +123,7 @@ function MapPlaybackController({
 }
 
 export default function RoutePlayback() {
+  const { language } = useLanguage();
   // Specialists State
   const [specialistsList, setSpecialistsList] = useState<any[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
@@ -144,7 +146,6 @@ export default function RoutePlayback() {
   const [mobileTab, setMobileTab] = useState<'map' | 'timeline'>('map');
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'stops' | 'running'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedSegmentId, setExpandedSegmentId] = useState<string | null>(null);
 
   // Telemetry Data State
   const [telemetryPoints, setTelemetryPoints] = useState<TelemetryPoint[]>([]);
@@ -472,20 +473,20 @@ export default function RoutePlayback() {
   const currentSpecialist = specialistsList.find((s) => s.id === selectedStaffId);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-slate-50 text-slate-800 overflow-hidden font-sans antialiased">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased">
       {/* 1. Header Filter Bar */}
-      <div className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2 shadow-2xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-3 sm:px-5 py-2.5 shadow-2xs flex flex-wrap items-center justify-between gap-2.5 shrink-0 z-20">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Driver / Vehicle Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all">
-            <span className="material-symbols-outlined text-primary text-[18px]">directions_car</span>
+          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all">
+            <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">directions_car</span>
             <select
               value={selectedStaffId}
               onChange={(e) => setSelectedStaffId(e.target.value)}
-              className="bg-transparent font-extrabold text-xs text-slate-800 focus:outline-none cursor-pointer pr-1"
+              className="bg-transparent font-extrabold text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer pr-1"
             >
               {specialistsList.map((spec) => (
-                <option key={spec.id} value={spec.id}>
+                <option key={spec.id} value={spec.id} className="dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                   {spec.staff?.[0]?.vehicle_plate || 'Isuzu D-Max'} • {spec.full_name} ({spec.nickname})
                 </option>
               ))}
@@ -493,41 +494,41 @@ export default function RoutePlayback() {
           </div>
 
           {/* Unified Compact Date & Time Inputs */}
-          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 px-2.5 py-1.5 rounded-xl shadow-2xs">
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
             />
             <input
               type="time"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-700 border-l border-slate-200 pl-1 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 border-l border-slate-200 dark:border-slate-700 pl-1.5 focus:outline-none cursor-pointer"
             />
-            <span className="text-slate-400 font-black text-xs px-0.5">➔</span>
+            <span className="text-slate-400 dark:text-slate-500 font-black text-xs px-0.5">➔</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
             />
             <input
               type="time"
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-700 border-l border-slate-200 pl-1 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 border-l border-slate-200 dark:border-slate-700 pl-1.5 focus:outline-none cursor-pointer"
             />
           </div>
 
           {/* Presets Modal Trigger */}
           <button
             onClick={() => setIsPresetsModalOpen(true)}
-            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200 transition-all cursor-pointer"
+            className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200/80 dark:border-slate-700/80 transition-all tactile-btn cursor-pointer"
             title="ปุ่มลัดเลือกช่วงเวลา"
           >
-            <span className="material-symbols-outlined text-primary text-[16px]">bolt</span>
+            <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[16px]">bolt</span>
             <span>ช่วงด่วน</span>
           </button>
 
@@ -535,7 +536,7 @@ export default function RoutePlayback() {
           <button
             onClick={loadRouteHistoryData}
             disabled={loading}
-            className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-extrabold flex items-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1 shadow-xs transition-all tactile-btn cursor-pointer disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[16px]">
               {loading ? 'hourglass_top' : 'search'}
@@ -544,37 +545,37 @@ export default function RoutePlayback() {
           </button>
         </div>
 
-        {/* Compact KPI Summaries */}
-        <div className="flex items-center gap-1.5 self-start sm:self-auto overflow-x-auto w-full sm:w-auto pb-0.5 sm:pb-0">
-          <div className="bg-blue-50/70 border border-blue-200/80 px-2.5 py-1 rounded-xl flex items-center gap-1.5 shrink-0">
-            <span className="material-symbols-outlined text-primary text-[15px]">distance</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-[9px] text-slate-500 font-bold uppercase">ระยะ:</span>
-              <span className="font-extrabold text-xs text-blue-900">{totalKm} km</span>
+        {/* Compact Telemetry Metrics */}
+        <div className="flex items-center gap-2 self-start sm:self-auto overflow-x-auto w-full sm:w-auto pb-0.5 sm:pb-0">
+          <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 px-3 py-1.5 rounded-xl flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[16px]">distance</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">{language === 'th' ? 'ระยะทาง:' : 'Distance:'}</span>
+              <span className="font-extrabold text-xs text-slate-900 dark:text-white font-mono tnum">{totalKm} km</span>
             </div>
           </div>
 
-          <div className="bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-xl flex items-center gap-1.5 shrink-0">
-            <span className="material-symbols-outlined text-slate-600 text-[15px]">local_parking</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-[9px] text-slate-500 font-bold uppercase">จอด:</span>
-              <span className="font-extrabold text-xs text-slate-800">{totalStopsCount} จุด</span>
+          <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 px-3 py-1.5 rounded-xl flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-slate-600 dark:text-slate-400 text-[16px]">local_parking</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">{language === 'th' ? 'จุดจอด:' : 'Stops:'}</span>
+              <span className="font-extrabold text-xs text-slate-900 dark:text-white font-mono tnum">{totalStopsCount} {language === 'th' ? 'จุด' : 'pts'}</span>
             </div>
           </div>
 
-          <div className="bg-emerald-50/70 border border-emerald-200/80 px-2.5 py-1 rounded-xl flex items-center gap-1.5 shrink-0">
-            <span className="material-symbols-outlined text-emerald-600 text-[15px]">speed</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-[9px] text-slate-500 font-bold uppercase">สูงสุด:</span>
-              <span className="font-extrabold text-xs text-emerald-900">{topSpeed} km/h</span>
+          <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 px-3 py-1.5 rounded-xl flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-[16px]">speed</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">{language === 'th' ? 'สูงสุด:' : 'Max:'}</span>
+              <span className="font-extrabold text-xs text-emerald-600 dark:text-emerald-400 font-mono tnum">{topSpeed} km/h</span>
             </div>
           </div>
 
-          <div className="bg-amber-50/70 border border-amber-200/80 px-2.5 py-1 rounded-xl flex items-center gap-1.5 shrink-0">
-            <span className="material-symbols-outlined text-amber-600 text-[15px]">warning</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-[9px] text-slate-500 font-bold uppercase">Alert:</span>
-              <span className="font-extrabold text-xs text-amber-900">{totalAlerts} จุด</span>
+          <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 px-3 py-1.5 rounded-xl flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[16px]">warning</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Alerts:</span>
+              <span className="font-extrabold text-xs text-amber-600 dark:text-amber-400 font-mono tnum">{totalAlerts}</span>
             </div>
           </div>
         </div>
@@ -582,21 +583,21 @@ export default function RoutePlayback() {
 
       {/* Quick Presets Modal */}
       {isPresetsModalOpen && (
-        <div className="fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800/80 w-full max-w-md p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-xl bg-blue-50 text-primary flex items-center justify-center">
+                <span className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
                   <span className="material-symbols-outlined text-[20px]">calendar_month</span>
                 </span>
                 <div>
-                  <h3 className="font-black text-sm text-slate-900">เลือกช่วงเวลายอดนิยม</h3>
-                  <p className="text-[11px] text-slate-500">เลือกช่วงเวลาด่วนเพื่อดูประวัติเส้นทาง</p>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">เลือกช่วงเวลายอดนิยม</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">เลือกช่วงเวลาด่วนเพื่อดูประวัติเส้นทาง</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsPresetsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
@@ -606,76 +607,76 @@ export default function RoutePlayback() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => handleSelectPreset('today')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer tactile-btn ${
                   activePreset === 'today'
-                    ? 'bg-blue-50 border-primary shadow-xs ring-1 ring-primary'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
                 }`}
               >
-                <div className="font-black text-xs text-slate-900">🌟 วันนี้ (Today)</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">00:00 - 23:59</div>
+                <div className="font-black text-xs text-slate-900 dark:text-white">🌟 วันนี้ (Today)</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">00:00 - 23:59</div>
               </button>
 
               <button
                 onClick={() => handleSelectPreset('yesterday')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer tactile-btn ${
                   activePreset === 'yesterday'
-                    ? 'bg-blue-50 border-primary shadow-xs ring-1 ring-primary'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
                 }`}
               >
-                <div className="font-black text-xs text-slate-900">🌟 เมื่อวาน (Yesterday)</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">00:00 - 23:59</div>
+                <div className="font-black text-xs text-slate-900 dark:text-white">🌟 เมื่อวาน (Yesterday)</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">00:00 - 23:59</div>
               </button>
 
               <button
                 onClick={() => handleSelectPreset('24h')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer tactile-btn ${
                   activePreset === '24h'
-                    ? 'bg-blue-50 border-primary shadow-xs ring-1 ring-primary'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
                 }`}
               >
-                <div className="font-black text-xs text-slate-900">⏱️ 24 ชั่วโมงที่แล้ว</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">นับถอยหลังจากตอนนี้</div>
+                <div className="font-black text-xs text-slate-900 dark:text-white">⏱️ 24 ชั่วโมงที่แล้ว</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">นับถอยหลังจากตอนนี้</div>
               </button>
 
               <button
                 onClick={() => handleSelectPreset('3days')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer tactile-btn ${
                   activePreset === '3days'
-                    ? 'bg-blue-50 border-primary shadow-xs ring-1 ring-primary'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
                 }`}
               >
-                <div className="font-black text-xs text-slate-900">📅 3 วันล่าสุด</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">ย้อนหลัง 3 วัน</div>
+                <div className="font-black text-xs text-slate-900 dark:text-white">📅 3 วันล่าสุด</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">ย้อนหลัง 3 วัน</div>
               </button>
 
               <button
                 onClick={() => handleSelectPreset('7days')}
-                className={`col-span-2 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`col-span-2 p-3 rounded-2xl border text-left transition-all cursor-pointer tactile-btn ${
                   activePreset === '7days'
-                    ? 'bg-blue-50 border-primary shadow-xs ring-1 ring-primary'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
                 }`}
               >
-                <div className="font-black text-xs text-slate-900">🗓️ 7 วันที่ผ่านมา (สูงสุดตาม Retention Policy)</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">ครอบคลุมทั้งสัปดาห์</div>
+                <div className="font-black text-xs text-slate-900 dark:text-white">🗓️ 7 วันที่ผ่านมา (สูงสุดตาม Retention Policy)</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">ครอบคลุมทั้งสัปดาห์</div>
               </button>
             </div>
 
             {/* Modal Actions */}
-            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => setIsPresetsModalOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-all cursor-pointer"
               >
                 ปิด
               </button>
               <button
                 onClick={loadRouteHistoryData}
-                className="flex-1 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-extrabold text-xs shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-all tactile-btn cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[16px]">search</span>
                 <span>ยืนยันและค้นหา</span>
@@ -686,11 +687,11 @@ export default function RoutePlayback() {
       )}
 
       {/* Mobile Tab Switcher */}
-      <div className="lg:hidden bg-white border-b border-slate-200 px-3 py-1.5 flex items-center gap-2 shrink-0">
+      <div className="lg:hidden bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center gap-2 shrink-0">
         <button
           onClick={() => setMobileTab('map')}
           className={`flex-1 py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-            mobileTab === 'map' ? 'bg-primary text-white shadow-xs' : 'bg-slate-100 text-slate-600'
+            mobileTab === 'map' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
           }`}
         >
           <span className="material-symbols-outlined text-[16px]">map</span>
@@ -699,7 +700,7 @@ export default function RoutePlayback() {
         <button
           onClick={() => setMobileTab('timeline')}
           className={`flex-1 py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-            mobileTab === 'timeline' ? 'bg-primary text-white shadow-xs' : 'bg-slate-100 text-slate-600'
+            mobileTab === 'timeline' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
           }`}
         >
           <span className="material-symbols-outlined text-[16px]">timeline</span>
@@ -710,7 +711,7 @@ export default function RoutePlayback() {
       {/* 2. Main Content */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* Left: Map & Playback Bar */}
-        <div className={`flex-1 flex flex-col relative h-full bg-slate-100 ${mobileTab === 'timeline' ? 'hidden lg:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col relative h-full bg-white dark:bg-slate-950 ${mobileTab === 'timeline' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex-1 relative">
             <MapContainer
               center={[13.9335, 100.5834]}
@@ -758,9 +759,9 @@ export default function RoutePlayback() {
                     >
                       <Popup>
                         <div className="p-1 font-sans text-xs space-y-1">
-                          <div className="font-extrabold text-slate-900">{seg.title}</div>
-                          <div className="text-slate-600 text-[11px]">{seg.fromLocation}</div>
-                          <div className="text-primary font-bold text-[11px]">
+                          <div className="font-extrabold text-slate-900 dark:text-white">{seg.title}</div>
+                          <div className="text-slate-600 dark:text-slate-300 text-[11px]">{seg.fromLocation}</div>
+                          <div className="text-blue-600 dark:text-blue-400 font-bold text-[11px]">
                             {seg.durationText} ({seg.fromTime} - {seg.toTime})
                           </div>
                         </div>
@@ -777,7 +778,7 @@ export default function RoutePlayback() {
                 >
                   <Popup>
                     <div className="font-sans text-xs space-y-1">
-                      <div className="font-bold text-slate-900">
+                      <div className="font-bold text-slate-900 dark:text-white">
                         {currentSpecialist?.staff?.[0]?.vehicle_plate || 'ยานพาหนะ'} • {currentSpecialist?.full_name}
                       </div>
                       <div>สถานะ: {activePoint.statusText}</div>
@@ -795,27 +796,27 @@ export default function RoutePlayback() {
               />
             </MapContainer>
 
-            {/* Empty State Overlay when no logs exist */}
+            {/* Empty State Overlay */}
             {telemetryPoints.length === 0 && !loading && (
-              <div className="absolute inset-0 bg-white/80 backdrop-blur-xs flex items-center justify-center p-4 z-[400]">
-                <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 max-w-sm text-center space-y-3 animate-fade-in">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-primary mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-[400]">
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 max-w-sm text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 mx-auto flex items-center justify-center">
                     <span className="material-symbols-outlined text-[28px]">route</span>
                   </div>
-                  <h4 className="font-black text-sm text-slate-900">ไม่พบประวัติพิกัดในช่วงเวลาที่เลือก</h4>
-                  <p className="text-xs text-slate-500">
+                  <h4 className="font-black text-sm text-slate-900 dark:text-white">ไม่พบประวัติพิกัดในช่วงเวลาที่เลือก</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     ลองเลือกวันและเวลาอื่น หรือเปิดแอปพลิเคชันมือถือเพื่อเริ่มส่งพิกัดตำแหน่งจริงเข้าสู่ระบบ
                   </p>
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={() => handleSelectPreset('today')}
-                      className="flex-1 py-2 rounded-xl bg-primary text-white text-xs font-bold shadow-xs cursor-pointer"
+                      className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-xs cursor-pointer tactile-btn"
                     >
                       ดูวันนี้
                     </button>
                     <button
                       onClick={() => handleSelectPreset('7days')}
-                      className="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                      className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer tactile-btn"
                     >
                       ดู 7 วันล่าสุด
                     </button>
@@ -824,21 +825,21 @@ export default function RoutePlayback() {
               </div>
             )}
 
-            {/* Top-Left Floating Light HUD Card */}
+            {/* Top-Left Floating Glass HUD Card */}
             {activePoint && (
-              <div className="absolute top-3 left-3 z-[400] bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-md p-2.5 max-w-xs space-y-1.5 text-slate-800 animate-fade-in">
-                <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
+              <div className="absolute top-3 left-3 z-[400] glass-hud rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md p-2.5 max-w-xs space-y-1.5 text-slate-800 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-                    <span className="font-extrabold text-xs text-slate-900">{activePoint.timeOnly}</span>
+                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                    <span className="font-extrabold text-xs text-slate-900 dark:text-white font-mono">{activePoint.timeOnly}</span>
                   </div>
                   <span
                     className={`text-[9px] font-extrabold px-2 py-0.2 rounded-full ${
                       activePoint.status === 'running'
-                        ? 'bg-blue-100 text-blue-800'
+                        ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
                         : activePoint.status === 'idle'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-slate-100 text-slate-700'
+                        ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     {activePoint.statusText}
@@ -846,23 +847,23 @@ export default function RoutePlayback() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-1.5">
-                  <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                  <div className="bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
                     <div className="text-[8px] text-slate-400 font-bold uppercase">ความเร็ว</div>
-                    <div className="font-extrabold text-sm text-primary">{activePoint.speed} <span className="text-[9px] text-slate-400 font-normal">km/h</span></div>
+                    <div className="font-extrabold text-sm text-blue-600 dark:text-blue-400 font-mono">{activePoint.speed} <span className="text-[9px] text-slate-400 font-normal">km/h</span></div>
                   </div>
-                  <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                  <div className="bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
                     <div className="text-[8px] text-slate-400 font-bold uppercase">ระยะสะสม</div>
-                    <div className="font-extrabold text-sm text-slate-800">{activePoint.distanceAccumKm} <span className="text-[9px] text-slate-400 font-normal">km</span></div>
+                    <div className="font-extrabold text-sm text-slate-800 dark:text-slate-200 font-mono">{activePoint.distanceAccumKm} <span className="text-[9px] text-slate-400 font-normal">km</span></div>
                   </div>
                 </div>
 
-                <div className="text-[10px] bg-slate-50 p-1.5 rounded-xl border border-slate-100 truncate">
+                <div className="text-[10px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800 truncate">
                   <div className="text-[8px] text-slate-400 font-bold uppercase">พิกัด / สถานที่</div>
-                  <div className="truncate font-semibold text-slate-800 mt-0.5">{activePoint.locationName}</div>
+                  <div className="truncate font-semibold text-slate-800 dark:text-slate-200 mt-0.5">{activePoint.locationName}</div>
                 </div>
 
                 {activePoint.alert !== '-' && activePoint.alert && (
-                  <div className="flex items-center gap-1 text-[9px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200">
+                  <div className="flex items-center gap-1 text-[9px] font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800">
                     <span className="material-symbols-outlined text-[13px]">warning</span>
                     <span>{activePoint.alert}</span>
                   </div>
@@ -872,10 +873,10 @@ export default function RoutePlayback() {
           </div>
 
           {/* Bottom Playback Bar */}
-          <div className="bg-white border-t border-slate-200 px-3 sm:px-5 py-2.5 shadow-md z-[400] space-y-1.5">
+          <div className="bg-white dark:bg-slate-900 border-t border-slate-200/80 dark:border-slate-800/80 px-3 sm:px-5 py-2.5 shadow-md z-[400] space-y-1.5">
             {/* Scrubber Slider */}
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-extrabold text-primary w-11 text-right">
+              <span className="text-[11px] font-extrabold text-blue-600 dark:text-blue-400 w-11 text-right font-mono">
                 {activePoint?.timeOnly || '00:00'}
               </span>
               <input
@@ -885,9 +886,9 @@ export default function RoutePlayback() {
                 value={currentIndex}
                 disabled={telemetryPoints.length <= 1}
                 onChange={(e) => setCurrentIndex(parseInt(e.target.value, 10))}
-                className="flex-1 accent-primary cursor-pointer h-2 bg-slate-200 rounded-lg disabled:opacity-50"
+                className="flex-1 accent-blue-600 cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg disabled:opacity-50"
               />
-              <span className="text-[11px] font-bold text-slate-500 w-11">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 w-11 font-mono">
                 {telemetryPoints.length > 0 ? telemetryPoints[telemetryPoints.length - 1].timeOnly : '23:59'}
               </span>
             </div>
@@ -899,7 +900,7 @@ export default function RoutePlayback() {
                 <button
                   onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 5))}
                   disabled={telemetryPoints.length <= 1}
-                  className="p-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer disabled:opacity-40"
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all tactile-btn cursor-pointer disabled:opacity-40"
                   title="ย้อนหลัง 5 จุด"
                 >
                   <span className="material-symbols-outlined text-[16px]">replay_5</span>
@@ -907,7 +908,7 @@ export default function RoutePlayback() {
                 <button
                   onClick={handleTogglePlay}
                   disabled={telemetryPoints.length <= 1}
-                  className="px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-extrabold text-xs flex items-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-40"
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center gap-1 shadow-xs transition-all tactile-btn cursor-pointer disabled:opacity-40"
                 >
                   <span className="material-symbols-outlined text-[17px]">
                     {isPlaying ? 'pause' : 'play_arrow'}
@@ -917,7 +918,7 @@ export default function RoutePlayback() {
                 <button
                   onClick={() => setCurrentIndex((prev) => Math.min(telemetryPoints.length - 1, prev + 5))}
                   disabled={telemetryPoints.length <= 1}
-                  className="p-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer disabled:opacity-40"
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all tactile-btn cursor-pointer disabled:opacity-40"
                   title="ไปข้างหน้า 5 จุด"
                 >
                   <span className="material-symbols-outlined text-[16px]">forward_5</span>
@@ -925,16 +926,16 @@ export default function RoutePlayback() {
               </div>
 
               {/* Speed Multipliers */}
-              <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-                <span className="text-[9px] font-bold text-slate-500 px-1">สปีด:</span>
+              <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 px-1">สปีด:</span>
                 {[1, 2, 4, 8].map((spd) => (
                   <button
                     key={spd}
                     onClick={() => setPlaybackSpeed(spd)}
-                    className={`px-1.5 py-0.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                    className={`px-1.5 py-0.5 rounded-lg font-bold text-[11px] transition-all tactile-btn cursor-pointer ${
                       playbackSpeed === spd
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     {spd}x
@@ -946,10 +947,10 @@ export default function RoutePlayback() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setAutoPan(!autoPan)}
-                  className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 border transition-all tactile-btn cursor-pointer ${
                     autoPan
-                      ? 'bg-blue-50 border-blue-200 text-primary'
-                      : 'bg-white border-slate-200 text-slate-500'
+                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[14px]">
@@ -960,10 +961,10 @@ export default function RoutePlayback() {
 
                 <button
                   onClick={() => setShowGraph(!showGraph)}
-                  className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 border transition-all tactile-btn cursor-pointer ${
                     showGraph
-                      ? 'bg-blue-50 border-blue-200 text-primary'
-                      : 'bg-white border-slate-200 text-slate-500'
+                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[14px]">monitoring</span>
@@ -974,13 +975,13 @@ export default function RoutePlayback() {
 
             {/* Speed Sparkline Graph */}
             {showGraph && telemetryPoints.length > 1 && (
-              <div className="pt-1.5 border-t border-slate-100 animate-fade-in">
-                <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 mb-0.5">
-                  <span>กราฟความเร็ว (Speed Profile km/h)</span>
-                  <span className="text-primary font-bold">{totalKm} km • สูงสุด {topSpeed} km/h</span>
+              <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-slate-400 mb-0.5 font-mono">
+                  <span>Speed Profile (km/h)</span>
+                  <span className="text-blue-600 dark:text-blue-400">{totalKm} km • Max {topSpeed} km/h</span>
                 </div>
                 <div
-                  className="h-12 w-full bg-slate-50 rounded-xl border border-slate-200 relative overflow-hidden flex items-end cursor-pointer"
+                  className="h-12 w-full bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 relative overflow-hidden flex items-end cursor-pointer"
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const clickX = e.clientX - rect.left;
@@ -998,7 +999,7 @@ export default function RoutePlayback() {
                           return `L ${x} ${y}`;
                         })
                         .join(' ')} L 100 100 Z`}
-                      fill="rgba(37, 99, 235, 0.12)"
+                      fill="rgba(37, 99, 235, 0.15)"
                     />
                     <path
                       d={`M 0 100 ${telemetryPoints
@@ -1027,42 +1028,42 @@ export default function RoutePlayback() {
           </div>
         </div>
 
-        {/* Right: Clean Journey Timeline & 20s Running Logs */}
-        <div className={`w-full lg:w-[400px] bg-white border-l border-slate-200 flex flex-col h-full overflow-hidden shrink-0 shadow-sm ${mobileTab === 'map' ? 'hidden lg:flex' : 'flex'}`}>
+        {/* Right: Journey Timeline & Segments */}
+        <div className={`w-full lg:w-[400px] bg-white dark:bg-slate-900 border-l border-slate-200/80 dark:border-slate-800/80 flex flex-col h-full overflow-hidden shrink-0 shadow-sm ${mobileTab === 'map' ? 'hidden lg:flex' : 'flex'}`}>
           {/* Timeline Header & Filters */}
-          <div className="p-3 border-b border-slate-200 space-y-2 bg-slate-50/70">
+          <div className="p-3 border-b border-slate-200/80 dark:border-slate-800/80 space-y-2 bg-slate-50/70 dark:bg-slate-900/60">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-primary text-[18px]">timeline</span>
-                <span className="font-extrabold text-xs text-slate-900">สรุปจุดจอด & การเดินทาง</span>
+                <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">timeline</span>
+                <span className="font-extrabold text-xs text-slate-900 dark:text-white">สรุปจุดจอด & การเดินทาง</span>
               </div>
-              <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 font-mono">
                 {journeySegments.length} ช่วง
               </span>
             </div>
 
             {/* Filter Pills */}
-            <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-slate-200 text-xs">
+            <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
               <button
                 onClick={() => setTimelineFilter('all')}
-                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
-                  timelineFilter === 'all' ? 'bg-primary text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
+                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all tactile-btn cursor-pointer ${
+                  timelineFilter === 'all' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
                 ทั้งหมด
               </button>
               <button
                 onClick={() => setTimelineFilter('stops')}
-                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
-                  timelineFilter === 'stops' ? 'bg-slate-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
+                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all tactile-btn cursor-pointer ${
+                  timelineFilter === 'stops' ? 'bg-slate-800 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
                 จุดจอด ({totalStopsCount})
               </button>
               <button
                 onClick={() => setTimelineFilter('running')}
-                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
-                  timelineFilter === 'running' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
+                className={`flex-1 py-1 rounded-lg font-bold text-[11px] transition-all tactile-btn cursor-pointer ${
+                  timelineFilter === 'running' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
                 }`}
               >
                 ช่วงวิ่ง
@@ -1071,7 +1072,7 @@ export default function RoutePlayback() {
 
             {/* Search Input */}
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-[15px]">
+              <span className="material-symbols-outlined absolute left-2.5 top-2.5 text-slate-400 text-[15px]">
                 search
               </span>
               <input
@@ -1079,7 +1080,7 @@ export default function RoutePlayback() {
                 placeholder="ค้นหาจุดจอด, เวลา, สถานที่..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white pl-8 pr-3 py-1.5 rounded-xl text-xs text-slate-800 border border-slate-200 focus:outline-none focus:border-primary shadow-2xs"
+                className="w-full bg-white dark:bg-slate-800 pl-8 pr-3 py-1.5 rounded-xl text-xs text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-blue-500 shadow-2xs"
               />
             </div>
           </div>
@@ -1096,20 +1097,17 @@ export default function RoutePlayback() {
                 const isCurrentActive =
                   activePoint &&
                   activePoint.rawTime >= (telemetryPoints[seg.startIndex]?.rawTime || 0) &&
-                  activePoint.rawTime <= (telemetryPoints[seg.endIndex]?.rawTime || Infinity);
-
-                const isExpanded = expandedSegmentId === seg.id;
+                  activePoint.rawTime <= (telemetryPoints[seg.endIndex]?.rawTime || 0);
 
                 return (
                   <div
                     key={seg.id}
                     className={`rounded-2xl border transition-all overflow-hidden ${
                       isCurrentActive
-                        ? 'bg-blue-50/80 border-primary shadow-xs ring-1.5 ring-blue-500'
-                        : 'bg-white hover:bg-slate-50/80 border-slate-200/90 shadow-2xs'
+                        ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-500 ring-1 ring-blue-500 shadow-xs'
+                        : 'bg-white dark:bg-slate-900/80 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-800/80'
                     }`}
                   >
-                    {/* Card Header */}
                     <div
                       onClick={() => {
                         setCurrentIndex(seg.startIndex);
@@ -1126,7 +1124,7 @@ export default function RoutePlayback() {
                                 ? seg.title.includes('ลูกค้า')
                                   ? 'bg-emerald-600'
                                   : 'bg-slate-600'
-                                : 'bg-primary'
+                                : 'bg-blue-600'
                             }`}
                           >
                             <span className="material-symbols-outlined text-[15px]">
@@ -1134,35 +1132,35 @@ export default function RoutePlayback() {
                             </span>
                           </span>
                           <div className="min-w-0">
-                            <div className="font-extrabold text-xs text-slate-900 truncate">{seg.title}</div>
-                            <div className="text-[10px] font-bold text-primary">
+                            <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">{seg.title}</div>
+                            <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 font-mono">
                               {seg.durationText}
                             </div>
                           </div>
                         </div>
 
                         {/* From - To Time Pill */}
-                        <span className="text-[9px] font-extrabold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-lg border border-slate-200 shrink-0 whitespace-nowrap">
+                        <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 whitespace-nowrap font-mono">
                           {seg.fromTime} - {seg.toTime}
                         </span>
                       </div>
 
                       {/* Location Information */}
-                      <div className="text-[10px] text-slate-600 bg-slate-50 p-1.5 rounded-xl border border-slate-100 space-y-1">
+                      <div className="text-[10px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                         {seg.isStop ? (
                           <div className="flex items-start gap-1">
                             <span className="material-symbols-outlined text-slate-400 text-[13px] shrink-0 mt-0.5">location_on</span>
-                            <span className="font-semibold text-slate-800 leading-tight">{seg.fromLocation}</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 leading-tight">{seg.fromLocation}</span>
                           </div>
                         ) : (
                           <div className="space-y-0.5">
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0"></span>
-                              <span className="truncate">จาก: <strong>{seg.fromLocation}</strong></span>
+                            <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                              <span className="truncate">จาก: <strong className="text-slate-800 dark:text-slate-200">{seg.fromLocation}</strong></span>
                             </div>
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 shrink-0"></span>
-                              <span className="truncate">ถึง: <strong>{seg.toLocation}</strong></span>
+                            <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+                              <span className="truncate">ถึง: <strong className="text-slate-800 dark:text-slate-200">{seg.toLocation}</strong></span>
                             </div>
                           </div>
                         )}
@@ -1170,86 +1168,13 @@ export default function RoutePlayback() {
 
                       {/* Running Stats */}
                       {!seg.isStop && (
-                        <div className="flex items-center justify-between text-[9px] text-slate-500 pt-0.5">
-                          <span>ระยะทาง: <strong className="text-primary font-bold">{seg.distanceKm} km</strong></span>
-                          <span>เฉลี่ย: <strong className="text-slate-800 font-bold">{seg.avgSpeed} km/h</strong></span>
-                          <span>สูงสุด: <strong className="text-slate-800 font-bold">{seg.topSpeed} km/h</strong></span>
+                        <div className="flex items-center justify-between text-[9px] text-slate-500 dark:text-slate-400 pt-0.5 font-mono">
+                          <span>ระยะ: <strong className="text-blue-600 dark:text-blue-400 font-bold">{seg.distanceKm} km</strong></span>
+                          <span>เฉลี่ย: <strong className="text-slate-800 dark:text-slate-200 font-bold">{seg.avgSpeed} km/h</strong></span>
+                          <span>สูงสุด: <strong className="text-slate-800 dark:text-slate-200 font-bold">{seg.topSpeed} km/h</strong></span>
                         </div>
                       )}
                     </div>
-
-                    {/* Expandable Running Logs Sub-list */}
-                    {!seg.isStop && seg.subLogs.length > 0 && (
-                      <div className="border-t border-slate-100 bg-slate-50/70">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedSegmentId(isExpanded ? null : seg.id);
-                          }}
-                          className="w-full px-3 py-1.5 text-[10px] font-bold text-primary hover:bg-blue-50/80 flex items-center justify-between transition-colors cursor-pointer"
-                        >
-                          <span className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">list_alt</span>
-                            <span>ดู Log พิกัดย่อย ({seg.subLogs.length} จุด)</span>
-                          </span>
-                          <span className="material-symbols-outlined text-[15px]">
-                            {isExpanded ? 'expand_less' : 'expand_more'}
-                          </span>
-                        </button>
-
-                        {isExpanded && (
-                          <div className="px-2.5 pb-2.5 pt-1 space-y-1 max-h-52 overflow-y-auto divide-y divide-slate-100">
-                            {seg.subLogs.map((subPt) => {
-                              const isSubActive = activePoint?.id === subPt.id;
-                              const hasAlert = subPt.alert !== '-' && subPt.alert;
-
-                              return (
-                                <div
-                                  key={`sub-${subPt.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const realIdx = telemetryPoints.findIndex((p) => p.id === subPt.id);
-                                    if (realIdx !== -1) {
-                                      setCurrentIndex(realIdx);
-                                      if (window.innerWidth < 1024) setMobileTab('map');
-                                    }
-                                  }}
-                                  className={`p-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-all ${
-                                    isSubActive
-                                      ? 'bg-primary text-white font-bold shadow-2xs'
-                                      : hasAlert
-                                      ? 'bg-rose-50 text-rose-800 hover:bg-rose-100'
-                                      : 'hover:bg-white text-slate-700'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className={`font-mono text-[10px] ${isSubActive ? 'text-white' : 'text-primary font-bold'}`}>
-                                      {subPt.timeOnly}
-                                    </span>
-                                    <span className="text-[10px] truncate max-w-[160px]">
-                                      {subPt.locationName}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {hasAlert && (
-                                      <span className={`text-[8px] px-1.5 py-0.2 rounded font-bold ${
-                                        isSubActive ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'
-                                      }`}>
-                                        {subPt.alert}
-                                      </span>
-                                    )}
-                                    <span className={`font-extrabold text-[10px] ${isSubActive ? 'text-white' : 'text-slate-900'}`}>
-                                      {subPt.speed} km/h
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               })

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -61,6 +61,10 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   const displayVehicleName = selectedVehicle.split('(')[0]?.trim() || selectedVehicle;
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
   const startOdometer = params.startOdometer || '';
+  const [tripStartOdometer, setTripStartOdometer] = useState<string>(startOdometer ? String(startOdometer) : '');
+  const [dbCurrentOdometer, setDbCurrentOdometer] = useState<number | null>(
+    params.currentOdometer ? parseFloat(params.currentOdometer) : null
+  );
 
   // Exact drops array passed from previous screens
   const [drops, setDrops] = useState<any[]>(
@@ -76,7 +80,51 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
 
   // Telemetry Metrics
   const [speed, setSpeed] = useState(42);
-  const [odometer, setOdometer] = useState(parseInt(startOdometer, 10) || 45228);
+
+  // 1. Starting Odometer entered before starting the route
+  const startOdometerDisplay = useMemo(() => {
+    const startCandidate = tripStartOdometer || startOdometer;
+    if (startCandidate) {
+      const num = parseFloat(String(startCandidate).replace(/,/g, ''));
+      if (!isNaN(num) && num > 0) {
+        return num;
+      }
+    }
+    return 45200;
+  }, [tripStartOdometer, startOdometer]);
+
+  // Overall effective odometer (latest completed or DB current)
+  const effectiveOdometer = useMemo(() => {
+    if (Array.isArray(drops) && drops.length > 0) {
+      const confirmedDrops = drops.filter(
+        (d) => d.isConfirmed || d.status === 'completed' || d.status === 'Completed'
+      );
+
+      for (let i = confirmedDrops.length - 1; i >= 0; i--) {
+        const d = confirmedDrops[i];
+        const rawVal =
+          d.odometer !== undefined && d.odometer !== null && d.odometer !== ''
+            ? d.odometer
+            : d.odometer_reading !== undefined && d.odometer_reading !== null && d.odometer_reading !== ''
+            ? d.odometer_reading
+            : null;
+
+        if (rawVal !== null && rawVal !== undefined) {
+          const num = parseFloat(String(rawVal).replace(/,/g, ''));
+          if (!isNaN(num) && num > 0) {
+            return num;
+          }
+        }
+      }
+    }
+
+    if (dbCurrentOdometer !== null && dbCurrentOdometer !== undefined && !isNaN(Number(dbCurrentOdometer)) && Number(dbCurrentOdometer) > 0) {
+      return Number(dbCurrentOdometer);
+    }
+
+    return startOdometerDisplay;
+  }, [drops, dbCurrentOdometer, startOdometerDisplay]);
+
   const gpsAccuracy = language === 'th' ? '3 ม. (สูง)' : '3m (High)';
 
   // Driver Current Live Position & Address
@@ -175,6 +223,8 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                 meetingMinutes: a.meeting_notes || '',
                 photos: a.client_photo_url ? [a.client_photo_url] : [],
                 expenses: mappedExps,
+                odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
+                odometer_reading: a.odometer_reading,
               };
             });
             setDrops(mapped);
@@ -187,16 +237,58 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     fetchTripDropsFallback();
   }, [tripId, drops.length]);
 
-  // Auto-redirect if trip is already submitted for approval or approved
+  // Auto-redirect if trip is already submitted for approval or approved, and sync odometer from database
   useEffect(() => {
     async function checkTripStatus() {
       if (!tripId) return;
       try {
         const { data: t } = await supabase
           .from('trips')
-          .select('status, approval_status, title, start_location, start_odometer')
+          .select('status, approval_status, title, start_location, start_odometer, current_odometer')
           .eq('id', tripId)
           .single();
+
+        if (t?.start_odometer) {
+          setTripStartOdometer(t.start_odometer.toString());
+        }
+
+        if (t?.current_odometer) {
+          setDbCurrentOdometer(Number(t.current_odometer));
+        }
+
+        // Always sync appointments from DB to guarantee odometer readings and confirmation states are fresh
+        const { data: dbAppts } = await supabase
+          .from('appointments')
+          .select('id, sequence_order, confirmation_status, status, odometer_reading, meeting_notes, client_photo_url')
+          .eq('trip_id', tripId)
+          .order('sequence_order', { ascending: true });
+
+        if (dbAppts && dbAppts.length > 0) {
+          setDrops((prevDrops) => {
+            if (!prevDrops || prevDrops.length === 0) {
+              return prevDrops;
+            }
+            return prevDrops.map((d: any) => {
+              const dbA = dbAppts.find((a: any) => a.id === d.id || a.id === d.appointmentId);
+              if (dbA) {
+                return {
+                  ...d,
+                  isConfirmed: dbA.confirmation_status ? true : d.isConfirmed,
+                  status: dbA.status || d.status,
+                  odometer:
+                    dbA.odometer_reading !== null && dbA.odometer_reading !== undefined
+                      ? String(dbA.odometer_reading)
+                      : d.odometer,
+                  odometer_reading:
+                    dbA.odometer_reading !== null && dbA.odometer_reading !== undefined
+                      ? dbA.odometer_reading
+                      : d.odometer_reading,
+                };
+              }
+              return d;
+            });
+          });
+        }
 
         if (t?.approval_status === 'pending' || t?.approval_status === 'approved') {
           navigation.replace('TripSummary', {
@@ -205,7 +297,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             tripTitle: t.title || tripTitle,
             drops: drops,
             startLocation: t.start_location || startLocation,
-            startOdometer: t.start_odometer?.toString() || startOdometer,
+            startOdometer: t.start_odometer?.toString() || startOdometer || tripStartOdometer,
             isPendingReview: t.approval_status === 'pending',
             isApproved: t.approval_status === 'approved',
           });
@@ -222,7 +314,10 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     if (Array.isArray(route.params?.drops) && route.params.drops.length > 0) {
       setDrops(route.params.drops);
     }
-  }, [route.params?.drops]);
+    if (route.params?.startOdometer) {
+      setTripStartOdometer(String(route.params.startOdometer));
+    }
+  }, [route.params?.drops, route.params?.startOdometer]);
 
   // Update active drop selection when drops array changes or route params specify a target
   useEffect(() => {
@@ -267,6 +362,25 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     address: 'กรุงเทพมหานคร',
   };
 
+  // Active Drop's recorded odometer reading (if entered for this drop)
+  const activeDropOdometerDisplay = useMemo(() => {
+    if (!activeDrop) return null;
+    const rawVal =
+      activeDrop.odometer !== undefined && activeDrop.odometer !== null && activeDrop.odometer !== ''
+        ? activeDrop.odometer
+        : activeDrop.odometer_reading !== undefined && activeDrop.odometer_reading !== null && activeDrop.odometer_reading !== ''
+        ? activeDrop.odometer_reading
+        : null;
+
+    if (rawVal !== null && rawVal !== undefined) {
+      const num = parseFloat(String(rawVal).replace(/,/g, ''));
+      if (!isNaN(num) && num > 0) {
+        return num;
+      }
+    }
+    return null;
+  }, [activeDrop?.odometer, activeDrop?.odometer_reading]);
+
   // 3. Fetch Road Connection between Driver and Next Sequential Destination
   useEffect(() => {
     if (isAllCompleted || !activeDrop) return;
@@ -298,31 +412,21 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   }, [currentDropIndex, driverLocation.latitude, activeDrop?.latitude, isAllCompleted, drops]);
 
   // Open External Google Maps for Navigation
-  const handleOpenGoogleMaps = () => {
+  const handleOpenNavigation = () => {
     if (!activeDrop) return;
     const lat = activeDrop.latitude || 13.7469;
     const lng = activeDrop.longitude || 100.5349;
-    const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-
-    const appUrl = Platform.select({
-      ios: `comgooglemaps://?daddr=${lat},${lng}&directionsmode=driving`,
-      android: `google.navigation:q=${lat},${lng}&mode=d`,
+    const label = encodeURIComponent(activeDrop.name || 'Customer Destination');
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${lat},${lng}`,
+      android: `geo:0,0?q=${lat},${lng}(${label})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
     });
 
-    if (appUrl) {
-      Linking.canOpenURL(appUrl)
-        .then((supported) => {
-          if (supported) {
-            Linking.openURL(appUrl);
-          } else {
-            Linking.openURL(webUrl);
-          }
-        })
-        .catch(() => {
-          Linking.openURL(webUrl);
-        });
-    } else {
-      Linking.openURL(webUrl);
+    if (url) {
+      Linking.openURL(url).catch((err) =>
+        console.warn('Error opening navigation map:', err)
+      );
     }
   };
 
@@ -364,19 +468,31 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     );
   };
 
-  // Handle Check-in strictly following the planned route sequence
-  const handleCheckInDrop = (targetIdx = currentDropIndex) => {
-    // If attempting to check-in to a future drop while an earlier drop is not yet completed:
+  // Check In & Go to DropReportingScreen
+  const handleOpenReportForDrop = (targetIdx: number) => {
     if (nextSequentialDropIndex !== -1 && targetIdx > nextSequentialDropIndex) {
       Alert.alert(
-        language === 'th' ? '⚠️ ต้องเข้าพบตามลำดับเส้นทาง' : '⚠️ Sequential Route Required',
+        language === 'th' ? 'กรุณาดำเนินการตามลำดับเส้นทาง ⚠️' : 'Sequential Visit Notice ⚠️',
         language === 'th'
-          ? `คุณกำลังจะเช็คอินจุดที่ #${targetIdx + 1} (${drops[targetIdx]?.name}) ข้ามจุดที่ #${nextSequentialDropIndex + 1} (${drops[nextSequentialDropIndex]?.name}) ที่ยังไม่เสร็จสิ้น\n\nต้องการสลับจุดนี้ขึ้นมาทำก่อนทันทีหรือไม่?`
-          : `You are attempting to check in to stop #${targetIdx + 1} before stop #${nextSequentialDropIndex + 1}.\n\nWould you like to promote this stop to the front of the queue?`,
+          ? `ระบบแนะนำให้เข้าพบตามลำดับแผนงาน คุณกำลังข้ามไปยังจุด #${targetIdx + 1} (${drops[targetIdx]?.name || ''}) โดยจุด #${nextSequentialDropIndex + 1} ยังไม่เสร็จสิ้น\n\nต้องการเปิดบันทึกจุดนี้ใช่หรือไม่?`
+          : `You are opening drop #${targetIdx + 1} while drop #${nextSequentialDropIndex + 1} is still pending. Proceed anyway?`,
         [
           {
-            text: language === 'th' ? '⚡ สลับมาทำก่อนทันที' : '⚡ Promote to Front',
-            onPress: () => handlePromoteDropToActive(targetIdx),
+            text: language === 'th' ? `ดำเนินการต่อ #${targetIdx + 1}` : `Proceed #${targetIdx + 1}`,
+            onPress: () => {
+              const dropToReport = drops[targetIdx];
+              navigation.navigate('DropReporting', {
+                tripId,
+                tripTitle,
+                selectedVehicle,
+                drop: dropToReport,
+                dropIndex: targetIdx,
+                totalDrops: drops.length,
+                drops,
+                startOdometer: startOdometer || tripStartOdometer,
+                startLocation,
+              });
+            },
           },
           {
             text: language === 'th' ? `📍 ไปจุดที่ #${nextSequentialDropIndex + 1}` : `📍 Go to #${nextSequentialDropIndex + 1}`,
@@ -397,8 +513,13 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       dropIndex: targetIdx,
       totalDrops: drops.length,
       drops,
+      startOdometer: startOdometer || tripStartOdometer,
+      startLocation,
     });
   };
+
+  const handleCheckInDrop = handleOpenReportForDrop;
+  const handleOpenGoogleMaps = handleOpenNavigation;
 
   // Open Edit Itinerary to reorder or add drops
   const handleOpenEditItinerary = () => {
@@ -431,7 +552,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       tripTitle,
       selectedVehicle,
       startLocation,
-      startOdometer,
+      startOdometer: startOdometer || tripStartOdometer,
       drops,
     });
   };
@@ -446,7 +567,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
           .from('trips')
           .update({
             status: 'in_progress',
-            current_odometer: odometer ? parseFloat(odometer.toString()) : null,
+            current_odometer: effectiveOdometer ? parseFloat(effectiveOdometer.toString()) : null,
           })
           .eq('id', tripId);
       }
@@ -545,11 +666,11 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
 
           <View style={styles.telemetryDivider} />
 
-          {/* Odometer */}
+          {/* Start Odometer */}
           <View style={styles.telemetryItem}>
-            <Clock size={16} color="#64748B" />
-            <Text style={styles.telemetryValue}>{odometer}</Text>
-            <Text style={styles.telemetrySub}>{t('tracker_telemetry_odometer')}</Text>
+            <Gauge size={16} color="#64748B" />
+            <Text style={styles.telemetryValue}>{startOdometerDisplay.toLocaleString('th-TH')}</Text>
+            <Text style={styles.telemetrySub}>{language === 'th' ? 'Start Odo' : 'Start Odo'}</Text>
           </View>
         </View>
       </View>
@@ -768,18 +889,37 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                   <Text style={styles.previewName} numberOfLines={1}>{activeDrop?.name}</Text>
                   <Text style={styles.previewAddress} numberOfLines={1}>{activeDrop?.address}</Text>
 
-                  {/* Google Maps External Navigation Button */}
-                  <TouchableOpacity
-                    style={styles.googleMapsNavBtn}
-                    onPress={handleOpenGoogleMaps}
-                    activeOpacity={0.85}
-                  >
-                    <View style={styles.googleMapsIconCircle}>
-                      <MapPin size={14} color="#EA4335" />
-                    </View>
-                    <Text style={styles.googleMapsNavText}>{t('btn_open_maps')}</Text>
-                    <ExternalLink size={14} color="#1E293B" />
-                  </TouchableOpacity>
+                  {/* Action Row: Google Maps External Navigation & Drop Odometer (if entered) */}
+                  <View style={styles.previewActionRow}>
+                    <TouchableOpacity
+                      style={styles.googleMapsNavBtn}
+                      onPress={handleOpenGoogleMaps}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.googleMapsIconCircle}>
+                        <MapPin size={14} color="#EA4335" />
+                      </View>
+                      <Text style={styles.googleMapsNavText}>{t('btn_open_maps')}</Text>
+                      <ExternalLink size={14} color="#1E293B" />
+                    </TouchableOpacity>
+
+                    {activeDropOdometerDisplay !== null && (
+                      <View style={styles.dropOdometerPill}>
+                        <View style={styles.dropOdometerIconCircle}>
+                          <Gauge size={13} color="#2563EB" />
+                        </View>
+                        <View>
+                          <Text style={styles.dropOdometerLabel}>
+                            {language === 'th' ? 'เลขไมล์จุดนี้' : 'Drop Odo'}
+                          </Text>
+                          <Text style={styles.dropOdometerValue}>
+                            {activeDropOdometerDisplay.toLocaleString('th-TH')}{' '}
+                            <Text style={styles.dropOdometerUnit}>{language === 'th' ? 'กม.' : 'km'}</Text>
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
 
                   {/* Compact Recipient Contact Card */}
                   {activeDrop?.recipient && (
@@ -1369,6 +1509,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1D4ED8',
   },
+  previewActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
   googleMapsNavBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1379,13 +1526,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 14,
-    marginTop: 8,
-    alignSelf: 'flex-start',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 1,
+  },
+  dropOdometerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  dropOdometerIconCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dropOdometerLabel: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  dropOdometerValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1E40AF',
+  },
+  dropOdometerUnit: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#64748B',
   },
   googleMapsIconCircle: {
     width: 22,

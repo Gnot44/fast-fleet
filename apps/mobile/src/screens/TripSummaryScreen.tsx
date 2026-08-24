@@ -380,8 +380,23 @@ export default function TripSummaryScreen({ navigation, route }: any) {
     if (!staffId) return;
 
     let tripId = params.tripId;
-    const startOdoNum = parseInt(startOdometer || '45200', 10);
-    const endOdoNum = startOdoNum + 45;
+    const startOdoNum = startOdometer ? parseInt(String(startOdometer).replace(/,/g, ''), 10) : null;
+    
+    // Get latest drop odometer from dropsList (only from drops where user actually entered an odometer reading)
+    const dropOdos = (dropsList || [])
+      .map((d: any) => {
+        const val = d.odometer || d.odometer_reading;
+        if (val !== null && val !== undefined && val !== '') {
+          const num = parseFloat(String(val).replace(/,/g, ''));
+          return !isNaN(num) && num > 0 ? num : null;
+        }
+        return null;
+      })
+      .filter((val: number | null): val is number => val !== null);
+
+    const latestDropOdo = dropOdos.length > 0 ? dropOdos[dropOdos.length - 1] : null;
+    const endOdoNum = latestDropOdo !== null ? latestDropOdo : null;
+    const computedDist = (startOdoNum !== null && endOdoNum !== null && endOdoNum > startOdoNum) ? (endOdoNum - startOdoNum) : null;
     const isPending = targetApprovalStatus === 'pending';
 
     if (!tripId) {
@@ -398,7 +413,8 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           approval_status: targetApprovalStatus,
           start_odometer: startOdoNum,
           end_odometer: endOdoNum,
-          total_distance_km: 45.2,
+          current_odometer: endOdoNum || startOdoNum,
+          total_distance_km: computedDist,
           total_expenses: totalExpenseAmount,
         })
         .select()
@@ -413,7 +429,9 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           approval_status: targetApprovalStatus,
           start_odometer: startOdoNum,
           end_odometer: endOdoNum,
+          current_odometer: endOdoNum || startOdoNum,
           total_expenses: totalExpenseAmount,
+          ...(computedDist ? { total_distance_km: computedDist } : {}),
         })
         .eq('id', tripId);
     }

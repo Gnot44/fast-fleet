@@ -330,28 +330,28 @@ export default function SystemSettings() {
     <div className="w-full max-w-4xl mx-auto space-y-6 pb-12 animate-fade-in">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 border border-slate-700 text-xs font-semibold animate-scale-up">
+        <div className="fixed top-6 right-6 z-50 bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 border border-slate-700 text-xs font-semibold animate-scale-up">
           <span className="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
           {toastMessage}
         </div>
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold border border-blue-200/60 dark:border-blue-800/60">
             <span className="material-symbols-outlined text-[22px]">tune</span>
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-extrabold text-lg text-slate-900 tracking-tight">
+              <h1 className="font-extrabold text-lg text-slate-900 dark:text-white tracking-tight">
                 {t('settings_title')}
               </h1>
               {isLoading && (
                 <span className="text-[10px] text-slate-400 animate-pulse font-medium">กำลังโหลด...</span>
               )}
             </div>
-            <p className="text-slate-500 text-xs mt-0.5">
+            <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
               {t('settings_subtitle')}
             </p>
           </div>
@@ -359,7 +359,7 @@ export default function SystemSettings() {
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
           {lastSavedAt && (
-            <span className="text-[11px] text-slate-400 hidden sm:inline font-medium">
+            <span className="text-[11px] text-slate-400 hidden sm:inline font-mono font-medium">
               บันทึกล่าสุด: {lastSavedAt.toLocaleTimeString('th-TH')}
             </span>
           )}
@@ -367,7 +367,7 @@ export default function SystemSettings() {
             type="button"
             onClick={handleSaveSettings}
             disabled={isSaving}
-            className={`px-5 py-2.5 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer ${
+            className={`px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer tactile-btn ${
               isSaving ? 'opacity-70 cursor-not-allowed' : ''
             }`}
           >
@@ -379,8 +379,8 @@ export default function SystemSettings() {
         </div>
       </div>
 
-      {/* Modern Navigation Tabs */}
-      <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80">
+      {/* Modern Navigation Tabs (Responsive scroll on mobile) */}
+      <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 overflow-x-auto scrollbar-hide">
         {[
           { id: 'general', label: t('settings_tab_general'), icon: 'translate' },
           { id: 'gps_engine', label: t('settings_tab_gps'), icon: 'smartphone' },
@@ -392,13 +392,13 @@ export default function SystemSettings() {
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id as any)}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              className={`flex-1 min-w-[140px] sm:min-w-0 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap shrink-0 sm:shrink cursor-pointer tactile-btn ${
                 isActive
-                  ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs border border-slate-200/60 dark:border-slate-750'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <span className={`material-symbols-outlined text-[17px] ${isActive ? 'text-primary' : 'text-slate-400'}`}>
+              <span className={`material-symbols-outlined text-[17px] ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`}>
                 {tab.icon}
               </span>
               <span>{tab.label}</span>
@@ -413,9 +413,9 @@ export default function SystemSettings() {
       {activeTab === 'general' && (
         <div className="space-y-4 text-xs">
           {/* Language Selection */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-              <span className="material-symbols-outlined text-primary text-[18px]">language</span>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-3">
+            <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">language</span>
               {t('settings_language_label')}
             </h3>
 
@@ -426,16 +426,16 @@ export default function SystemSettings() {
                   setLanguage('th');
                   showToast('เปลี่ยนภาษาเป็น: ภาษาไทย');
                 }}
-                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer ${
+                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer tactile-btn ${
                   language === 'th'
-                    ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-850 dark:text-blue-300 ring-2 ring-blue-500/20 shadow-2xs'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                 }`}
               >
                 <span className="text-2xl">🇹🇭</span>
                 <div>
-                  <div className="font-bold text-xs">ภาษาไทย (TH)</div>
-                  <div className="text-[10px] text-slate-400">ระบบเมนูและรายงานภาษาไทย</div>
+                  <div className="font-extrabold text-xs">ภาษาไทย (TH)</div>
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500">ระบบเมนูและรายงานภาษาไทย</div>
                 </div>
               </button>
 
@@ -445,25 +445,25 @@ export default function SystemSettings() {
                   setLanguage('en');
                   showToast('Language changed to: English');
                 }}
-                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer ${
+                className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer tactile-btn ${
                   language === 'en'
-                    ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-850 dark:text-blue-300 ring-2 ring-blue-500/20 shadow-2xs'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                 }`}
               >
                 <span className="text-2xl">🇬🇧</span>
                 <div>
-                  <div className="font-bold text-xs">English (EN)</div>
-                  <div className="text-[10px] text-slate-400">International English</div>
+                  <div className="font-extrabold text-xs">English (EN)</div>
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500">International English</div>
                 </div>
               </button>
             </div>
           </div>
 
           {/* Theme Mode */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-              <span className="material-symbols-outlined text-primary text-[18px]">dark_mode</span>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-3">
+            <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">dark_mode</span>
               {t('settings_theme_label')}
             </h3>
 
@@ -480,43 +480,43 @@ export default function SystemSettings() {
                     setTheme(thm.key as any);
                     showToast(`Theme: ${thm.label}`);
                   }}
-                  className={`p-3 rounded-xl border text-center transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                  className={`p-3 rounded-xl border text-center transition-all flex flex-col items-center gap-1 cursor-pointer tactile-btn ${
                     theme === thm.key
-                      ? 'border-primary bg-blue-50/70 text-primary ring-2 ring-primary/20 shadow-2xs'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-850 dark:text-blue-300 ring-2 ring-blue-500/20 shadow-2xs'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                   }`}
                 >
-                  <div className="font-bold text-xs">{thm.label}</div>
-                  <div className="text-[10px] text-slate-400">{thm.desc}</div>
+                  <div className="font-extrabold text-xs">{thm.label}</div>
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500">{thm.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
           {/* Organization & Schedule */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-              <span className="material-symbols-outlined text-primary text-[18px]">domain</span>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-3">
+            <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">domain</span>
               {t('settings_company_name')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">ชื่อหน่วยงาน / องค์กร</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">ชื่อหน่วยงาน / องค์กร</label>
                 <input
                   type="text"
-                  value={companyName}
+                  value={companyName ?? ''}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:border-primary"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">เขตเวลา (Timezone)</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">เขตเวลา (Timezone)</label>
                 <select
-                  value={timezone}
+                  value={timezone ?? 'Asia/Bangkok (GMT+7)'}
                   onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 focus:outline-none focus:border-primary"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
                 >
                   <option value="Asia/Bangkok (GMT+7)">Asia/Bangkok (GMT+7)</option>
                   <option value="Asia/Singapore (GMT+8)">Asia/Singapore (GMT+8)</option>
@@ -524,20 +524,20 @@ export default function SystemSettings() {
               </div>
 
               <div className="space-y-1 sm:col-span-2">
-                <label className="font-bold text-slate-700">เวลาทำการภาคสนาม (Operating Hours)</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">เวลาทำการภาคสนาม (Operating Hours)</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="time"
-                    value={operatingHours.start}
+                    value={operatingHours?.start ?? '08:00'}
                     onChange={(e) => setOperatingHours({ ...operatingHours, start: e.target.value })}
-                    className="p-2 rounded-xl border border-slate-200 font-semibold focus:outline-none"
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white focus:outline-none"
                   />
                   <span className="text-slate-400 font-bold">➔</span>
                   <input
                     type="time"
-                    value={operatingHours.end}
+                    value={operatingHours?.end ?? '19:00'}
                     onChange={(e) => setOperatingHours({ ...operatingHours, end: e.target.value })}
-                    className="p-2 rounded-xl border border-slate-200 font-semibold focus:outline-none"
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white focus:outline-none"
                   />
                 </div>
               </div>
@@ -545,13 +545,13 @@ export default function SystemSettings() {
           </div>
 
           {/* Notifications */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-              <span className="material-symbols-outlined text-primary text-[18px]">notifications_active</span>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-2">
+            <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">notifications_active</span>
               {t('settings_notifications_title')}
             </h3>
 
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {[
                 { key: 'tripSubmitted', label: 'แจ้งเตือนเมื่อมีทริปส่งรายงานรออนุมัติ (Pending Approval)' },
                 { key: 'tripRevision', label: 'แจ้งเตือนเมื่อมีการส่งกลับแก้ไขรายงาน (Revision Requested)' },
@@ -559,17 +559,17 @@ export default function SystemSettings() {
                 { key: 'lowBattery', label: 'แจ้งเตือนเมื่อแบตเตอรี่มือถือพนักงานต่ำกว่า 20%' },
               ].map((notif) => (
                 <div key={notif.key} className="py-2.5 flex items-center justify-between">
-                  <span className="font-medium text-slate-700">{notif.label}</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{notif.label}</span>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={(notifications as any)[notif.key]}
+                      checked={Boolean((notifications as any)?.[notif.key])}
                       onChange={(e) =>
                         setNotifications({ ...notifications, [notif.key]: e.target.checked })
                       }
                       className="sr-only peer"
                     />
-                    <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-primary"></div>
+                    <div className="w-8 h-4.5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
               ))}
@@ -582,17 +582,17 @@ export default function SystemSettings() {
       {/* TAB 2: GPS DIFF & ANTI-DRIFT ENGINE */}
       {/* ========================================================================= */}
       {activeTab === 'gps_engine' && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-6 text-xs">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-6 text-xs">
           {/* Header & Reset Button */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div>
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[20px]">radar</span>
-                <h3 className="font-bold text-sm text-slate-900">
+                <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[20px]">radar</span>
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
                   {t('settings_gps_title')}
                 </h3>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 {t('settings_gps_desc')}
               </p>
             </div>
@@ -601,7 +601,7 @@ export default function SystemSettings() {
               <button
                 type="button"
                 onClick={resetToMobileDefaults}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl border border-slate-200 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer tactile-btn"
               >
                 <span className="material-symbols-outlined text-[15px]">restart_alt</span>
                 {t('settings_gps_reset_btn')}
@@ -612,8 +612,8 @@ export default function SystemSettings() {
           {/* 4 Core Threshold Sliders */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* 1. Moving Check Controls */}
-            <div className="p-4 rounded-xl bg-emerald-50/40 border border-emerald-200/70 space-y-3.5">
-              <div className="flex items-center justify-between text-emerald-800 font-bold">
+            <div className="p-4 rounded-xl bg-emerald-50/40 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 space-y-3.5">
+              <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 font-bold">
                 <span className="flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[18px]">directions_car</span>
                   {t('settings_gps_moving_header')}
@@ -622,9 +622,9 @@ export default function SystemSettings() {
 
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <div className="flex justify-between font-semibold text-slate-700">
+                  <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
                     <span>{t('settings_gps_moving_speed')}</span>
-                    <span className="font-mono font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                    <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                       {gpsSettings.mbSpeedMoving} km/h
                     </span>
                   </div>
@@ -642,9 +642,9 @@ export default function SystemSettings() {
                 </div>
 
                 <div className="space-y-1">
-                  <div className="flex justify-between font-semibold text-slate-700">
+                  <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
                     <span>{t('settings_gps_moving_dist')}</span>
-                    <span className="font-mono font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                    <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                       {gpsSettings.mbDistMoving} m
                     </span>
                   </div>
@@ -664,8 +664,8 @@ export default function SystemSettings() {
             </div>
 
             {/* 2. Anti-Drift Controls */}
-            <div className="p-4 rounded-xl bg-blue-50/40 border border-blue-200/70 space-y-3.5">
-              <div className="flex items-center justify-between text-blue-800 font-bold">
+            <div className="p-4 rounded-xl bg-blue-50/40 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-800/60 space-y-3.5">
+              <div className="flex items-center justify-between text-blue-800 dark:text-blue-300 font-bold">
                 <span className="flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[18px]">shield</span>
                   {t('settings_gps_static_header')}
@@ -674,9 +674,9 @@ export default function SystemSettings() {
 
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <div className="flex justify-between font-semibold text-slate-700">
+                  <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
                     <span>{t('settings_gps_static_speed')}</span>
-                    <span className="font-mono font-bold text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-200">
+                    <span className="font-mono font-bold text-blue-800 dark:text-blue-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                       {gpsSettings.mbSpeedStatic} km/h
                     </span>
                   </div>
@@ -689,14 +689,14 @@ export default function SystemSettings() {
                     onChange={(e) =>
                       setGpsSettings({ ...gpsSettings, mbSpeedStatic: parseFloat(e.target.value) })
                     }
-                    className="w-full cursor-pointer accent-primary"
+                    className="w-full cursor-pointer accent-blue-600"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <div className="flex justify-between font-semibold text-slate-700">
+                  <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
                     <span>{t('settings_gps_static_radius')}</span>
-                    <span className="font-mono font-bold text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-200">
+                    <span className="font-mono font-bold text-blue-800 dark:text-blue-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                       {gpsSettings.mbStaticRadius} m
                     </span>
                   </div>
@@ -709,7 +709,7 @@ export default function SystemSettings() {
                     onChange={(e) =>
                       setGpsSettings({ ...gpsSettings, mbStaticRadius: parseFloat(e.target.value) })
                     }
-                    className="w-full cursor-pointer accent-primary"
+                    className="w-full cursor-pointer accent-blue-600"
                   />
                 </div>
               </div>
@@ -717,13 +717,13 @@ export default function SystemSettings() {
           </div>
 
           {/* Database Policy Row */}
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-4">
             <div>
-              <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-rose-600 text-[18px]">filter_alt_off</span>
                 <span>{t('settings_gps_drop_label')}</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 {t('settings_gps_drop_desc')}
               </div>
             </div>
@@ -737,28 +737,28 @@ export default function SystemSettings() {
                 }
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+              <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
             </label>
           </div>
 
           {/* Real-time Interactive Test Sandbox */}
-          <div className="p-4.5 rounded-2xl bg-blue-50/40 border border-blue-200/60 space-y-3.5">
-            <div className="flex items-center justify-between border-b border-blue-200/50 pb-2.5">
-              <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-primary text-[18px]">science</span>
+          <div className="p-4.5 rounded-2xl bg-blue-50/40 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 space-y-3.5">
+            <div className="flex items-center justify-between border-b border-blue-200/50 dark:border-blue-800/50 pb-2.5">
+              <span className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">science</span>
                 {t('settings_gps_sandbox_title')}
               </span>
-              <span className="text-[10px] font-bold text-primary bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded-md font-mono">
+              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100/70 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-md font-mono">
                 Live Simulator
               </span>
             </div>
 
             {/* Test Sliders */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-slate-700">
-              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-slate-700 dark:text-slate-300">
+              <div className="space-y-1 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs">
                 <div className="flex justify-between items-center text-[11px] font-semibold">
-                  <span className="text-slate-600">ความเร็วจำลอง:</span>
-                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  <span className="text-slate-600 dark:text-slate-400">ความเร็วจำลอง:</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                     {testSpeed.toFixed(1)} km/h
                   </span>
                 </div>
@@ -769,14 +769,14 @@ export default function SystemSettings() {
                   step="0.5"
                   value={testSpeed}
                   onChange={(e) => setTestSpeed(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary mt-1"
+                  className="w-full cursor-pointer accent-blue-600 mt-1"
                 />
               </div>
 
-              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="space-y-1 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs">
                 <div className="flex justify-between items-center text-[11px] font-semibold">
-                  <span className="text-slate-600">ระยะขยับจำลอง:</span>
-                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  <span className="text-slate-600 dark:text-slate-400">ระยะขยับจำลอง:</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                     {testDist.toFixed(1)} m
                   </span>
                 </div>
@@ -787,14 +787,14 @@ export default function SystemSettings() {
                   step="1"
                   value={testDist}
                   onChange={(e) => setTestDist(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary mt-1"
+                  className="w-full cursor-pointer accent-blue-600 mt-1"
                 />
               </div>
 
-              <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="space-y-1 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs">
                 <div className="flex justify-between items-center text-[11px] font-semibold">
-                  <span className="text-slate-600">รัศมีแกว่งจำลอง:</span>
-                  <span className="font-mono text-primary font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  <span className="text-slate-600 dark:text-slate-400">รัศมีแกว่งจำลอง:</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                     {testRadius.toFixed(1)} m
                   </span>
                 </div>
@@ -805,7 +805,7 @@ export default function SystemSettings() {
                   step="0.5"
                   value={testRadius}
                   onChange={(e) => setTestRadius(parseFloat(e.target.value))}
-                  className="w-full cursor-pointer accent-primary mt-1"
+                  className="w-full cursor-pointer accent-blue-600 mt-1"
                 />
               </div>
             </div>
@@ -817,7 +817,7 @@ export default function SystemSettings() {
                 <span className="font-bold text-xs">{testResult.label}</span>
                 <span className="text-[11px] opacity-85 hidden sm:inline">• {testResult.summary}</span>
               </div>
-              <span className="font-mono text-[10.5px] font-bold px-2.5 py-1 rounded-lg bg-white/95 border border-black/10 shadow-2xs shrink-0">
+              <span className="font-mono text-[10.5px] font-bold px-2.5 py-1 rounded-lg bg-white/95 dark:bg-slate-900/90 border border-black/10 dark:border-white/10 shadow-2xs shrink-0">
                 DB: {testResult.isDropped ? '❌ กรองทิ้ง (ไม่บันทึก)' : '💾 บันทึกลงฐานข้อมูล'}
               </span>
             </div>
@@ -829,9 +829,9 @@ export default function SystemSettings() {
       {/* TAB 3: APPROVAL & EXPENSE POLICIES */}
       {/* ========================================================================= */}
       {activeTab === 'policies' && (
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4 text-xs">
-          <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-            <span className="material-symbols-outlined text-primary text-[18px]">task_alt</span>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-4 text-xs">
+          <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">task_alt</span>
             นโยบายการส่งรายงานทริปและค่าใช้จ่าย (Approval & Expense Rules)
           </h3>
 
@@ -855,11 +855,11 @@ export default function SystemSettings() {
             ].map((rule) => (
               <div
                 key={rule.key}
-                className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3"
+                className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3"
               >
                 <div>
-                  <div className="font-bold text-slate-900">{rule.title}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{rule.desc}</div>
+                  <div className="font-extrabold text-slate-900 dark:text-white">{rule.title}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{rule.desc}</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
                   <input
@@ -870,13 +870,13 @@ export default function SystemSettings() {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-primary"></div>
+                  <div className="w-8 h-4.5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
               </div>
             ))}
 
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <label className="font-bold text-slate-900 block">
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-1">
+              <label className="font-extrabold text-slate-900 dark:text-white block">
                 วงเงินเบิกจ่ายสูงสุดต่อทริปโดยไม่ต้องขออนุมัติพิเศษ (Max Expense)
               </label>
               <div className="flex items-center gap-2">
@@ -887,7 +887,7 @@ export default function SystemSettings() {
                   onChange={(e) =>
                     setApprovalRules({ ...approvalRules, maxExpensePerTrip: parseInt(e.target.value) || 0 })
                   }
-                  className="w-32 p-2 rounded-lg border border-slate-200 font-bold text-slate-900 focus:outline-none focus:border-primary"
+                  className="w-32 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono tnum"
                 />
                 <span className="text-slate-400">บาท / ทริป</span>
               </div>
@@ -902,36 +902,36 @@ export default function SystemSettings() {
       {activeTab === 'api' && (
         <div className="space-y-4 text-xs">
           {/* API Credentials Card */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-              <span className="material-symbols-outlined text-primary text-[18px]">terminal</span>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-4">
+            <h3 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">terminal</span>
               API & Real-time WebSockets
             </h3>
 
             <div className="space-y-3.5">
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">WebSocket Telemetry Stream Endpoint</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">WebSocket Telemetry Stream Endpoint</label>
                 <input
                   type="text"
                   readOnly
                   value={wsStreamUrl}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-mono text-xs text-primary bg-slate-50 focus:outline-none"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-mono text-xs text-blue-600 dark:text-blue-400 bg-slate-50 dark:bg-slate-800 focus:outline-none"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">Production Secret API Key</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300">Production Secret API Key</label>
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                   <input
                     type={isKeyVisible ? 'text' : 'password'}
                     readOnly
                     value={apiKey}
-                    className="flex-1 min-w-[200px] p-2.5 rounded-xl border border-slate-200 font-mono text-xs bg-slate-50 text-slate-800"
+                    className="flex-1 min-w-[200px] p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-mono text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200"
                   />
                   <button
                     type="button"
                     onClick={() => setIsKeyVisible(!isKeyVisible)}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-600 cursor-pointer shrink-0"
+                    className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 cursor-pointer shrink-0 tactile-btn"
                     title={isKeyVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
                   >
                     <span className="material-symbols-outlined text-[16px]">
@@ -948,7 +948,7 @@ export default function SystemSettings() {
                       setApiKey(newKey);
                       showToast('⚡ สุ่มสร้าง Secret Key ใหม่เรียบร้อย (กดบันทึกด้านบนเพื่อใช้งาน)');
                     }}
-                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 font-bold cursor-pointer shrink-0"
+                    className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold cursor-pointer shrink-0 tactile-btn"
                   >
                     สุ่มใหม่
                   </button>
@@ -958,7 +958,7 @@ export default function SystemSettings() {
                       navigator.clipboard.writeText(apiKey);
                       showToast('📋 คัดลอก API Key แล้ว');
                     }}
-                    className="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 tactile-btn"
                   >
                     <span className="material-symbols-outlined text-[16px]">content_copy</span>
                     คัดลอก
@@ -969,21 +969,21 @@ export default function SystemSettings() {
           </div>
 
           {/* Official API Documentation Download & Reference Banner */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-primary flex items-center justify-center font-bold">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
                     <span className="material-symbols-outlined text-[18px]">menu_book</span>
                   </div>
-                  <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
+                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight">
                     FastFleet API Documentation (English Version)
                   </h3>
-                  <span className="px-2 py-0.5 bg-blue-50 text-primary border border-blue-200 rounded-md text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-mono font-bold">
                     v1.4 Official
                   </span>
                 </div>
-                <p className="text-slate-600 text-xs max-w-2xl leading-relaxed">
+                <p className="text-slate-600 dark:text-slate-400 text-xs max-w-2xl leading-relaxed">
                   Official Developer Integration Guide with complete REST endpoints, WebSocket event schemas, authentication headers, error codes, and live code examples (cURL, Python, Node.js).
                 </p>
               </div>
@@ -993,7 +993,7 @@ export default function SystemSettings() {
                 <a
                   href="/FastFleet_API_Documentation.md"
                   download="FastFleet_API_Documentation.md"
-                  className="px-4 py-2.5 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-none"
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-none tactile-btn"
                 >
                   <span className="material-symbols-outlined text-[17px]">download</span>
                   Download Doc (.MD)
@@ -1002,9 +1002,9 @@ export default function SystemSettings() {
             </div>
 
             {/* Quick API Snippet Preview */}
-            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 font-mono text-[11px] space-y-2 text-slate-800 overflow-x-auto">
-              <div className="flex items-center justify-between text-[10.5px] text-slate-500 border-b border-slate-200 pb-1.5 font-sans">
-                <span className="font-bold text-primary flex items-center gap-1">
+            <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl p-3.5 border border-slate-200/80 dark:border-slate-700/80 font-mono text-[11px] space-y-2 text-slate-800 dark:text-slate-200 overflow-x-auto">
+              <div className="flex items-center justify-between text-[10.5px] text-slate-500 dark:text-slate-400 border-b border-slate-200/80 dark:border-slate-700 pb-1.5 font-sans">
+                <span className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
                   <span className="material-symbols-outlined text-[14px]">code</span>
                   Quick cURL Request Sample:
                 </span>
@@ -1015,13 +1015,13 @@ export default function SystemSettings() {
                     navigator.clipboard.writeText(snippet);
                     showToast('📋 คัดลอก cURL snippet แล้ว');
                   }}
-                  className="text-slate-500 hover:text-primary flex items-center gap-1 text-[10px] cursor-pointer font-bold transition-colors"
+                  className="text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 text-[10px] cursor-pointer font-bold transition-colors"
                 >
                   <span className="material-symbols-outlined text-[13px]">content_copy</span>
                   Copy
                 </button>
               </div>
-              <pre className="text-slate-900 select-all overflow-x-auto font-medium">
+              <pre className="text-slate-900 dark:text-slate-100 select-all overflow-x-auto font-medium">
 {`curl -X GET "https://api.fastfleet.io/v1/telemetry/live" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json"`}

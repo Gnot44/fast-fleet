@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { resolveTripOdoAndGpsMetrics } from '../utils/telemetryUtils';
 
 interface SpecialistRank {
   rank: number;
@@ -11,6 +12,8 @@ interface SpecialistRank {
   territory: string;
   visits: number;
   distanceKm: number;
+  odoDistanceKm?: number;
+  gpsDistanceKm?: number;
   onTime: number;
   rating: number;
   totalExpenses: number;
@@ -29,7 +32,7 @@ interface VisitAgendaStat {
 }
 
 export default function ReportsAnalytics() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   // Dynamic Date Initialization (This Month as default)
   const now = new Date();
@@ -71,10 +74,10 @@ export default function ReportsAnalytics() {
         .select('id, full_name, nickname, avatar_url, department, position, staff(staff_id, territory, total_trips, total_distance_km, safety_score, rating)')
         .eq('role', 'specialist');
 
-      // 2. Fetch Real Trips
+      // 2. Fetch Real Trips with both start/end odometer and total_distance_km (GPS / Google Maps)
       const { data: trips } = await supabase
         .from('trips')
-        .select('id, staff_id, status, approval_status, trip_date, created_at, start_odometer, end_odometer, appointments(*), expenses(*)');
+        .select('id, staff_id, status, approval_status, trip_date, created_at, start_odometer, end_odometer, total_distance_km, appointments(*), expenses(*)');
 
       // 3. Fetch Master Departments
       const { data: depts } = await supabase
@@ -171,18 +174,28 @@ export default function ReportsAnalytics() {
   // Aggregate Metrics Computed Dynamically from filteredTripsByDate
   const dbStats = useMemo(() => {
     let totalVis = 0;
-    let totalDist = 0;
+    let totalOdoDist = 0;
+    let totalGpsDist = 0;
     let totalExp = 0;
     let completedAppts = 0;
     let totalAppts = 0;
 
     const agendaMap: Record<string, number> = { pitch: 0, renewal: 0, healthcheck: 0, demo: 0, other: 0 };
     const expMap: Record<string, number> = { fuel: 0, tolls: 0, hospitality: 0, parking: 0, other: 0 };
-    const specialistVisitsMap: Record<string, { visits: number; distance: number; expenses: number }> = {};
+    const specialistVisitsMap: Record<string, { visits: number; odoDistance: number; gpsDistance: number; distance: number; expenses: number }> = {};
 
     filteredTripsByDate.forEach((tr: any) => {
-      const trDist = tr.end_odometer && tr.start_odometer ? Math.max(0, tr.end_odometer - tr.start_odometer) : 0;
-      totalDist += trDist;
+      const odoMetrics = resolveTripOdoAndGpsMetrics({
+        start_odometer: tr.start_odometer,
+        end_odometer: tr.end_odometer,
+        total_distance_km: tr.total_distance_km,
+        appointments: tr.appointments,
+      });
+
+      if (odoMetrics.totalOdoDistance !== undefined) {
+        totalOdoDist += odoMetrics.totalOdoDistance;
+      }
+      totalGpsDist += odoMetrics.totalGpsDistance;
 
       const appts = tr.appointments || [];
       totalAppts += appts.length;
@@ -214,10 +227,14 @@ export default function ReportsAnalytics() {
 
       if (tr.staff_id) {
         if (!specialistVisitsMap[tr.staff_id]) {
-          specialistVisitsMap[tr.staff_id] = { visits: 0, distance: 0, expenses: 0 };
+          specialistVisitsMap[tr.staff_id] = { visits: 0, odoDistance: 0, gpsDistance: 0, distance: 0, expenses: 0 };
         }
         specialistVisitsMap[tr.staff_id].visits += appts.filter((a: any) => a.confirmation_status).length;
-        specialistVisitsMap[tr.staff_id].distance += trDist;
+        if (odoMetrics.totalOdoDistance !== undefined) {
+          specialistVisitsMap[tr.staff_id].odoDistance += odoMetrics.totalOdoDistance;
+        }
+        specialistVisitsMap[tr.staff_id].gpsDistance += odoMetrics.totalGpsDistance;
+        specialistVisitsMap[tr.staff_id].distance = specialistVisitsMap[tr.staff_id].gpsDistance || specialistVisitsMap[tr.staff_id].odoDistance;
         specialistVisitsMap[tr.staff_id].expenses += exps.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
       }
     });
@@ -226,7 +243,9 @@ export default function ReportsAnalytics() {
 
     return {
       totalVisits: totalVis,
-      totalDistance: totalDist,
+      totalOdoDistance: totalOdoDist,
+      totalGpsDistance: totalGpsDist,
+      totalDistance: totalGpsDist || totalOdoDist,
       totalExpenses: totalExp,
       completionRate: Math.round(compRate * 10) / 10,
       agendaCounts: agendaMap,
@@ -240,7 +259,7 @@ export default function ReportsAnalytics() {
   const specialistsData: SpecialistRank[] = useMemo(() => {
     return rawProfiles.map((p: any, idx: number) => {
       const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
-      const stats = dbStats.specialistVisitsMap[p.id] || { visits: 0, distance: 0, expenses: 0 };
+      const stats = dbStats.specialistVisitsMap[p.id] || { visits: 0, odoDistance: 0, gpsDistance: 0, distance: 0, expenses: 0 };
 
       return {
         rank: idx + 1,
@@ -251,6 +270,8 @@ export default function ReportsAnalytics() {
         territory: staffObj?.territory || 'Bangkok Central (B2B)',
         visits: stats.visits,
         distanceKm: stats.distance,
+        odoDistanceKm: stats.odoDistance,
+        gpsDistanceKm: stats.gpsDistance,
         onTime: stats.visits > 0 ? 100 : 0,
         rating: staffObj?.rating ? Number(staffObj.rating) : 5.0,
         totalExpenses: stats.expenses,
@@ -278,7 +299,6 @@ export default function ReportsAnalytics() {
 
   // Overall KPI Calculations based on real database values
   const totalVisits = dbStats.totalVisits;
-  const totalDistance = dbStats.totalDistance;
   const totalExpenses = dbStats.totalExpenses;
   const avgCostPerVisit = totalVisits > 0 ? (totalExpenses / totalVisits).toFixed(1) : '0';
   const visitCompletionRate = dbStats.completionRate;
@@ -454,30 +474,30 @@ export default function ReportsAnalytics() {
     <div className="w-full space-y-5">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 animate-fade-in text-xs font-medium">
+        <div className="fixed top-20 right-6 z-50 bg-slate-900 dark:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 animate-fade-in text-xs font-medium">
           <span className="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
           {toastMessage}
         </div>
       )}
 
       {/* Header & Date Range Control */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/60 shadow-xs">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
         <div className="w-full xl:w-auto">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="font-bold text-lg sm:text-xl text-on-surface tracking-tight">
+            <h1 className="font-extrabold text-lg sm:text-xl text-slate-900 dark:text-white tracking-tight">
               {t('reports_title')}
             </h1>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-primary border border-blue-200">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
               <span className="material-symbols-outlined text-[14px]">query_stats</span>
               Live Data
             </span>
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <p className="text-on-surface-variant text-xs">
+            <p className="text-slate-500 dark:text-slate-400 text-xs">
               {t('reports_subtitle')}
             </p>
-            <span className="text-slate-300 hidden sm:inline">•</span>
-            <span className="text-[11px] font-bold text-primary bg-blue-50/80 px-2 py-0.5 rounded-md border border-blue-100 flex items-center gap-1">
+            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+            <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/50 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-800 flex items-center gap-1 font-mono">
               <span className="material-symbols-outlined text-[13px]">date_range</span>
               {startDate === endDate ? `วันที่: ${startDate}` : `${startDate} ถึง ${endDate}`} ({filteredTripsByDate.length} ทริป)
             </span>
@@ -487,7 +507,7 @@ export default function ReportsAnalytics() {
         {/* Action Controls: Date Range Presets, Custom Pickers & CSV Export */}
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 w-full xl:w-auto">
           {/* Preset Buttons */}
-          <div className="flex items-center bg-surface-container-low p-1 rounded-xl border border-outline-variant/50 overflow-x-auto no-scrollbar max-w-full">
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 overflow-x-auto no-scrollbar max-w-full">
             {[
               { id: 'today', label: 'วันนี้' },
               { id: 'last7', label: '7 วัน' },
@@ -498,10 +518,10 @@ export default function ReportsAnalytics() {
               <button
                 key={preset.id}
                 onClick={() => handleSelectPreset(preset.id as any)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap cursor-pointer shrink-0 tactile-btn ${
                   dateRangePreset === preset.id
-                    ? 'bg-primary text-white shadow-2xs'
-                    : 'text-on-surface-variant hover:text-on-surface'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 {preset.label}
@@ -510,27 +530,27 @@ export default function ReportsAnalytics() {
           </div>
 
           {/* Custom Date Pickers (จาก - ถึง) */}
-          <div className="flex items-center gap-1.5 bg-surface-container-low p-1.5 rounded-xl border border-outline-variant/50 justify-between sm:justify-start">
-            <span className="text-[11px] font-medium text-slate-500 pl-1 shrink-0">จาก:</span>
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 justify-between sm:justify-start">
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 pl-1 shrink-0">จาก:</span>
             <input
               type="date"
               value={startDate}
               onChange={(e) => handleCustomStartDateChange(e.target.value)}
-              className="bg-white text-xs font-semibold text-slate-800 px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:border-primary cursor-pointer shadow-2xs min-w-0 flex-1 sm:flex-initial"
+              className="bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs min-w-0 flex-1 sm:flex-initial"
             />
-            <span className="text-[11px] font-medium text-slate-500 shrink-0">ถึง:</span>
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">ถึง:</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => handleCustomEndDateChange(e.target.value)}
-              className="bg-white text-xs font-semibold text-slate-800 px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:border-primary cursor-pointer shadow-2xs min-w-0 flex-1 sm:flex-initial"
+              className="bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs min-w-0 flex-1 sm:flex-initial"
             />
           </div>
 
           {/* Export CSV CTA */}
           <button
             onClick={handleExportCSV}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer tactile-btn"
           >
             <span className="material-symbols-outlined text-[16px]">download</span>
             {t('btn_export_csv')}
@@ -538,66 +558,77 @@ export default function ReportsAnalytics() {
         </div>
       </div>
 
-      {/* KPI Cards Row (4 Metrics) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
-        {/* Metric 1: Total Client Visits */}
-        <div className="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 shadow-2xs flex items-center justify-between">
+      {/* 4 Soft Tinted Pastel Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* Metric 1: Total Visits - Soft Blue Tint */}
+        <div className="soft-tint-blue p-5 rounded-3xl transition-all hover:shadow-2xs flex items-center justify-between">
           <div className="min-w-0">
-            <span className="text-[11px] text-on-surface-variant font-medium block truncate">การเข้าพบลูกค้าทั้งหมด</span>
-            <div className="text-2xl font-extrabold text-on-surface mt-0.5">{totalVisits}</div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 truncate">
-              <span>{totalVisits > 0 ? `พบสำเร็จ ${totalVisits} จุด` : 'ยังไม่มีข้อมูลการเข้าพบ'}</span>
+            <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 tracking-wide uppercase block truncate">
+              {language === 'th' ? 'การเข้าพบลูกค้าทั้งหมด' : 'Total Client Visits'}
+            </span>
+            <div className="text-3xl font-extrabold text-blue-950 dark:text-blue-100 mt-1 font-mono tnum">{totalVisits}</div>
+            <div className="flex items-center gap-1 text-[11px] text-blue-700/80 dark:text-blue-400/80 mt-1 truncate font-medium">
+              <span>{totalVisits > 0 ? (language === 'th' ? `พบสำเร็จ ${totalVisits} จุด` : `${totalVisits} completed`) : (language === 'th' ? 'ยังไม่มีข้อมูลการเข้าพบ' : 'No visits recorded')}</span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-blue-50 text-primary flex items-center justify-center border border-blue-200 shrink-0 ml-3">
+          <div className="w-10 h-10 rounded-2xl bg-white dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-200/80 dark:border-blue-800/70 shrink-0 ml-2">
             <span className="material-symbols-outlined text-[22px]">storefront</span>
           </div>
         </div>
 
-        {/* Metric 2: Total Distance Traveled */}
-        <div className="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 shadow-2xs flex items-center justify-between">
+        {/* Metric 2: Total Distance Traveled - Soft Emerald Tint */}
+        <div className="soft-tint-emerald p-5 rounded-3xl transition-all hover:shadow-2xs flex items-center justify-between">
           <div className="min-w-0">
-            <span className="text-[11px] text-on-surface-variant font-medium block truncate">ระยะทางเดินทางรวม (Fleet Distance)</span>
-            <div className="text-2xl font-extrabold text-on-surface mt-0.5">
-              {totalDistance.toLocaleString()} <span className="text-xs font-normal text-on-surface-variant">กม.</span>
+            <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 tracking-wide uppercase block truncate">
+              {language === 'th' ? 'ระยะทางรวม GPS / ODO' : 'Total Fleet Distance'}
+            </span>
+            <div className="text-3xl font-extrabold text-emerald-950 dark:text-emerald-100 mt-1 font-mono tnum">
+              {dbStats.totalGpsDistance.toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
+              <span className="text-xs font-normal text-emerald-700/80 dark:text-emerald-400/80">{language === 'th' ? 'กม. (GPS)' : 'km (GPS)'}</span>
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 truncate">
-              <span>{totalDistance > 0 ? 'จาก Odometer จริง' : '0 กม.'}</span>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-1 truncate font-medium">
+              <span>
+                ODO รวม: {dbStats.totalOdoDistance > 0 ? `${dbStats.totalOdoDistance.toLocaleString()} กม.` : (language === 'th' ? 'ไม่มีเลขไมล์บันทึก' : 'No ODO logs')}
+              </span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200 shrink-0 ml-3">
+          <div className="w-10 h-10 rounded-2xl bg-white dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200/80 dark:border-emerald-800/70 shrink-0 ml-2">
             <span className="material-symbols-outlined text-[22px]">route</span>
           </div>
         </div>
 
-        {/* Metric 3: Total Expenses */}
-        <div className="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 shadow-2xs flex items-center justify-between">
+        {/* Metric 3: Total Expenses - Soft Purple Tint */}
+        <div className="soft-tint-purple p-5 rounded-3xl transition-all hover:shadow-2xs flex items-center justify-between">
           <div className="min-w-0">
-            <span className="text-[11px] text-on-surface-variant font-medium block truncate">ค่าใช้จ่ายรวมภาคสนาม (Expenses)</span>
-            <div className="text-2xl font-extrabold text-on-surface mt-0.5">
+            <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 tracking-wide uppercase block truncate">
+              {language === 'th' ? 'ค่าใช้จ่ายรวมภาคสนาม (Expenses)' : 'Field Expenses'}
+            </span>
+            <div className="text-3xl font-extrabold text-purple-950 dark:text-purple-100 mt-1 font-mono tnum">
               ฿{totalExpenses.toLocaleString()}
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 truncate">
+            <div className="flex items-center gap-1 text-[11px] text-purple-700/80 dark:text-purple-400/80 font-medium mt-1 truncate">
               <span>{totalExpenses > 0 ? `เฉลี่ย ฿${avgCostPerVisit} / จุด` : '฿0'}</span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center border border-purple-200 shrink-0 ml-3">
+          <div className="w-10 h-10 rounded-2xl bg-white dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-200/80 dark:border-purple-800/70 shrink-0 ml-2">
             <span className="material-symbols-outlined text-[22px]">receipt_long</span>
           </div>
         </div>
 
-        {/* Metric 4: Visit Completion Rate */}
-        <div className="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 shadow-2xs flex items-center justify-between">
+        {/* Metric 4: Visit Completion Rate - Soft Amber Tint */}
+        <div className="soft-tint-amber p-5 rounded-3xl transition-all hover:shadow-2xs flex items-center justify-between">
           <div className="min-w-0">
-            <span className="text-[11px] text-on-surface-variant font-medium block truncate">อัตราเข้าพบตามแผน (Success Rate)</span>
-            <div className="text-2xl font-extrabold text-on-surface mt-0.5">
+            <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 tracking-wide uppercase block truncate">
+              {language === 'th' ? 'อัตราเข้าพบตามแผน (Success)' : 'Completion Rate'}
+            </span>
+            <div className="text-3xl font-extrabold text-amber-950 dark:text-amber-100 mt-1 font-mono tnum">
               {visitCompletionRate}%
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 truncate">
+            <div className="flex items-center gap-1 text-[11px] text-amber-700/80 dark:text-amber-400/80 mt-1 truncate font-medium">
               <span>{totalVisits > 0 ? 'ยืนยันพร้อมภาพถ่าย' : 'รอพนักงานเริ่มงาน'}</span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200 shrink-0 ml-3">
+          <div className="w-10 h-10 rounded-2xl bg-white dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-200/80 dark:border-amber-800/70 shrink-0 ml-2">
             <span className="material-symbols-outlined text-[22px]">verified</span>
           </div>
         </div>
@@ -606,13 +637,13 @@ export default function ReportsAnalytics() {
       {/* Grid: 2 Breakdown Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Left Card: 5 Standardized Visit Agendas */}
-        <div className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/60 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-[20px]">donut_small</span>
-              <h3 className="font-bold text-sm text-on-surface">วัตถุประสงค์การเข้าพบ (Visit Agendas)</h3>
+              <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[20px]">donut_small</span>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">วัตถุประสงค์การเข้าพบ (Visit Agendas)</h3>
             </div>
-            <span className="text-[11px] font-bold text-on-surface-variant bg-slate-100 px-2 py-0.5 rounded">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
               รวม {totalAgendaVisits} ครั้ง
             </span>
           </div>
@@ -624,18 +655,18 @@ export default function ReportsAnalytics() {
               return (
                 <div key={agenda.id} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs gap-2">
-                    <div className="flex items-center gap-2 font-medium text-slate-800 min-w-0">
+                    <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200 min-w-0">
                       <span className="text-base shrink-0">{agenda.icon}</span>
                       <span className="truncate">{agenda.title}</span>
                     </div>
                     <div className="flex items-center gap-1.5 font-mono text-[11px] shrink-0">
-                      <span className="font-bold text-slate-900">{agenda.count} ครั้ง</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{agenda.count} ครั้ง</span>
                       <span className="text-slate-400">({pct}%)</span>
                     </div>
                   </div>
 
                   {/* Progress bar */}
-                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className={`h-full ${agenda.colorBar} rounded-full transition-all duration-500`}
                       style={{ width: `${pct}%` }}
@@ -648,13 +679,13 @@ export default function ReportsAnalytics() {
         </div>
 
         {/* Right Card: Expense Category Breakdown */}
-        <div className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/60 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-purple-600 text-[20px]">account_balance_wallet</span>
-              <h3 className="font-bold text-sm text-on-surface">สัดส่วนค่าใช้จ่ายภาคสนาม (Field Expenses)</h3>
+              <span className="material-symbols-outlined text-purple-600 dark:text-purple-400 text-[20px]">account_balance_wallet</span>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">สัดส่วนค่าใช้จ่ายภาคสนาม (Field Expenses)</h3>
             </div>
-            <span className="text-[11px] font-bold text-purple-700 font-mono bg-purple-50 px-2 py-0.5 rounded border border-purple-100">
+            <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300 font-mono bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded border border-purple-100 dark:border-purple-800">
               ฿{totalExpenses.toLocaleString()}
             </span>
           </div>
@@ -663,18 +694,18 @@ export default function ReportsAnalytics() {
             {expenseCategories.map((cat, idx) => (
               <div key={idx} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs gap-2">
-                  <div className="flex items-center gap-2 text-slate-800 min-w-0">
-                    <span className="material-symbols-outlined text-[16px] text-slate-500 shrink-0">{cat.icon}</span>
+                  <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 min-w-0">
+                    <span className="material-symbols-outlined text-[16px] text-slate-500 dark:text-slate-400 shrink-0">{cat.icon}</span>
                     <span className="font-medium truncate">{cat.label}</span>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono text-[11px] shrink-0">
-                    <span className="font-bold text-slate-900">฿{cat.amount.toLocaleString()}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">฿{cat.amount.toLocaleString()}</span>
                     <span className="text-slate-400">({cat.pct}%)</span>
                   </div>
                 </div>
 
                 {/* Progress bar */}
-                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div
                     className={`h-full ${cat.color} rounded-full transition-all duration-500`}
                     style={{ width: `${cat.pct}%` }}
@@ -687,15 +718,15 @@ export default function ReportsAnalytics() {
       </div>
 
       {/* Specialist Performance Ranking Table */}
-      <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/60 shadow-xs overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs overflow-hidden">
         {/* Table Header & Controls */}
-        <div className="p-4 border-b border-outline-variant/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 bg-surface-container-low">
+        <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 bg-slate-50/60 dark:bg-slate-800/40">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="material-symbols-outlined text-primary text-[20px]">military_tech</span>
-            <h3 className="font-bold text-sm text-on-surface">
+            <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[20px]">military_tech</span>
+            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
               อันดับประสิทธิภาพพนักงานการตลาด (Marketing Specialist Leaderboard)
             </h3>
-            <span className="text-xs text-slate-500 font-normal">({filteredSpecialists.length} คน)</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-normal font-mono">({filteredSpecialists.length} คน)</span>
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
@@ -703,7 +734,7 @@ export default function ReportsAnalytics() {
             <select
               value={selectedDepartment}
               onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="bg-white px-2.5 py-1.5 rounded-xl text-xs font-bold text-on-surface border border-outline-variant/60 focus:outline-none focus:border-primary cursor-pointer"
+              className="bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
             >
               <option value="all">ทุกฝ่าย / แผนก</option>
               {availableDepartments.map((dept) => (
@@ -715,7 +746,7 @@ export default function ReportsAnalytics() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-white px-2.5 py-1.5 rounded-xl text-xs font-bold text-on-surface border border-outline-variant/60 focus:outline-none focus:border-primary cursor-pointer"
+              className="bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
             >
               <option value="visits">เรียงตาม: จำนวนเข้าพบ</option>
               <option value="distance">เรียงตาม: ระยะทาง (กม.)</option>
@@ -727,7 +758,7 @@ export default function ReportsAnalytics() {
         </div>
 
         {/* Mobile Horizontal Scroll Hint */}
-        <div className="px-4 py-1.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex items-center justify-between sm:hidden">
+        <div className="px-4 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between sm:hidden">
           <span className="flex items-center gap-1">
             <span className="material-symbols-outlined text-[14px]">swipe</span>
             เลื่อนหน้าจอไปทางซ้าย-ขวาเพื่อดูข้อมูลทั้งหมด
@@ -738,7 +769,7 @@ export default function ReportsAnalytics() {
         {/* Leaderboard Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs min-w-[650px]">
-            <thead className="bg-surface-container-low/60 text-on-surface-variant font-bold border-b border-outline-variant/60">
+            <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200/80 dark:border-slate-700/80">
               <tr>
                 <th className="p-3.5 pl-4 text-center w-12">อันดับ</th>
                 <th className="p-3.5 min-w-[160px]">พนักงาน (Specialist)</th>
@@ -750,11 +781,11 @@ export default function ReportsAnalytics() {
                 <th className="p-3.5 text-right pr-4">ค่าใช้จ่ายรวม</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-outline-variant/40">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredSpecialists.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-400">
-                    <span className="material-symbols-outlined text-4xl mb-2 text-slate-300">group_off</span>
+                    <span className="material-symbols-outlined text-4xl mb-2 text-slate-300 dark:text-slate-600">group_off</span>
                     <p className="text-xs">ไม่พบข้อมูลพนักงานการตลาดในระบบ</p>
                   </td>
                 </tr>
@@ -762,18 +793,18 @@ export default function ReportsAnalytics() {
                 filteredSpecialists.map((spec, idx) => {
                   const rankBadgeColor =
                     idx === 0
-                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
                       : idx === 1
-                      ? 'bg-slate-200 text-slate-700 border-slate-300'
+                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
                       : idx === 2
-                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                      : 'bg-slate-50 text-slate-500 border-slate-200';
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700';
 
                   return (
-                    <tr key={idx} className="hover:bg-surface-container-low/40 transition-colors">
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="p-3.5 pl-4 text-center">
                         <span
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border ${rankBadgeColor}`}
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border font-mono ${rankBadgeColor}`}
                         >
                           {idx + 1}
                         </span>
@@ -784,35 +815,35 @@ export default function ReportsAnalytics() {
                             <img
                               src={spec.avatar}
                               alt={spec.name}
-                              className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                              className="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
                             />
                           ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-100 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
                               {spec.initials}
                             </div>
                           )}
                           <div className="min-w-0">
-                            <div className="font-bold text-slate-900 truncate">{spec.name}</div>
+                            <div className="font-extrabold text-slate-900 dark:text-white truncate">{spec.name}</div>
                           </div>
                         </div>
                       </td>
                       <td className="p-3.5">
-                        <div className="font-semibold text-primary truncate">{spec.department}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{spec.territory}</div>
+                        <div className="font-semibold text-blue-600 dark:text-blue-400 truncate">{spec.department}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{spec.territory}</div>
                       </td>
-                      <td className="p-3.5 text-center font-bold text-slate-900 font-mono">
+                      <td className="p-3.5 text-center font-bold text-slate-900 dark:text-white font-mono tnum">
                         {spec.visits} จุด
                       </td>
-                      <td className="p-3.5 text-center font-mono text-slate-700">
+                      <td className="p-3.5 text-center font-mono tnum text-slate-700 dark:text-slate-300">
                         {spec.distanceKm.toLocaleString()} กม.
                       </td>
                       <td className="p-3.5 text-center">
-                        <span className="font-bold text-emerald-700 font-mono">{spec.onTime}%</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono tnum">{spec.onTime}%</span>
                       </td>
-                      <td className="p-3.5 text-center font-mono text-amber-600 font-bold">
+                      <td className="p-3.5 text-center font-mono text-amber-500 font-bold">
                         ★ {spec.rating}
                       </td>
-                      <td className="p-3.5 text-right pr-4 font-bold text-slate-900 font-mono">
+                      <td className="p-3.5 text-right pr-4 font-bold text-slate-900 dark:text-white font-mono tnum">
                         ฿{spec.totalExpenses.toLocaleString()}
                       </td>
                     </tr>

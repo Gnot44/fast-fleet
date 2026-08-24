@@ -78,7 +78,7 @@ export const ThemeTogglePill = ({ className }: { className?: string }) => {
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
         isDark
           ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
-          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
       } ${className || ''}`}
       title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
     >

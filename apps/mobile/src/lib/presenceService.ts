@@ -16,13 +16,68 @@ export const BACKGROUND_LOCATION_TASK = 'FLEET_BACKGROUND_LOCATION_TASK';
 // 3-State evaluation engine for mobile phones to eliminate indoor jitter
 // ==============================================================================
 export const ANTI_DRIFT_CONFIG = {
-  MB_SPEED_MOVING: 4.0,   // km/h (ความเร็วขั้นต่ำสำหรับการเดินทาง)
+  MB_SPEED_MOVING: 6.0,   // km/h (ความเร็วขั้นต่ำสำหรับการเดินทาง)
   MB_DIST_MOVING: 10.0,   // meters (ระยะขยับขั้นต่ำสำหรับการเดินทาง)
   MB_SPEED_STATIC: 1.5,   // km/h (ความเร็วสูงสุดขณะหยุดนิ่ง)
   MB_STATIC_RADIUS: 15.0, // meters (รัศมีหยุดนิ่ง ป้องกันพิกัดดริฟท์)
   MAX_GPS_ACCURACY: 50.0, // meters (ความแม่นยำขั้นต่ำจากดาวเทียม)
+  DROP_IGNORE_DATA: true, // กรองพิกัด Ignore ทิ้ง ไม่บันทึกลง DB
   HEARTBEAT_MS: 20000,    // 20 seconds
 };
+
+// Fetch and sync GPS config from system_settings dynamically
+export async function syncGpsConfigFromDatabase() {
+  try {
+    const { data } = await (supabase.from('system_settings' as any) as any)
+      .select('gps_config')
+      .limit(1)
+      .maybeSingle();
+
+    if (data && data.gps_config) {
+      if (typeof data.gps_config.mbSpeedMoving === 'number') {
+        ANTI_DRIFT_CONFIG.MB_SPEED_MOVING = data.gps_config.mbSpeedMoving;
+      }
+      if (typeof data.gps_config.mbDistMoving === 'number') {
+        ANTI_DRIFT_CONFIG.MB_DIST_MOVING = data.gps_config.mbDistMoving;
+      }
+      if (typeof data.gps_config.mbSpeedStatic === 'number') {
+        ANTI_DRIFT_CONFIG.MB_SPEED_STATIC = data.gps_config.mbSpeedStatic;
+      }
+      if (typeof data.gps_config.mbStaticRadius === 'number') {
+        ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS = data.gps_config.mbStaticRadius;
+      }
+      if (typeof data.gps_config.dropIgnoreData === 'boolean') {
+        ANTI_DRIFT_CONFIG.DROP_IGNORE_DATA = data.gps_config.dropIgnoreData;
+      }
+      console.log(`[Anti-Drift] 🔄 Synced GPS settings from DB: Moving > ${ANTI_DRIFT_CONFIG.MB_SPEED_MOVING} km/h & ${ANTI_DRIFT_CONFIG.MB_DIST_MOVING}m, Stopped <= ${ANTI_DRIFT_CONFIG.MB_SPEED_STATIC} km/h & ${ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS}m`);
+    }
+  } catch (err) {
+    console.warn('[Anti-Drift] GPS config sync note:', err);
+  }
+}
+
+// Auto-init sync and listen to realtime updates from admin web dashboard
+syncGpsConfigFromDatabase();
+supabase
+  .channel('mobile_system_settings_sync')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'system_settings' },
+    (payload) => {
+      if (payload.new && typeof payload.new === 'object') {
+        const row: any = payload.new;
+        if (row.gps_config) {
+          if (typeof row.gps_config.mbSpeedMoving === 'number') ANTI_DRIFT_CONFIG.MB_SPEED_MOVING = row.gps_config.mbSpeedMoving;
+          if (typeof row.gps_config.mbDistMoving === 'number') ANTI_DRIFT_CONFIG.MB_DIST_MOVING = row.gps_config.mbDistMoving;
+          if (typeof row.gps_config.mbSpeedStatic === 'number') ANTI_DRIFT_CONFIG.MB_SPEED_STATIC = row.gps_config.mbSpeedStatic;
+          if (typeof row.gps_config.mbStaticRadius === 'number') ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS = row.gps_config.mbStaticRadius;
+          if (typeof row.gps_config.dropIgnoreData === 'boolean') ANTI_DRIFT_CONFIG.DROP_IGNORE_DATA = row.gps_config.dropIgnoreData;
+          console.log(`[Anti-Drift] ⚡ Realtime GPS settings updated from Web Admin! (Moving > ${ANTI_DRIFT_CONFIG.MB_SPEED_MOVING} km/h, Stopped <= ${ANTI_DRIFT_CONFIG.MB_SPEED_STATIC} km/h)`);
+        }
+      }
+    }
+  )
+  .subscribe();
 
 interface AntiDriftState {
   lastAcceptedCoords: Coordinates | null;
@@ -107,7 +162,7 @@ export function evaluateAntiDrift(
       state.lastGeocodedCoords = rawCoords;
     }
 
-    console.log(`[Anti-Drift] 🚗 Running: Speed ${rawSpeedKmH.toFixed(1)} km/h, Dist ${distFromLast.toFixed(1)}m`);
+    console.log(`[Anti-Drift] 🚗 Running: Speed ${rawSpeedKmH.toFixed(1)} > ${ANTI_DRIFT_CONFIG.MB_SPEED_MOVING} km/h & Dist ${distFromLast.toFixed(1)} > ${ANTI_DRIFT_CONFIG.MB_DIST_MOVING}m`);
     return {
       status: 'Running',
       coords: rawCoords,
@@ -122,7 +177,7 @@ export function evaluateAntiDrift(
     state.isStationary = true;
     state.lastSpeedKmH = 0;
 
-    console.log(`[Anti-Drift] 📍 Stopped: Speed ${rawSpeedKmH.toFixed(1)} <= 1.5 km/h & Radius ${distFromAnchor.toFixed(1)} <= 15m`);
+    console.log(`[Anti-Drift] 📍 Stopped: Speed ${rawSpeedKmH.toFixed(1)} <= ${ANTI_DRIFT_CONFIG.MB_SPEED_STATIC} km/h & Radius ${distFromAnchor.toFixed(1)} <= ${ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS}m`);
     return {
       status: 'Stopped',
       coords: state.anchorCoords,
@@ -133,6 +188,7 @@ export function evaluateAntiDrift(
   }
 
   // 5. State 3: Ignore (GPS Drift / Multipath Jitter)
+  console.log(`[Anti-Drift] 🛡️ Ignore Drift: Speed ${rawSpeedKmH.toFixed(1)} km/h, Dist ${distFromAnchor.toFixed(1)}m. Dropping noise.`);
   return {
     status: 'Ignore',
     coords: state.anchorCoords || state.lastAcceptedCoords,
@@ -210,13 +266,15 @@ async function processLocationTelemetry(rawCoords: {
           })
           .eq('id', user.id);
 
-        await supabase.from('location_logs').insert({
-          staff_id: user.id,
-          lat: evalResult.coords.latitude,
-          lng: evalResult.coords.longitude,
-          speed: Math.round(evalResult.speedKmH),
-          battery_level: batteryLevel,
-        });
+        if (evalResult.action !== 'DROP' || !ANTI_DRIFT_CONFIG.DROP_IGNORE_DATA) {
+          await supabase.from('location_logs').insert({
+            staff_id: user.id,
+            lat: evalResult.coords.latitude,
+            lng: evalResult.coords.longitude,
+            speed: Math.round(evalResult.speedKmH),
+            battery_level: batteryLevel,
+          });
+        }
       } catch (directErr) {
         console.warn('[LocationService] Direct update fallback note:', directErr);
       }
@@ -313,11 +371,44 @@ export async function sendLocationPing(isOnline: boolean = true) {
 }
 
 /**
+ * Check if tracking is allowed for the logged in specialist
+ * - If Admin enforced (is_tracking_enabled !== false) -> returns true
+ * - If Admin not enforced (is_tracking_enabled === false) -> respects user_tracking_enabled (default true)
+ */
+export async function isTrackingAllowed(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { data: prof } = await (supabase.from('profiles' as any) as any)
+      .select('is_tracking_enabled, user_tracking_enabled')
+      .eq('id', user.id)
+      .single();
+
+    if (!prof) return true;
+    const isEnforced = prof.is_tracking_enabled !== false;
+    if (isEnforced) return true;
+    return prof.user_tracking_enabled !== false;
+  } catch (err) {
+    console.warn('[LocationService] isTrackingAllowed check error:', err);
+    return true;
+  }
+}
+
+/**
  * Start Presence Tracking (Hybrid: Native Background Service + Live Position Watcher + Heartbeat Interval)
- * Keeps sending GPS location until user explicitly logs out
+ * Keeps sending GPS location until user explicitly logs out or disables tracking
  */
 export async function startLivePresenceTracking() {
   try {
+    // 0. Check if tracking is permitted by policy / specialist choice
+    const allowed = await isTrackingAllowed();
+    if (!allowed) {
+      console.log('[LocationService] 🛑 Tracking is currently disabled by specialist settings.');
+      await stopLivePresenceTracking();
+      return;
+    }
+
     // 1. Request Foreground Permissions
     const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
     if (fgStatus !== 'granted') {
