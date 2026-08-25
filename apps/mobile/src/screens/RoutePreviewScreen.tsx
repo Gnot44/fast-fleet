@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -210,13 +211,30 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
     }
   };
 
+  const lastProcessedTimeRef = useRef<number>(0);
+
+  // Handle added or updated drops returned from AddNewDrop
+  useEffect(() => {
+    const timestamp = route.params?.timestamp || 0;
+    if (route.params?.addedDrop && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const newDrop = route.params.addedDrop;
+      setDrops((prev: any[]) => [...prev, newDrop]);
+    }
+    if (route.params?.updatedDrop && typeof route.params?.editIndex === 'number' && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const { updatedDrop, editIndex } = route.params;
+      setDrops((prev: any[]) => prev.map((d, i) => (i === editIndex ? { ...d, ...updatedDrop } : d)));
+    }
+  }, [route.params?.addedDrop, route.params?.updatedDrop, route.params?.editIndex, route.params?.timestamp]);
+
   const handleEditDrop = (drop: any, index: number) => {
     navigation.navigate('AddNewDrop', {
       drop,
       isEditing: true,
-      onEditDrop: (updated: any) => {
-        setDrops((prev: any[]) => prev.map((d, i) => (i === index ? { ...d, ...updated } : d)));
-      },
+      editIndex: index,
+      returnScreen: 'RoutePreview',
+      timestamp: Date.now(),
     });
   };
 
@@ -238,7 +256,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
       }
 
       // Both GPS & Odo confirmed -> Launch Tracker!
-      navigation.navigate('ActiveTracker', {
+      navigation.replace('ActiveTracker', {
         tripId,
         tripCode,
         tripTitle,
@@ -333,13 +351,34 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
     await proceedStartTrip(todayYMD);
   };
 
+  const handlePreviewGoBack = () => {
+    if (params.returnScreen) {
+      navigation.navigate(params.returnScreen);
+      return;
+    }
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Dashboard');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handlePreviewGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [params.returnScreen]);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={handlePreviewGoBack}
           activeOpacity={0.7}
         >
           <ArrowLeft size={20} color="#03246B" />

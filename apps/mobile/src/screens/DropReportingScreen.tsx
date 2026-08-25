@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,10 @@ import {
   Modal,
   KeyboardAvoidingView,
   ActivityIndicator,
+  AppState,
+  BackHandler,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
@@ -112,6 +115,47 @@ export default function DropReportingScreen({ navigation, route }: any) {
     drop.odometer ? String(drop.odometer) : (drop.odometer_reading ? String(drop.odometer_reading) : '')
   );
 
+  // Resolve Previous Point's Odometer Reading (Start Odometer or Previous Drop)
+  const previousPointOdometer = React.useMemo(() => {
+    // 1. Search backwards through previous drops
+    for (let i = dropIndex - 1; i >= 0; i--) {
+      const d = drops[i];
+      const raw = d?.odometer || d?.odometer_reading;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const num = parseFloat(String(raw).replace(/,/g, ''));
+        if (!isNaN(num) && num > 0) return num;
+      }
+    }
+    // 2. Fallback to trip starting odometer
+    if (params.startOdometer) {
+      const num = parseFloat(String(params.startOdometer).replace(/,/g, ''));
+      if (!isNaN(num) && num > 0) return num;
+    }
+    return null;
+  }, [drops, dropIndex, params.startOdometer]);
+
+  // Resolve Next Point's Odometer Reading (if subsequent drops have logged values)
+  const nextPointOdometer = React.useMemo(() => {
+    for (let i = dropIndex + 1; i < drops.length; i++) {
+      const d = drops[i];
+      const raw = d?.odometer || d?.odometer_reading;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const num = parseFloat(String(raw).replace(/,/g, ''));
+        if (!isNaN(num) && num > 0) return num;
+      }
+    }
+    return null;
+  }, [drops, dropIndex]);
+
+  const currentOdoNum = React.useMemo(() => {
+    if (!odometer) return null;
+    const num = parseFloat(String(odometer).replace(/,/g, ''));
+    return !isNaN(num) && num > 0 ? num : null;
+  }, [odometer]);
+
+  const isRollbackWarning = currentOdoNum !== null && previousPointOdometer !== null && currentOdoNum < previousPointOdometer;
+  const isAheadOfNextWarning = currentOdoNum !== null && nextPointOdometer !== null && currentOdoNum > nextPointOdometer;
+
   // Visit Agenda State (Strictly default to the agenda created for this drop)
   const initialAgenda = drop.agenda || drop.items || params.agenda || params.items || '';
   const [visitAgenda, setVisitAgenda] = useState(initialAgenda);
@@ -180,7 +224,10 @@ export default function DropReportingScreen({ navigation, route }: any) {
   const [uploadingProofPhoto, setUploadingProofPhoto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Reset / Sync local form states whenever route params change (e.g. when editing a drop from summary)
+  // Local draft key unique to this trip and appointment/drop
+  const draftKey = `draft_drop_${params.tripId || 'active'}_${drop.appointmentId || drop.id || dropIndex}`;
+
+  // 1. Reset / Sync local form states whenever route params change
   useEffect(() => {
     const currentDrop = params.drop || {};
     const passedExps = Array.isArray(currentDrop.expenses)
@@ -188,35 +235,189 @@ export default function DropReportingScreen({ navigation, route }: any) {
       : Array.isArray(params.expenses)
       ? params.expenses
       : [];
-    setExpenses(passedExps);
+    if (passedExps.length > 0) setExpenses(passedExps);
 
     const passedPhotos = Array.isArray(currentDrop.photos)
       ? parsePhotos(currentDrop.photos)
       : Array.isArray(params.photos)
       ? parsePhotos(params.photos)
       : parsePhotos(currentDrop.client_photo_url);
-    setPhotos(passedPhotos);
+    if (passedPhotos.length > 0) setPhotos(passedPhotos);
 
     const currentAgenda = currentDrop.agenda || currentDrop.items || params.agenda || params.items || '';
     if (currentAgenda) setVisitAgenda(currentAgenda);
 
     const currentNote = currentDrop.note || (typeof currentDrop.meetingMinutes === 'string' ? currentDrop.meetingMinutes : currentDrop.meetingMinutes?.notes) || params.note || '';
-    setNote(currentNote);
+    if (currentNote) setNote(currentNote);
 
     const currentOdo = currentDrop.odometer !== undefined ? String(currentDrop.odometer) : (currentDrop.odometer_reading ? String(currentDrop.odometer_reading) : '');
-    setOdometer(currentOdo);
+    if (currentOdo) setOdometer(currentOdo);
 
     if (currentDrop.isDataComplete !== undefined) {
       setIsDataComplete(!!currentDrop.isDataComplete);
     }
   }, [params.drop, params.dropIndex, params.expenses, params.photos, params.note]);
 
-  // Fetch existing expenses from Supabase for this appointment if not populated
+  // 2. Restore local draft from AsyncStorage on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function restoreDraft() {
+      try {
+        const savedJson = await AsyncStorage.getItem(draftKey);
+        if (savedJson && isMounted) {
+          const draft = JSON.parse(savedJson);
+          if (draft) {
+            if (draft.odometer !== undefined && draft.odometer !== '') {
+              setOdometer((prev: string) => prev || String(draft.odometer));
+            }
+            if (draft.visitAgenda) {
+              setVisitAgenda((prev: string) => prev || draft.visitAgenda);
+            }
+            if (draft.note) {
+              setNote((prev: string) => prev || draft.note);
+            }
+            if (Array.isArray(draft.photos) && draft.photos.length > 0) {
+              setPhotos((prev: string[]) => (prev && prev.length > 0 ? prev : draft.photos));
+            }
+            if (Array.isArray(draft.expenses) && draft.expenses.length > 0) {
+              setExpenses((prev: ExpenseItem[]) => (prev && prev.length > 0 ? prev : draft.expenses));
+            }
+            if (draft.isDataComplete !== undefined) {
+              setIsDataComplete(draft.isDataComplete);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error restoring local draft from AsyncStorage:', err);
+      }
+    }
+    restoreDraft();
+    return () => {
+      isMounted = false;
+    };
+  }, [draftKey]);
+
+  // 3. Auto-save local draft to AsyncStorage + Debounced Cloud Backup to Supabase
+  useEffect(() => {
+    const draftPayload = {
+      odometer,
+      visitAgenda,
+      note,
+      photos,
+      expenses,
+      isDataComplete,
+      updatedAt: new Date().toISOString(),
+    };
+    AsyncStorage.setItem(draftKey, JSON.stringify(draftPayload)).catch(() => {});
+
+    // Debounced automatic cloud sync to Supabase driver_notes
+    const apptId = drop.appointmentId || drop.id;
+    if (apptId) {
+      const timer = setTimeout(() => {
+        supabase.from('appointments').update({
+          driver_notes: JSON.stringify({
+            hasDraft: true,
+            draftPhotos: photos,
+            draftExpenses: expenses,
+            draftNote: note,
+            draftOdometer: odometer,
+            draftAgenda: visitAgenda,
+            draftIsComplete: isDataComplete,
+          }),
+        }).eq('id', apptId).then(() => {}, () => {});
+      }, 600);
+
+      return () => clearTimeout(timer);
+    }
+  }, [odometer, visitAgenda, note, photos, expenses, isDataComplete, draftKey, drop.appointmentId, drop.id]);
+
+  // 4. Save draft when app goes to background / user swipes app away
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        const draftPayload = {
+          odometer,
+          visitAgenda,
+          note,
+          photos,
+          expenses,
+          isDataComplete,
+          updatedAt: new Date().toISOString(),
+        };
+        AsyncStorage.setItem(draftKey, JSON.stringify(draftPayload)).catch(() => {});
+
+        // Backup draft to Supabase if appointment exists
+        const apptId = drop.appointmentId || drop.id;
+        if (apptId) {
+          supabase.from('appointments').update({
+            driver_notes: JSON.stringify({
+              hasDraft: true,
+              draftPhotos: photos,
+              draftExpenses: expenses,
+              draftNote: note,
+              draftOdometer: odometer,
+              draftAgenda: visitAgenda,
+              draftIsComplete: isDataComplete,
+            }),
+          }).eq('id', apptId).then(() => {}, () => {});
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [odometer, visitAgenda, note, photos, expenses, isDataComplete, draftKey, drop.appointmentId, drop.id]);
+
+  // Fetch appointment data & cloud draft from Supabase if not populated
   useEffect(() => {
     async function loadAppointmentData() {
       const apptId = drop.appointmentId || drop.id;
       if (apptId) {
         try {
+          // 1. Fetch appointment details & driver_notes from Supabase
+          const { data: dbAppt } = await supabase
+            .from('appointments')
+            .select('*')
+            .eq('id', apptId)
+            .single();
+
+          if (dbAppt) {
+            if (dbAppt.agenda) setVisitAgenda((prev: string) => prev || dbAppt.agenda);
+            if (dbAppt.meeting_notes) setNote((prev: string) => prev || dbAppt.meeting_notes);
+            if (dbAppt.odometer_reading !== null && dbAppt.odometer_reading !== undefined) {
+              setOdometer((prev: string) => prev || String(dbAppt.odometer_reading));
+            }
+            if (dbAppt.client_photo_url) {
+              const loadedPhotos = parsePhotos(dbAppt.client_photo_url);
+              if (loadedPhotos.length > 0) {
+                setPhotos((prev: string[]) => (prev.length > 0 ? prev : loadedPhotos));
+              }
+            }
+
+            // Restore cloud draft from driver_notes
+            if (dbAppt.driver_notes && typeof dbAppt.driver_notes === 'string') {
+              try {
+                const dbDraft = JSON.parse(dbAppt.driver_notes);
+                if (dbDraft && dbDraft.hasDraft) {
+                  if (dbDraft.draftNote) setNote((prev: string) => prev || dbDraft.draftNote);
+                  if (dbDraft.draftOdometer) setOdometer((prev: string) => prev || String(dbDraft.draftOdometer));
+                  if (dbDraft.draftAgenda) setVisitAgenda((prev: string) => prev || dbDraft.draftAgenda);
+                  if (Array.isArray(dbDraft.draftPhotos) && dbDraft.draftPhotos.length > 0) {
+                    setPhotos((prev: string[]) => (prev.length > 0 ? prev : parsePhotos(dbDraft.draftPhotos)));
+                  }
+                  if (Array.isArray(dbDraft.draftExpenses) && dbDraft.draftExpenses.length > 0) {
+                    setExpenses((prev: ExpenseItem[]) => (prev.length > 0 ? prev : dbDraft.draftExpenses));
+                  }
+                  if (dbDraft.draftIsComplete !== undefined) {
+                    setIsDataComplete(dbDraft.draftIsComplete);
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+
+          // 2. Fetch expenses from Supabase
           const { data: dbExpenses } = await supabase
             .from('expenses')
             .select('*')
@@ -238,16 +439,14 @@ export default function DropReportingScreen({ navigation, route }: any) {
               receiptName: exp.title || (exp.receipt_url ? 'Receipt.jpg' : undefined),
               note: exp.notes || '',
             }));
-            setExpenses(mappedExps);
+            setExpenses((prev: ExpenseItem[]) => (prev.length > 0 ? prev : mappedExps));
           }
         } catch (err) {
-          console.warn('Error loading appointment expenses:', err);
+          console.warn('Error loading appointment data from Supabase:', err);
         }
       }
     }
-    if ((!drop.expenses || drop.expenses.length === 0) && (!params.expenses || params.expenses.length === 0)) {
-      loadAppointmentData();
-    }
+    loadAppointmentData();
   }, [drop.id, drop.appointmentId]);
 
   const handleEditExpense = (exp: ExpenseItem) => {
@@ -309,13 +508,29 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
   const handleCaptureReceiptFromCamera = async () => {
     setIsReceiptPickerOpen(false);
+    await new Promise((r) => setTimeout(r, 150));
     try {
       setUploadingSlip(true);
       const picked = await pickImageFromCamera();
       if (picked) {
-        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
-        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
         const slipName = picked.name || `Slip-${Date.now().toString().slice(-4)}.jpg`;
+        const tempUri = picked.uri;
+
+        if (targetExpenseIdForSlip) {
+          setExpenses((prev) =>
+            prev.map((e) =>
+              e.id === targetExpenseIdForSlip
+                ? { ...e, receiptUri: tempUri, receiptName: slipName }
+                : e
+            )
+          );
+        } else {
+          setNewReceiptUri(tempUri);
+          setNewReceiptName(slipName);
+        }
+
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
+        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : tempUri);
 
         if (targetExpenseIdForSlip) {
           setExpenses((prev) =>
@@ -340,13 +555,29 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
   const handlePickReceiptFromLibrary = async () => {
     setIsReceiptPickerOpen(false);
+    await new Promise((r) => setTimeout(r, 150));
     try {
       setUploadingSlip(true);
       const picked = await pickImageFromLibrary();
       if (picked) {
-        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
-        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
         const slipName = picked.name || `Slip-${Date.now().toString().slice(-4)}.jpg`;
+        const tempUri = picked.uri;
+
+        if (targetExpenseIdForSlip) {
+          setExpenses((prev) =>
+            prev.map((e) =>
+              e.id === targetExpenseIdForSlip
+                ? { ...e, receiptUri: tempUri, receiptName: slipName }
+                : e
+            )
+          );
+        } else {
+          setNewReceiptUri(tempUri);
+          setNewReceiptName(slipName);
+        }
+
+        const publicUrl = await uploadImageToSupabase(picked.uri, 'expense_receipts', picked.name, picked.base64);
+        const finalUri = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : tempUri);
 
         if (targetExpenseIdForSlip) {
           setExpenses((prev) =>
@@ -372,13 +603,16 @@ export default function DropReportingScreen({ navigation, route }: any) {
   // Proof Photos Handlers
   const handleCapturePhotoFromCamera = async () => {
     setIsPhotoPickerOpen(false);
+    await new Promise((r) => setTimeout(r, 150));
     try {
       setUploadingProofPhoto(true);
       const picked = await pickImageFromCamera();
       if (picked) {
+        setPhotos((prev) => [...prev, picked.uri]);
         const publicUrl = await uploadImageToSupabase(picked.uri, 'trip_photos', picked.name, picked.base64);
-        const finalPhotoUrl = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
-        setPhotos((prev) => [...prev, finalPhotoUrl]);
+        if (publicUrl && publicUrl !== picked.uri) {
+          setPhotos((prev) => prev.map((p) => (p === picked.uri ? publicUrl : p)));
+        }
       }
     } catch (e) {
       console.warn('Error capturing proof photo:', e);
@@ -389,13 +623,16 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
   const handlePickPhotoFromLibrary = async () => {
     setIsPhotoPickerOpen(false);
+    await new Promise((r) => setTimeout(r, 150));
     try {
       setUploadingProofPhoto(true);
       const picked = await pickImageFromLibrary();
       if (picked) {
+        setPhotos((prev) => [...prev, picked.uri]);
         const publicUrl = await uploadImageToSupabase(picked.uri, 'trip_photos', picked.name, picked.base64);
-        const finalPhotoUrl = publicUrl || (picked.base64 ? `data:image/jpeg;base64,${picked.base64}` : picked.uri);
-        setPhotos((prev) => [...prev, finalPhotoUrl]);
+        if (publicUrl && publicUrl !== picked.uri) {
+          setPhotos((prev) => prev.map((p) => (p === picked.uri ? publicUrl : p)));
+        }
       }
     } catch (e) {
       console.warn('Error picking photo from gallery:', e);
@@ -500,38 +737,96 @@ export default function DropReportingScreen({ navigation, route }: any) {
     };
   };
 
-  const handleGoBack = () => {
+  const handleGoBack = async () => {
     if (isSaving) return;
+
+    // 1. Build updated draft drop object
+    const draftDrop = buildUpdatedDrop(false);
+    const allUpdatedDrops = drops.map((d: any, idx: number) =>
+      idx === dropIndex ? draftDrop : d
+    );
+
+    // 2. Persist draft to local AsyncStorage
+    try {
+      await AsyncStorage.setItem(draftKey, JSON.stringify({
+        odometer,
+        visitAgenda,
+        note,
+        photos,
+        expenses,
+        isDataComplete,
+        updatedAt: new Date().toISOString(),
+      }));
+    } catch (e) {}
+
+    // 3. Backup draft to Supabase if appointment exists
+    const apptId = drop.appointmentId || drop.id;
+    if (apptId) {
+      supabase.from('appointments').update({
+        driver_notes: JSON.stringify({
+          hasDraft: true,
+          draftPhotos: photos,
+          draftExpenses: expenses,
+          draftNote: note,
+          draftOdometer: odometer,
+          draftAgenda: visitAgenda,
+          draftIsComplete: isDataComplete,
+        }),
+      }).eq('id', apptId).then(() => {}, () => {});
+    }
+
     if (isEditingFromSummary) {
       navigation.navigate('TripSummary', {
         tripId: params.tripId,
-        drops: drops,
-        tripTitle: params.tripTitle,
-        selectedVehicle: params.selectedVehicle,
-        startLocation: params.startLocation,
-        startOdometer: params.startOdometer,
-        isRevision: params.isRevision,
-        revisionCount: params.revisionCount,
-        managerFeedback: params.managerFeedback,
-        isApproved: params.isApproved,
-        isPendingReview: params.isPendingReview,
+        drops: allUpdatedDrops,
+        updatedDropIndex: dropIndex,
+        updatedDrop: draftDrop,
       });
       return;
     }
 
-    // Normal Go Back during Active Tracking: Simply go back without modifying or saving any data
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('ActiveTracker', {
-        ...params,
-        dropIndex: dropIndex,
-        drops: drops,
-      });
-    }
+    // Return to ActiveTracker with latest draft updates
+    navigation.navigate('ActiveTracker', {
+      dropIndex: dropIndex,
+      drops: allUpdatedDrops,
+    });
   };
 
+  // Hardware Back button handling on Android
+  useEffect(() => {
+    const onBackPress = () => {
+      handleGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [handleGoBack]);
+
   const handleSaveAndClose = async () => {
+    if (isSaving) return;
+
+    if (isRollbackWarning && currentOdoNum !== null && previousPointOdometer !== null) {
+      Alert.alert(
+        language === 'th' ? '⚠️ ตรวจพบเลขไมล์ถอยหลัง' : '⚠️ Odometer Rollback Warning',
+        language === 'th'
+          ? `เลขไมล์ที่คุณระบุ (${currentOdoNum.toLocaleString()} กม.) น้อยกว่าจุดก่อนหน้า (${previousPointOdometer.toLocaleString()} กม.)\n\nกรุณาตรวจสอบว่าพิมพ์ตัวเลขผิดหลักหรือไม่ คุณต้องการยืนยันบันทึกค่านี้ใช่หรือไม่?`
+          : `Entered odometer (${currentOdoNum.toLocaleString()} km) is less than previous reading (${previousPointOdometer.toLocaleString()} km). Confirm anyway?`,
+        [
+          { text: language === 'th' ? 'กลับไปแก้ไข' : 'Go Back & Edit', style: 'cancel' },
+          {
+            text: language === 'th' ? 'ยืนยันบันทึก' : 'Confirm & Save',
+            style: 'destructive',
+            onPress: () => executeSaveAndClose(),
+          },
+        ]
+      );
+      return;
+    }
+
+    await executeSaveAndClose();
+  };
+
+  const executeSaveAndClose = async () => {
     if (isSaving) return;
     setIsSaving(true);
     try {
@@ -541,22 +836,16 @@ export default function DropReportingScreen({ navigation, route }: any) {
         idx === dropIndex ? updatedDrop : d
       );
 
+      // Clear local draft since drop is saved
+      AsyncStorage.removeItem(draftKey).catch(() => {});
+
       if (isEditingFromSummary) {
         // Pass staged updates back in memory to TripSummary (will be saved when user saves draft or submits)
         navigation.navigate('TripSummary', {
           tripId: params.tripId,
           drops: allUpdatedDrops,
-          tripTitle: params.tripTitle,
-          selectedVehicle: params.selectedVehicle,
-          startLocation: params.startLocation,
-          startOdometer: params.startOdometer,
           updatedDropIndex: dropIndex,
           updatedDrop: updatedDrop,
-          isRevision: params.isRevision,
-          revisionCount: params.revisionCount,
-          managerFeedback: params.managerFeedback,
-          isApproved: params.isApproved,
-          isPendingReview: params.isPendingReview,
         });
         return;
       }
@@ -572,7 +861,6 @@ export default function DropReportingScreen({ navigation, route }: any) {
       // Always return to ActiveTracker so user can review, add more drops, or click Summary button when ready
       const targetIdx = isFinished ? dropIndex : (nextUnconfirmedIdx !== -1 ? nextUnconfirmedIdx : fallbackNextIdx);
       navigation.navigate('ActiveTracker', {
-        ...params,
         dropIndex: targetIdx,
         drops: allUpdatedDrops,
         completedDropIndex: dropIndex,
@@ -682,24 +970,86 @@ export default function DropReportingScreen({ navigation, route }: any) {
         </TouchableOpacity>
 
         {/* 2. Odometer Input */}
-        <View style={styles.card}>
+        <View style={[styles.card, isRollbackWarning && styles.cardOdoWarningBorder]}>
           <View style={styles.cardHeaderRow}>
-            <View style={styles.iconCircle}>
-              <Gauge size={18} color="#1D4ED8" />
+            <View style={[styles.iconCircle, isRollbackWarning && { backgroundColor: '#FEE2E2' }]}>
+              <Gauge size={18} color={isRollbackWarning ? '#DC2626' : '#1D4ED8'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{t('report_odometer')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Text style={styles.cardTitle}>{t('report_odometer')}</Text>
+                {isRollbackWarning && (
+                  <View style={styles.rollbackBadgePill}>
+                    <AlertTriangle size={10} color="#DC2626" />
+                    <Text style={styles.rollbackBadgePillText}>
+                      {language === 'th' ? 'เลขไมล์ถอยหลัง' : 'Rollback'}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.cardSub}>{t('report_odometer_sub')}</Text>
             </View>
           </View>
           <TextInput
-            style={styles.textInput}
+            style={[
+              styles.textInput,
+              isRollbackWarning && styles.textInputRollback,
+            ]}
             value={odometer}
             onChangeText={setOdometer}
             keyboardType="numeric"
             placeholder="e.g. 45280"
             placeholderTextColor="#94A3B8"
           />
+
+          {/* Rollback Warning Alert Card */}
+          {isRollbackWarning && currentOdoNum !== null && previousPointOdometer !== null && (
+            <View style={styles.odoWarningBox}>
+              <AlertTriangle size={16} color="#DC2626" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.odoWarningTitle}>
+                  {language === 'th'
+                    ? '⚠️ แจ้งเตือน: เลขไมล์น้อยกว่าจุดก่อนหน้า (เลขไมล์ถอยหลัง)'
+                    : '⚠️ Warning: Odometer is less than previous stop'}
+                </Text>
+                <Text style={styles.odoWarningSub}>
+                  {language === 'th'
+                    ? `เลขไมล์ที่กรอก (${currentOdoNum.toLocaleString()} กม.) น้อยกว่าจุดก่อนหน้า (${previousPointOdometer.toLocaleString()} กม.) กรุณาตรวจสอบว่าพิมพ์ตัวเลขตกหล่นหรือพิมพ์ผิดหลักหรือไม่`
+                    : `Entered odometer (${currentOdoNum.toLocaleString()} km) is less than previous reading (${previousPointOdometer.toLocaleString()} km). Please verify.`}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Ahead of Next Warning */}
+          {isAheadOfNextWarning && currentOdoNum !== null && nextPointOdometer !== null && (
+            <View style={[styles.odoWarningBox, styles.odoWarningBoxAmber]}>
+              <AlertTriangle size={16} color="#D97706" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.odoWarningTitle, { color: '#B45309' }]}>
+                  {language === 'th'
+                    ? '⚠️ เลขไมล์มากกว่าจุดถัดไปที่บันทึกไว้'
+                    : '⚠️ Warning: Exceeds Next Stop Odometer'}
+                </Text>
+                <Text style={[styles.odoWarningSub, { color: '#92400E' }]}>
+                  {language === 'th'
+                    ? `เลขไมล์ที่กรอก (${currentOdoNum.toLocaleString()} กม.) มากกว่าจุดถัดไป (${nextPointOdometer.toLocaleString()} กม.)`
+                    : `Entered odometer (${currentOdoNum.toLocaleString()} km) exceeds next recorded stop (${nextPointOdometer.toLocaleString()} km).`}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Previous stop odometer info hint */}
+          {previousPointOdometer !== null && !isRollbackWarning && (
+            <View style={styles.odoHintRow}>
+              <Text style={styles.odoHintText}>
+                {language === 'th'
+                  ? `📍 เลขไมล์จุดก่อนหน้า: ${previousPointOdometer.toLocaleString()} กม.`
+                  : `📍 Previous stop odometer: ${previousPointOdometer.toLocaleString()} km`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* 2.5 Visit Agenda / Purpose */}
@@ -1262,137 +1612,147 @@ export default function DropReportingScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </Modal>
 
-      {/* Proof Photo Action Modal */}
-      <Modal
-        visible={isPhotoPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsPhotoPickerOpen(false)}
-      >
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={styles.bottomSheetCard}>
-            <View style={styles.bottomSheetHeader}>
-              <View>
-                <Text style={styles.bottomSheetTitle}>
-                  {language === 'th' ? 'ถ่ายรูปหรือแนบรูปหลักฐาน' : 'Add Proof Photo'}
-                </Text>
-                <Text style={styles.bottomSheetSub}>
-                  {language === 'th' ? 'ถ่ายภาพสดหน้างานจริงหรือเลือกจากอัลบั้ม' : 'Capture live photo or pick from gallery'}
-                </Text>
+      {/* Proof Photo Action Overlay */}
+      {isPhotoPickerOpen && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 9999 }]}>
+          <TouchableOpacity
+            style={styles.bottomSheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setIsPhotoPickerOpen(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+              style={styles.bottomSheetCard}
+            >
+              <View style={styles.bottomSheetHeader}>
+                <View>
+                  <Text style={styles.bottomSheetTitle}>
+                    {language === 'th' ? 'ถ่ายรูปหรือแนบรูปหลักฐาน' : 'Add Proof Photo'}
+                  </Text>
+                  <Text style={styles.bottomSheetSub}>
+                    {language === 'th' ? 'ถ่ายภาพสดหน้างานจริงหรือเลือกจากอัลบั้ม' : 'Capture live photo or pick from gallery'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.bottomSheetClose}
+                  onPress={() => setIsPhotoPickerOpen(false)}
+                >
+                  <X size={20} color="#64748B" />
+                </TouchableOpacity>
               </View>
+
+              {/* Camera Option */}
               <TouchableOpacity
-                style={styles.bottomSheetClose}
-                onPress={() => setIsPhotoPickerOpen(false)}
+                style={styles.cameraPickerOption}
+                onPress={handleCapturePhotoFromCamera}
+                activeOpacity={0.8}
               >
-                <X size={20} color="#64748B" />
+                <View style={styles.cameraPickerIcon}>
+                  <Camera size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cameraOptionTitle}>
+                    {language === 'th' ? 'ถ่ายรูปจากกล้อง (Camera)' : 'Take Photo with Camera'}
+                  </Text>
+                  <Text style={styles.cameraOptionSub}>
+                    {language === 'th' ? 'เปิดกล้องถ่ายภาพหน้างานสด' : 'Launch camera to capture live photo'}
+                  </Text>
+                </View>
               </TouchableOpacity>
-            </View>
 
-            {/* Camera Option */}
-            <TouchableOpacity
-              style={styles.cameraPickerOption}
-              onPress={handleCapturePhotoFromCamera}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cameraPickerIcon}>
-                <Camera size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cameraOptionTitle}>
-                  {language === 'th' ? 'ถ่ายรูปจากกล้อง (Camera)' : 'Take Photo with Camera'}
-                </Text>
-                <Text style={styles.cameraOptionSub}>
-                  {language === 'th' ? 'เปิดกล้องถ่ายภาพหน้างานสด' : 'Launch camera to capture live photo'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Gallery Option */}
-            <TouchableOpacity
-              style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
-              onPress={handlePickPhotoFromLibrary}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
-                <ImageIcon size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
-                  {language === 'th' ? 'เลือกจากคลังรูปภาพ (Gallery)' : 'Pick from Gallery'}
-                </Text>
-                <Text style={styles.cameraOptionSub}>
-                  {language === 'th' ? 'เลือกรูปภาพที่มีอยู่ในเครื่อง' : 'Choose existing photo from device'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Receipt Slip Picker Modal */}
-      <Modal
-        visible={isReceiptPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsReceiptPickerOpen(false)}
-      >
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={styles.bottomSheetCard}>
-            <View style={styles.bottomSheetHeader}>
-              <View>
-                <Text style={styles.bottomSheetTitle}>{t('btn_attach_slip')}</Text>
-                <Text style={styles.bottomSheetSub}>
-                  {language === 'th' ? 'ถ่ายรูปใหม่หรือเลือกสลิปจากอัลบั้ม' : 'Capture photo or pick slip from gallery'}
-                </Text>
-              </View>
+              {/* Gallery Option */}
               <TouchableOpacity
-                style={styles.bottomSheetClose}
-                onPress={() => setIsReceiptPickerOpen(false)}
+                style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
+                onPress={handlePickPhotoFromLibrary}
+                activeOpacity={0.8}
               >
-                <X size={20} color="#64748B" />
+                <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
+                  <ImageIcon size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
+                    {language === 'th' ? 'เลือกจากคลังรูปภาพ (Gallery)' : 'Pick from Gallery'}
+                  </Text>
+                  <Text style={styles.cameraOptionSub}>
+                    {language === 'th' ? 'เลือกรูปภาพที่มีอยู่ในเครื่อง' : 'Choose existing photo from device'}
+                  </Text>
+                </View>
               </TouchableOpacity>
-            </View>
-
-            {/* Camera Option */}
-            <TouchableOpacity
-              style={styles.cameraPickerOption}
-              onPress={handleCaptureReceiptFromCamera}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cameraPickerIcon}>
-                <Camera size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cameraOptionTitle}>
-                  {language === 'th' ? 'ถ่ายรูปสลิปจากกล้อง (Camera)' : 'Capture Slip with Camera'}
-                </Text>
-                <Text style={styles.cameraOptionSub}>
-                  {language === 'th' ? 'เปิดกล้องถ่ายใบเสร็จ / สลิปโอนเงิน' : 'Take photo of receipt / slip'}
-                </Text>
-              </View>
             </TouchableOpacity>
-
-            {/* Gallery Option */}
-            <TouchableOpacity
-              style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
-              onPress={handlePickReceiptFromLibrary}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
-                <ImageIcon size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
-                  {language === 'th' ? 'เลือกสลิปจากคลังรูปภาพ (Gallery)' : 'Pick Slip from Gallery'}
-                </Text>
-                <Text style={styles.cameraOptionSub}>
-                  {language === 'th' ? 'เลือกรูปภาพสลิปที่มีอยู่ในเครื่อง' : 'Choose receipt image from device'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         </View>
-      </Modal>
+      )}
+
+      {/* Receipt Slip Picker Overlay */}
+      {isReceiptPickerOpen && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 9999 }]}>
+          <TouchableOpacity
+            style={styles.bottomSheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setIsReceiptPickerOpen(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+              style={styles.bottomSheetCard}
+            >
+              <View style={styles.bottomSheetHeader}>
+                <View>
+                  <Text style={styles.bottomSheetTitle}>{t('btn_attach_slip')}</Text>
+                  <Text style={styles.bottomSheetSub}>
+                    {language === 'th' ? 'ถ่ายรูปใหม่หรือเลือกสลิปจากอัลบั้ม' : 'Capture photo or pick slip from gallery'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.bottomSheetClose}
+                  onPress={() => setIsReceiptPickerOpen(false)}
+                >
+                  <X size={20} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Camera Option */}
+              <TouchableOpacity
+                style={styles.cameraPickerOption}
+                onPress={handleCaptureReceiptFromCamera}
+                activeOpacity={0.8}
+              >
+                <View style={styles.cameraPickerIcon}>
+                  <Camera size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cameraOptionTitle}>
+                    {language === 'th' ? 'ถ่ายรูปสลิปจากกล้อง (Camera)' : 'Capture Slip with Camera'}
+                  </Text>
+                  <Text style={styles.cameraOptionSub}>
+                    {language === 'th' ? 'เปิดกล้องถ่ายใบเสร็จ / สลิปโอนเงิน' : 'Take photo of receipt / slip'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Gallery Option */}
+              <TouchableOpacity
+                style={[styles.cameraPickerOption, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}
+                onPress={handlePickReceiptFromLibrary}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.cameraPickerIcon, { backgroundColor: '#6366F1' }]}>
+                  <ImageIcon size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cameraOptionTitle, { color: '#4F46E5' }]}>
+                    {language === 'th' ? 'เลือกสลิปจากคลังรูปภาพ (Gallery)' : 'Pick Slip from Gallery'}
+                  </Text>
+                  <Text style={styles.cameraOptionSub}>
+                    {language === 'th' ? 'เลือกรูปภาพสลิปที่มีอยู่ในเครื่อง' : 'Choose receipt image from device'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
+      )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -2144,6 +2504,67 @@ const styles = StyleSheet.create({
   watermarkTimeText: {
     color: '#CBD5E1',
     fontSize: 9,
+    fontWeight: '500',
+  },
+  cardOdoWarningBorder: {
+    borderColor: '#FCA5A5',
+    borderWidth: 1.5,
+    backgroundColor: '#FFFDFD',
+  },
+  rollbackBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  rollbackBadgePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  textInputRollback: {
+    borderColor: '#EF4444',
+    borderWidth: 1.5,
+    backgroundColor: '#FEF2F2',
+  },
+  odoWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 8,
+  },
+  odoWarningBoxAmber: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  odoWarningTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  odoWarningSub: {
+    fontSize: 11,
+    color: '#DC2626',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  odoHintRow: {
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  odoHintText: {
+    fontSize: 11,
+    color: '#64748B',
     fontWeight: '500',
   },
 });

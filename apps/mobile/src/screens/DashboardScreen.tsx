@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -88,7 +89,9 @@ export default function DashboardScreen({ navigation }: any) {
     avatar: null,
   });
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'overdue' | 'unconfirmed' | 'scheduled'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'drafts' | 'pending' | 'approved'>('all');
+  const [showAllPending, setShowAllPending] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [upcomingTrips, setUpcomingTrips] = useState<any[]>([]);
   const [rejectedTrips, setRejectedTrips] = useState<any[]>([]);
   const [pendingActions, setPendingActions] = useState<any[]>([]);
@@ -97,6 +100,25 @@ export default function DashboardScreen({ navigation }: any) {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      Alert.alert(
+        language === 'th' ? 'ออกจากแอปพลิเคชัน' : 'Exit Application',
+        language === 'th' ? 'คุณต้องการออกจากแอปพลิเคชันใช่หรือไม่?' : 'Do you want to exit the application?',
+        [
+          { text: t('btn_cancel'), style: 'cancel' },
+          {
+            text: language === 'th' ? 'ออกจากแอป' : 'Exit',
+            onPress: () => BackHandler.exitApp(),
+          },
+        ]
+      );
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [language, t]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -197,6 +219,7 @@ export default function DashboardScreen({ navigation }: any) {
           const tripObj = {
             id: t.id,
             tripCode: t.trip_code || `TRP-${t.id.slice(0, 6)}`,
+            title: t.title || 'เส้นทางเข้าพบลูกค้า',
             date: dateDisplay,
             rawDate: t.trip_date,
             isOverdue: isOverdue,
@@ -230,14 +253,32 @@ export default function DashboardScreen({ navigation }: any) {
 
               let apptPhotos = parsePhotos(a.client_photo_url);
               let apptExpsFinal = mappedExps;
+              let apptNote = a.meeting_notes || '';
+              let apptOdo = a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined;
+              let apptAgenda = a.agenda || '';
+              let apptIsComplete = a.status === 'completed' || a.status === 'Completed';
 
-              if (a.driver_notes && typeof a.driver_notes === 'string' && (a.driver_notes.includes('hasDraft') || a.driver_notes.includes('draftPhotos'))) {
+              if (a.driver_notes && typeof a.driver_notes === 'string') {
                 try {
                   const draftData = JSON.parse(a.driver_notes);
-                  if (draftData && (draftData.hasDraft || Array.isArray(draftData.draftPhotos))) {
-                    apptPhotos = Array.isArray(draftData.draftPhotos) ? parsePhotos(draftData.draftPhotos) : [];
-                    if (Array.isArray(draftData.draftExpenses)) {
+                  if (draftData && (draftData.hasDraft || draftData.draftNote || draftData.draftOdometer || draftData.draftPhotos)) {
+                    if (Array.isArray(draftData.draftPhotos) && draftData.draftPhotos.length > 0) {
+                      apptPhotos = parsePhotos(draftData.draftPhotos);
+                    }
+                    if (Array.isArray(draftData.draftExpenses) && draftData.draftExpenses.length > 0) {
                       apptExpsFinal = draftData.draftExpenses;
+                    }
+                    if (draftData.draftNote) {
+                      apptNote = draftData.draftNote;
+                    }
+                    if (draftData.draftOdometer) {
+                      apptOdo = String(draftData.draftOdometer);
+                    }
+                    if (draftData.draftAgenda) {
+                      apptAgenda = draftData.draftAgenda;
+                    }
+                    if (draftData.draftIsComplete !== undefined) {
+                      apptIsComplete = !!draftData.draftIsComplete;
                     }
                   }
                 } catch (e) {}
@@ -249,17 +290,19 @@ export default function DashboardScreen({ navigation }: any) {
                 name: a.company_name,
                 recipient: a.recipient_name || a.customer_name || '',
                 phone: a.recipient_phone || '',
-                items: a.agenda || '',
+                items: apptAgenda,
+                agenda: apptAgenda,
                 address: a.destination_address || '',
                 latitude: a.destination_lat || undefined,
                 longitude: a.destination_lng || undefined,
                 isConfirmed: !!a.confirmation_status,
-                isDataComplete: a.status === 'completed' || a.status === 'Completed',
+                isDataComplete: apptIsComplete,
                 status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
-                meetingMinutes: a.meeting_notes || '',
+                meetingMinutes: apptNote,
+                note: apptNote,
                 photos: apptPhotos,
                 expenses: apptExpsFinal,
-                odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
+                odometer: apptOdo,
                 odometer_reading: a.odometer_reading,
               };
             }),
@@ -270,9 +313,16 @@ export default function DashboardScreen({ navigation }: any) {
             const revMatch = t.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
             const revCount = revMatch ? parseInt(revMatch[1], 10) : (Number(t.revision_count) || 1);
             const cleanFeedback = t.manager_feedback?.replace(/\[(?:รอบที่|REV:)\s*\d+\]\s*/i, '').trim() || t.manager_feedback || 'กรุณาตรวจสอบข้อมูลและแนบเอกสารเพิ่มเติม';
+            const revDate = t.trip_date
+              ? (t.trip_date === todayStr
+                  ? (language === 'th' ? 'วันนี้' : 'Today')
+                  : new Date(t.trip_date).toLocaleDateString(language === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short' }))
+              : tripObj.date;
 
             rejected.push({
               ...tripObj,
+              title: t.title || tripObj.route || 'เส้นทางเข้าพบลูกค้า',
+              date: revDate,
               revisionCount: revCount,
               managerFeedback: cleanFeedback,
             });
@@ -284,6 +334,7 @@ export default function DashboardScreen({ navigation }: any) {
               tripCode: tripObj.tripCode,
               title: t.title,
               date: tripObj.date,
+              rawDate: t.trip_date,
               dropsCount: totalCount,
               status: 'Approved',
               distance: `${tripDist} กม.`,
@@ -293,10 +344,18 @@ export default function DashboardScreen({ navigation }: any) {
               startOdometer: tripObj.startOdometer,
             });
           } else if (t.approval_status === 'pending') {
+            const pendingDateFormatted = t.trip_date
+              ? (t.trip_date === todayStr
+                  ? (language === 'th' ? 'วันนี้' : 'Today')
+                  : new Date(t.trip_date).toLocaleDateString(language === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short' }))
+              : tripObj.date;
+
             pending.push({
               id: t.id,
               tripCode: tripObj.tripCode,
               title: t.title,
+              date: pendingDateFormatted,
+              rawDate: t.trip_date,
               dropsCount: totalCount,
               completedDropsCount: completedDataCount,
               hasIncompleteDrops: hasIncompleteDrops,
@@ -588,10 +647,13 @@ export default function DashboardScreen({ navigation }: any) {
                     : `⚠️ Revision Required (#${revTrip.revisionCount})`}
                 </Text>
               </View>
-              <Text style={styles.rejectedTripCode}>{revTrip.tripCode}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.rejectedTripDate}>📅 {revTrip.date}</Text>
+                <Text style={styles.rejectedTripCode}>• {revTrip.tripCode}</Text>
+              </View>
             </View>
 
-            <Text style={styles.rejectedTripTitle}>{revTrip.title}</Text>
+            <Text style={styles.rejectedTripTitle}>{revTrip.title || revTrip.route || 'เส้นทางเข้าพบลูกค้า'}</Text>
 
             <View style={styles.managerFeedbackCard}>
               <Text style={styles.managerFeedbackTitle}>
@@ -625,9 +687,8 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         ))}
 
-        {/* Section 1: Upcoming & Active Trips */}
-        <View style={styles.section}>
-          {/* Filter Pills: All / Overdue / Incomplete / Scheduled */}
+        {/* Filter Pills: All / Today / Drafts / Pending / Approved */}
+        <View style={{ paddingHorizontal: 20 }}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -646,127 +707,138 @@ export default function DashboardScreen({ navigation }: any) {
                   activeFilter === 'all' && styles.filterPillTextActive,
                 ]}
               >
-                {language === 'th' ? 'ทั้งหมด' : 'All'} ({upcomingTrips.length})
+                {language === 'th' ? 'ทั้งหมด' : 'All'} ({upcomingTrips.length + pendingActions.length + recentHistory.length})
               </Text>
             </TouchableOpacity>
 
-            {upcomingTrips.some((t) => t.isOverdue) && (
+            <TouchableOpacity
+              style={[
+                styles.filterPill,
+                activeFilter === 'today' && styles.filterPillActive,
+              ]}
+              onPress={() => setActiveFilter('today')}
+            >
+              <Calendar size={12} color={activeFilter === 'today' ? '#FFFFFF' : '#64748B'} />
+              <Text
+                style={[
+                  styles.filterPillText,
+                  activeFilter === 'today' && styles.filterPillTextActive,
+                ]}
+              >
+                {language === 'th' ? 'วันนี้' : 'Today'} ({upcomingTrips.filter((t) => t.rawDate === new Date().toISOString().split('T')[0]).length})
+              </Text>
+            </TouchableOpacity>
+
+            {upcomingTrips.some((t) => t.hasIncompleteDrops || t.status === 'In Progress' || t.isOverdue) && (
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  activeFilter === 'overdue' && styles.filterPillActiveRose,
+                  activeFilter === 'drafts' && styles.filterPillActiveAmber,
                 ]}
-                onPress={() => setActiveFilter('overdue')}
+                onPress={() => setActiveFilter('drafts')}
               >
-                <AlertTriangle size={12} color={activeFilter === 'overdue' ? '#FFFFFF' : '#E11D48'} />
+                <AlertTriangle size={12} color={activeFilter === 'drafts' ? '#FFFFFF' : '#D97706'} />
                 <Text
                   style={[
                     styles.filterPillText,
-                    activeFilter === 'overdue'
-                      ? styles.filterPillTextActiveRose
-                      : { color: '#E11D48' },
+                    activeFilter === 'drafts'
+                      ? styles.filterPillTextActiveAmber
+                      : { color: '#B45309' },
                   ]}
                 >
-                  {language === 'th' ? 'งานค้าง' : 'Overdue'} ({upcomingTrips.filter((t) => t.isOverdue).length})
+                  {language === 'th' ? 'แบบร่าง/งานค้าง' : 'Drafts'} ({upcomingTrips.filter((t) => t.hasIncompleteDrops || t.status === 'In Progress' || t.isOverdue).length})
                 </Text>
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={[
-                styles.filterPill,
-                activeFilter === 'unconfirmed' && styles.filterPillActiveAmber,
-              ]}
-              onPress={() => setActiveFilter('unconfirmed')}
-            >
-              <AlertTriangle size={12} color={activeFilter === 'unconfirmed' ? '#FFFFFF' : '#D97706'} />
-              <Text
-                style={[
-                  styles.filterPillText,
-                  activeFilter === 'unconfirmed'
-                    ? styles.filterPillTextActiveAmber
-                    : { color: '#B45309' },
-                ]}
-              >
-                {language === 'th' ? 'ไม่สมบูรณ์' : 'Incomplete'} ({upcomingTrips.filter((t) => !t.isOverdue && t.hasIncompleteDrops).length})
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.filterPill,
-                activeFilter === 'scheduled' && styles.filterPillActive,
-              ]}
-              onPress={() => setActiveFilter('scheduled')}
-            >
-              <Clock size={12} color={activeFilter === 'scheduled' ? '#FFFFFF' : '#64748B'} />
-              <Text
-                style={[
-                  styles.filterPillText,
-                  activeFilter === 'scheduled' && styles.filterPillTextActive,
-                ]}
-              >
-                {t('dash_scheduled')} ({upcomingTrips.filter((t) => t.status === 'Scheduled' && !t.isOverdue).length})
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-
-          {/* Overdue Hint Banner if there are pending past trips */}
-          {upcomingTrips.some((t) => t.isOverdue) && activeFilter !== 'scheduled' && (
-            <View style={styles.overdueNoticeBox}>
-              <AlertTriangle size={16} color="#B45309" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.overdueNoticeTitle}>
-                  {language === 'th' ? 'มีแผนงานค้างจากวันก่อนหน้า' : 'Overdue Visits (Locked)'}
-                </Text>
-                <Text style={styles.overdueNoticeSub}>
-                  {language === 'th'
-                    ? 'แผนงานที่เลยกำหนดจะล็อคไว้ให้ดูรายละเอียดเท่านั้น'
-                    : 'Overdue plans are read-only. Please create a new visit plan.'}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {upcomingTrips.length === 0 ? (
-            <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
-                <Briefcase size={26} color={colors.primary} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                {language === 'th' ? 'ยังไม่มีแผนงานสำหรับวันนี้' : 'No Trips Planned Today'}
-              </Text>
-              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                {language === 'th'
-                  ? 'แตะปุ่มด้านล่างเพื่อเริ่มวางแผนเส้นทางและบันทึกการเข้าพบลูกค้ารายแรกของคุณ'
-                  : 'Tap below to plan your route and log client visits.'}
-              </Text>
+            {pendingActions.length > 0 && (
               <TouchableOpacity
-                style={[styles.emptyCtaButton, { backgroundColor: colors.primary }]}
-                onPress={() => navigation.navigate('NewAppointment')}
-                activeOpacity={0.85}
+                style={[
+                  styles.filterPill,
+                  activeFilter === 'pending' && styles.filterPillActive,
+                ]}
+                onPress={() => setActiveFilter('pending')}
               >
-                <Plus size={16} color="#FFFFFF" />
-                <Text style={styles.emptyCtaButtonText}>
-                  {language === 'th' ? 'สร้างแผนงานใหม่ทันที' : 'Create New Trip'}
+                <Clock size={12} color={activeFilter === 'pending' ? '#FFFFFF' : '#1D4ED8'} />
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    activeFilter === 'pending'
+                      ? styles.filterPillTextActive
+                      : { color: '#1D4ED8' },
+                  ]}
+                >
+                  {language === 'th' ? 'รออนุมัติ' : 'Pending'} ({pendingActions.length})
                 </Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalList}
-            >
-              {(Array.isArray(upcomingTrips)
-                ? upcomingTrips.filter((trip) => {
-                    if (activeFilter === 'overdue') return trip.isOverdue;
-                    if (activeFilter === 'unconfirmed') return !trip.isOverdue && trip.hasIncompleteDrops;
-                    if (activeFilter === 'scheduled') return trip.status === 'Scheduled' && !trip.isOverdue;
-                    return true;
-                  })
-                : []
-              ).map((trip) => (
+            )}
+
+            {recentHistory.length > 0 && (
+              <TouchableOpacity
+                style={[
+                  styles.filterPill,
+                  activeFilter === 'approved' && styles.filterPillActiveGreen,
+                ]}
+                onPress={() => setActiveFilter('approved')}
+              >
+                <CheckCircle2 size={12} color={activeFilter === 'approved' ? '#FFFFFF' : '#166534'} />
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    activeFilter === 'approved'
+                      ? styles.filterPillTextActiveGreen
+                      : { color: '#166534' },
+                  ]}
+                >
+                  {language === 'th' ? 'อนุมัติแล้ว' : 'Approved'} ({recentHistory.length})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+        </View>
+
+        {/* Section 1: Upcoming & Active Trips */}
+        {(activeFilter === 'all' || activeFilter === 'today' || activeFilter === 'drafts') && (
+          <View style={styles.section}>
+            {upcomingTrips.length === 0 ? (
+              <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
+                  <Briefcase size={26} color={colors.primary} />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  {language === 'th' ? 'ยังไม่มีแผนงานสำหรับวันนี้' : 'No Trips Planned Today'}
+                </Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  {language === 'th'
+                    ? 'แตะปุ่มด้านล่างเพื่อเริ่มวางแผนเส้นทางและบันทึกการเข้าพบลูกค้ารายแรกของคุณ'
+                    : 'Tap below to plan your route and log client visits.'}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.emptyCtaButton, { backgroundColor: colors.primary }]}
+                  onPress={() => navigation.navigate('NewAppointment')}
+                  activeOpacity={0.85}
+                >
+                  <Plus size={16} color="#FFFFFF" />
+                  <Text style={styles.emptyCtaButtonText}>
+                    {language === 'th' ? 'สร้างแผนงานใหม่ทันที' : 'Create New Trip'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.horizontalList}
+              >
+                {(Array.isArray(upcomingTrips)
+                  ? upcomingTrips.filter((trip) => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      if (activeFilter === 'today') return trip.rawDate === todayStr;
+                      if (activeFilter === 'drafts') return trip.hasIncompleteDrops || trip.status === 'In Progress' || trip.isOverdue;
+                      return true;
+                    })
+                  : []
+                ).map((trip) => (
               <TouchableOpacity
                 key={trip.id}
                 style={[
@@ -980,35 +1052,52 @@ export default function DashboardScreen({ navigation }: any) {
                     </TouchableOpacity>
                   )}
 
-                  {!trip.isOverdue && (
-                    <TouchableOpacity
-                      style={styles.actionBtnSecondary}
-                      onPress={() => handleDeleteUpcoming(trip.id)}
-                    >
-                      <Trash2 size={14} color="#EF4444" />
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity
+                    style={styles.actionBtnSecondary}
+                    onPress={() => handleDeleteUpcoming(trip.id)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Trash2 size={14} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
         )}
       </View>
+      )}
 
         {/* Section 2: Pending Approval & Reports */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('dash_pending_approval')}</Text>
-          <View style={styles.pendingList}>
-            {pendingActions.map((action) => (
-              <View
-                key={action.id}
-                style={[
-                  styles.pendingCard,
-                  action.hasIncompleteDrops && styles.pendingCardUnconfirmed,
-                ]}
-              >
+        {(activeFilter === 'all' || activeFilter === 'pending') && pendingActions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {t('dash_pending_approval')} ({pendingActions.length})
+              </Text>
+              {pendingActions.length > 2 && activeFilter === 'all' && (
                 <TouchableOpacity
-                  style={styles.pendingCardMainRow}
+                  style={styles.toggleCollapseBtn}
+                  onPress={() => setShowAllPending(!showAllPending)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.toggleCollapseBtnText}>
+                    {showAllPending
+                      ? (language === 'th' ? 'ย่อข้อมูล ▴' : 'Show Less ▴')
+                      : (language === 'th' ? `ดูทั้งหมด (${pendingActions.length}) ▾` : `View All (${pendingActions.length}) ▾`)}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.pendingList}>
+              {(showAllPending || activeFilter === 'pending' ? pendingActions : pendingActions.slice(0, 2)).map((action) => (
+                <TouchableOpacity
+                  key={action.id}
+                  style={[
+                    styles.pendingCard,
+                    action.hasIncompleteDrops && styles.pendingCardUnconfirmed,
+                  ]}
                   onPress={() => navigation.navigate('TripSummary', {
                     tripId: action.id,
                     tripCode: action.tripCode,
@@ -1017,153 +1106,169 @@ export default function DashboardScreen({ navigation }: any) {
                     startLocation: action.startLocation,
                     startOdometer: action.startOdometer,
                     isPendingReview: true,
+                    returnScreen: 'Dashboard',
                   })}
                   activeOpacity={0.8}
                 >
-                  <View
-                    style={[
-                      styles.pendingIconBox,
-                      action.hasIncompleteDrops
-                        ? { backgroundColor: '#FEF3C7' }
-                        : { backgroundColor: '#DCFCE7' },
-                    ]}
-                  >
-                    {action.hasIncompleteDrops ? (
-                      <AlertTriangle size={20} color="#D97706" />
-                    ) : (
-                      <CheckCircle2 size={20} color="#16A34A" />
-                    )}
-                  </View>
-                  <View style={styles.pendingInfo}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <Text style={[styles.pendingTitle, { flex: 1 }]} numberOfLines={1}>{action.title}</Text>
-                      <View
-                        style={[
-                          styles.pendingTagBadge,
-                          action.hasIncompleteDrops
-                            ? styles.pendingTagBadgeAmber
-                            : styles.pendingTagBadgeGreen,
-                        ]}
-                      >
-                        <Text
+                  <View style={styles.pendingCardMainRow}>
+                    <View
+                      style={[
+                        styles.pendingIconBox,
+                        action.hasIncompleteDrops
+                          ? { backgroundColor: '#FEF3C7' }
+                          : { backgroundColor: '#DCFCE7' },
+                      ]}
+                    >
+                      {action.hasIncompleteDrops ? (
+                        <AlertTriangle size={18} color="#D97706" />
+                      ) : (
+                        <CheckCircle2 size={18} color="#16A34A" />
+                      )}
+                    </View>
+                    <View style={styles.pendingInfo}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <Text style={[styles.pendingTitle, { flex: 1 }]} numberOfLines={1}>{action.title}</Text>
+                        <View
                           style={[
-                            styles.pendingTagBadgeText,
+                            styles.pendingTagBadge,
                             action.hasIncompleteDrops
-                              ? { color: '#B45309' }
-                              : { color: '#166534' },
+                              ? styles.pendingTagBadgeAmber
+                              : styles.pendingTagBadgeGreen,
                           ]}
                         >
-                          {action.hasIncompleteDrops
-                            ? (language === 'th' ? 'ข้อมูลไม่สมบูรณ์' : 'Incomplete')
-                            : (language === 'th' ? 'รอ Admin อนุมัติ' : 'Pending Approval')}
-                        </Text>
+                          <Text
+                            style={[
+                              styles.pendingTagBadgeText,
+                              action.hasIncompleteDrops
+                                ? { color: '#B45309' }
+                                : { color: '#166534' },
+                            ]}
+                          >
+                            {action.hasIncompleteDrops
+                              ? (language === 'th' ? 'ข้อมูลไม่สมบูรณ์' : 'Incomplete')
+                              : (language === 'th' ? 'รอ Admin อนุมัติ' : 'Pending Approval')}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <Text style={styles.pendingMeta} numberOfLines={1}>{action.info}</Text>
-                  </View>
-                  <ChevronRight size={18} color="#94A3B8" />
-                </TouchableOpacity>
-
-                {/* Bottom Action Row: View Report */}
-                <View style={styles.pendingActionRow}>
-                  <TouchableOpacity
-                    style={[styles.viewSummaryBtn, { flex: 1, backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', borderWidth: 1 }]}
-                    onPress={() => navigation.navigate('TripSummary', {
-                      tripId: action.id,
-                      tripCode: action.tripCode,
-                      tripTitle: action.title,
-                      drops: action.drops,
-                      startLocation: action.startLocation,
-                      startOdometer: action.startOdometer,
-                      isPendingReview: true,
-                    })}
-                    activeOpacity={0.8}
-                  >
-                    <Eye size={14} color="#1D4ED8" />
-                    <Text style={[styles.viewSummaryBtnText, { color: '#1D4ED8', fontWeight: '700' }]}>
-                      {language === 'th' ? 'ดูรายงานที่ส่งไป' : 'View Submitted Report'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Section 3: Recent History (ประวัติที่อนุมัติแล้ว) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('dash_recent_history')}</Text>
-            {recentHistory.length > 0 && (
-              <View style={styles.historyCountBadge}>
-                <Text style={styles.historyCountBadgeText}>
-                  {recentHistory.length} {language === 'th' ? 'รายการ' : 'trips'}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.historyList}>
-            {recentHistory.length === 0 ? (
-              <View style={styles.emptyHistoryBox}>
-                <CheckCircle2 size={24} color="#94A3B8" />
-                <Text style={styles.emptyHistoryText}>
-                  {language === 'th' ? 'ยังไม่มีรายการที่อนุมัติแล้ว' : 'No approved trips yet'}
-                </Text>
-              </View>
-            ) : (
-              recentHistory.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.historyCard}
-                  onPress={() =>
-                    navigation.navigate('TripSummary', {
-                      tripId: item.id,
-                      tripCode: item.tripCode,
-                      tripTitle: item.title,
-                      drops: item.drops,
-                      startLocation: item.startLocation,
-                      startOdometer: item.startOdometer,
-                      isApproved: true,
-                    })
-                  }
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.historyCardTop}>
-                    <View style={styles.historyIconBox}>
-                      <CheckCircle2 size={18} color="#166534" />
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.historyTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={styles.historyDate}>
-                        {item.date} • {item.dropsCount} {language === 'th' ? 'ลูกค้า' : 'clients'}
-                      </Text>
-                    </View>
-                    <View style={styles.historyBadge}>
-                      <Text style={styles.historyBadgeText}>
-                        {language === 'th' ? '✓ อนุมัติแล้ว' : '✓ Approved'}
-                      </Text>
+                      <View style={styles.pendingMetaRow}>
+                        <Text style={styles.pendingDateText}>📅 {action.date}</Text>
+                        <Text style={styles.pendingMetaDot}>•</Text>
+                        <Text style={styles.pendingMeta} numberOfLines={1}>{action.info}</Text>
+                      </View>
                     </View>
                     <ChevronRight size={18} color="#94A3B8" />
                   </View>
-
-                  <View style={styles.historyActionRow}>
-                    <Text style={styles.historyMetaText}>
-                      {item.distance} • {item.expenses}
-                    </Text>
-                    <View style={styles.historyViewBtn}>
-                      <Eye size={13} color="#166534" />
-                      <Text style={styles.historyViewBtnText}>
-                        {language === 'th' ? 'ดูรายละเอียด' : 'View Details'}
-                      </Text>
-                    </View>
-                  </View>
                 </TouchableOpacity>
-              ))
-            )}
+              ))}
+            </View>
           </View>
-        </View>
+        )}
+
+        {/* Section 3: Recent History (ประวัติที่อนุมัติแล้ว) */}
+        {(activeFilter === 'all' || activeFilter === 'approved') && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{t('dash_recent_history')}</Text>
+              {recentHistory.length > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.historyCountBadge}>
+                    <Text style={styles.historyCountBadgeText}>
+                      {recentHistory.length} {language === 'th' ? 'รายการ' : 'trips'}
+                    </Text>
+                  </View>
+                  {recentHistory.length > 2 && activeFilter === 'all' && (
+                    <TouchableOpacity
+                      style={styles.toggleCollapseBtn}
+                      onPress={() => setShowAllHistory(!showAllHistory)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.toggleCollapseBtnText}>
+                        {showAllHistory
+                          ? (language === 'th' ? 'ย่อข้อมูล ▴' : 'Show Less ▴')
+                          : (language === 'th' ? `ดูทั้งหมด (${recentHistory.length}) ▾` : `View All (${recentHistory.length}) ▾`)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+            <View style={styles.historyList}>
+              {recentHistory.length === 0 ? (
+                <View style={styles.emptyHistoryBox}>
+                  <CheckCircle2 size={24} color="#94A3B8" />
+                  <Text style={styles.emptyHistoryText}>
+                    {language === 'th' ? 'ยังไม่มีรายการที่อนุมัติแล้ว' : 'No approved trips yet'}
+                  </Text>
+                </View>
+              ) : (
+                (showAllHistory || activeFilter === 'approved' ? recentHistory : recentHistory.slice(0, 2)).map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.historyCard}
+                    onPress={() =>
+                      navigation.navigate('TripSummary', {
+                        tripId: item.id,
+                        tripCode: item.tripCode,
+                        tripTitle: item.title,
+                        drops: item.drops,
+                        startLocation: item.startLocation,
+                        startOdometer: item.startOdometer,
+                        isApproved: true,
+                        returnScreen: 'Dashboard',
+                      })
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.historyCardTop}>
+                      <View style={styles.historyIconBox}>
+                        <CheckCircle2 size={18} color="#166534" />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.historyTitle} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={styles.historyDate}>
+                          {item.date} • {item.dropsCount} {language === 'th' ? 'ลูกค้า' : 'clients'}
+                        </Text>
+                      </View>
+                      <View style={styles.historyBadge}>
+                        <Text style={styles.historyBadgeText}>
+                          {language === 'th' ? '✓ อนุมัติแล้ว' : '✓ Approved'}
+                        </Text>
+                      </View>
+                      <ChevronRight size={18} color="#94A3B8" />
+                    </View>
+
+                    <View style={styles.historyActionRow}>
+                      <Text style={styles.historyMetaText}>
+                        {item.distance} • {item.expenses}
+                      </Text>
+                      <View style={styles.historyViewBtn}>
+                        <Eye size={13} color="#166534" />
+                        <Text style={styles.historyViewBtnText}>
+                          {language === 'th' ? 'ดูรายงาน' : 'View Report'}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+
+            {/* Link to Calendar for full archive */}
+            <TouchableOpacity
+              style={styles.viewCalendarBannerBtn}
+              onPress={() => navigation.navigate('TripSchedule')}
+              activeOpacity={0.85}
+            >
+              <Calendar size={15} color="#1D4ED8" />
+              <Text style={styles.viewCalendarBannerText}>
+                {language === 'th' ? 'ดูตารางงานและประวัติทั้งหมดในปฏิทิน 📅' : 'View Full Schedule & Archive in Calendar 📅'}
+              </Text>
+              <ChevronRight size={15} color="#1D4ED8" />
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* Floating Bottom Navigation Bar */}
@@ -1664,10 +1769,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
-  pendingMeta: {
-    fontSize: 12,
-    color: '#64748B',
+  pendingMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginTop: 2,
+  },
+  pendingDateText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  pendingMetaDot: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  pendingMeta: {
+    fontSize: 11,
+    color: '#64748B',
+    flexShrink: 1,
   },
   historyCountBadge: {
     backgroundColor: '#DCFCE7',
@@ -1769,6 +1889,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#166534',
   },
+  toggleCollapseBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  toggleCollapseBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  viewCalendarBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginTop: 10,
+  },
+  viewCalendarBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
   rejectedBannerContainer: {
     backgroundColor: '#FEF2F2',
     borderRadius: 20,
@@ -1810,15 +1961,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#DC2626',
   },
+  rejectedTripDate: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#991B1B',
+  },
   rejectedTripCode: {
     fontSize: 11,
     fontWeight: '700',
     color: '#991B1B',
   },
   rejectedTripTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1E293B',
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
   },
   managerFeedbackCard: {
     backgroundColor: '#FFFFFF',

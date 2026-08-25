@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Platform,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -196,14 +197,32 @@ export default function TripScheduleScreen({ navigation }: any) {
 
             let apptPhotos = parsePhotos(a.client_photo_url);
             let apptExpsFinal = mappedExps;
+            let apptNote = a.meeting_notes || '';
+            let apptOdo = a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined;
+            let apptAgenda = a.agenda || '';
+            let apptIsComplete = a.status === 'completed' || a.status === 'Completed';
 
-            if (a.driver_notes && typeof a.driver_notes === 'string' && (a.driver_notes.includes('hasDraft') || a.driver_notes.includes('draftPhotos'))) {
+            if (a.driver_notes && typeof a.driver_notes === 'string') {
               try {
                 const draftData = JSON.parse(a.driver_notes);
-                if (draftData && (draftData.hasDraft || Array.isArray(draftData.draftPhotos))) {
-                  apptPhotos = Array.isArray(draftData.draftPhotos) ? parsePhotos(draftData.draftPhotos) : [];
-                  if (Array.isArray(draftData.draftExpenses)) {
+                if (draftData && (draftData.hasDraft || draftData.draftNote || draftData.draftOdometer || draftData.draftPhotos)) {
+                  if (Array.isArray(draftData.draftPhotos) && draftData.draftPhotos.length > 0) {
+                    apptPhotos = parsePhotos(draftData.draftPhotos);
+                  }
+                  if (Array.isArray(draftData.draftExpenses) && draftData.draftExpenses.length > 0) {
                     apptExpsFinal = draftData.draftExpenses;
+                  }
+                  if (draftData.draftNote) {
+                    apptNote = draftData.draftNote;
+                  }
+                  if (draftData.draftOdometer) {
+                    apptOdo = String(draftData.draftOdometer);
+                  }
+                  if (draftData.draftAgenda) {
+                    apptAgenda = draftData.draftAgenda;
+                  }
+                  if (draftData.draftIsComplete !== undefined) {
+                    apptIsComplete = !!draftData.draftIsComplete;
                   }
                 }
               } catch (e) {}
@@ -215,40 +234,47 @@ export default function TripScheduleScreen({ navigation }: any) {
               name: a.company_name,
               recipient: a.recipient_name || a.customer_name || '',
               phone: a.recipient_phone || '',
-              items: a.agenda || '',
+              items: apptAgenda,
+              agenda: apptAgenda,
               address: a.destination_address || '',
               latitude: a.destination_lat || undefined,
               longitude: a.destination_lng || undefined,
               isConfirmed: !!a.confirmation_status,
-              isDataComplete: a.status === 'completed' || a.status === 'Completed',
+              isDataComplete: apptIsComplete,
               status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
-              meetingMinutes: a.meeting_notes || '',
+              meetingMinutes: apptNote,
+              note: apptNote,
               photos: apptPhotos,
               expenses: apptExpsFinal,
-              odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
+              odometer: apptOdo,
               odometer_reading: a.odometer_reading,
             };
           });
 
-          return {
-            id: t.id,
-            tripCode: t.trip_code || `TRP-${t.id.slice(0, 6).toUpperCase()}`,
-            title: t.title || 'เส้นทางเข้าพบลูกค้า',
-            dateKey: dateStr,
-            time: '08:30 AM - 05:00 PM',
-            startTime: '08:30',
-            endTime: '17:00',
-            dropsCount: totalCount,
-            visitedDropsCount: visitedCount,
-            completedDropsCount: completedDataCount,
-            isFullyVisited: isFullyVisited,
-            isFullyCompleted: isFullyCompleted,
-            hasIncompleteDrops: hasIncompleteDrops,
-            isOverdue: isOverdue,
-            approvalStatus: approvalStatus,
-            managerFeedback: t.manager_feedback,
-            revisionCount: t.approval_status === 'revision_requested' ? 1 : 0,
-            vehicle: 'Isuzu D-Max (1กข-4452)',
+            const revMatch = t.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
+            const revCount = t.approval_status === 'revision_requested'
+              ? (revMatch ? parseInt(revMatch[1], 10) : (Number(t.revision_count) || 1))
+              : 0;
+
+            return {
+              id: t.id,
+              tripCode: t.trip_code || `TRP-${t.id.slice(0, 6).toUpperCase()}`,
+              title: t.title || 'เส้นทางเข้าพบลูกค้า',
+              dateKey: dateStr,
+              time: '08:30 AM - 05:00 PM',
+              startTime: '08:30',
+              endTime: '17:00',
+              dropsCount: totalCount,
+              visitedDropsCount: visitedCount,
+              completedDropsCount: completedDataCount,
+              isFullyVisited: isFullyVisited,
+              isFullyCompleted: isFullyCompleted,
+              hasIncompleteDrops: hasIncompleteDrops,
+              isOverdue: isOverdue,
+              approvalStatus: approvalStatus,
+              managerFeedback: t.manager_feedback,
+              revisionCount: revCount,
+              vehicle: 'Isuzu D-Max (1กข-4452)',
             status: t.status === 'in_progress' ? 'In Progress' : (t.status === 'completed' ? 'Completed' : 'Scheduled'),
             startLocation: t.start_location || {
               name: 'สำนักงาน / จุดปล่อยรถ (Depot)',
@@ -582,6 +608,15 @@ export default function TripScheduleScreen({ navigation }: any) {
     }
     return weekDays;
   };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      navigation.navigate('Dashboard');
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, []);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -955,7 +990,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                               <RotateCw size={13} color="#1D4ED8" />
                             </TouchableOpacity>
                           )}
-                          {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && !trip.isOverdue && (
+                          {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && (
                             <TouchableOpacity
                               style={[styles.tripHeaderActionBtn, { backgroundColor: '#FEE2E2' }]}
                               onPress={() => handleDeleteTrip(trip.id)}
@@ -1272,7 +1307,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                             {trip.title}
                           </Text>
                           <Text style={styles.tripCardTime}>
-                            {trip.time} • {trip.dateKey}
+                            {trip.time} • {trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`}
                           </Text>
                         </View>
 
@@ -1321,9 +1356,9 @@ export default function TripScheduleScreen({ navigation }: any) {
                               : trip.approvalStatus === 'approved'
                               ? (language === 'th' ? '✓ อนุมัติแล้ว' : '✓ Approved')
                               : trip.approvalStatus === 'pending'
-                              ? (language === 'th' ? '⏳ รอ Admin อนุมัติ' : '⏳ Pending Approval')
+                              ? (language === 'th' ? '⏳ รออนุมัติ' : '⏳ Pending')
                               : trip.approvalStatus === 'revision_requested'
-                              ? (language === 'th' ? '⚠️ ส่งกลับแก้ไข' : '⚠️ Revision Requested')
+                              ? (language === 'th' ? `⚠️ ส่งกลับแก้ไข (รอบที่ ${trip.revisionCount || 1})` : `⚠️ Revision (#${trip.revisionCount || 1})`)
                               : trip.status === 'In Progress'
                               ? (trip.isFullyCompleted
                                   ? (language === 'th' ? '✓ ข้อมูลครบ' : '✓ Complete')
@@ -1335,7 +1370,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                         </View>
                       </TouchableOpacity>
 
-                      {/* Meta Row: Client Count & Drop Status */}
+                      {/* Meta Row: Client Count & Drop Status Progress */}
                       <View style={styles.tripCardMeta}>
                         <View style={styles.tripMetaItem}>
                           <Users size={14} color="#1D4ED8" />
@@ -1344,11 +1379,12 @@ export default function TripScheduleScreen({ navigation }: any) {
                           </Text>
                         </View>
 
+                        {/* Distinct Drop Progress Indicator (No duplicated status label) */}
                         {trip.approvalStatus === 'approved' ? (
                           <View style={[styles.confirmationBadgePill, styles.confirmationBadgeGreen]}>
                             <CheckCircle2 size={11} color="#166534" />
                             <Text style={[styles.confirmationBadgeText, { color: '#166534' }]}>
-                              {language === 'th' ? 'อนุมัติเรียบร้อย' : 'Approved'}
+                              {language === 'th' ? `ครบ ${trip.dropsCount}/${trip.dropsCount} จุด` : `${trip.dropsCount}/${trip.dropsCount} Stops`}
                             </Text>
                           </View>
                         ) : trip.approvalStatus === 'pending' ? (
@@ -1356,15 +1392,17 @@ export default function TripScheduleScreen({ navigation }: any) {
                             <Clock size={11} color="#1D4ED8" />
                             <Text style={[styles.confirmationBadgeText, { color: '#1D4ED8' }]}>
                               {language === 'th'
-                                ? `รอตรวจ (${trip.completedDropsCount}/${trip.dropsCount})`
-                                : `Pending (${trip.completedDropsCount}/${trip.dropsCount})`}
+                                ? `ข้อมูลครบ (${trip.completedDropsCount}/${trip.dropsCount} จุด)`
+                                : `Complete (${trip.completedDropsCount}/${trip.dropsCount})`}
                             </Text>
                           </View>
                         ) : trip.approvalStatus === 'revision_requested' ? (
                           <View style={[styles.confirmationBadgePill, { backgroundColor: '#FEE2E2' }]}>
                             <AlertTriangle size={11} color="#DC2626" />
                             <Text style={[styles.confirmationBadgeText, { color: '#DC2626' }]}>
-                              {language === 'th' ? 'ส่งกลับแก้ไข' : 'Revision'}
+                              {language === 'th'
+                                ? `รออัปเดต (${trip.completedDropsCount}/${trip.dropsCount} จุด)`
+                                : `Needs Update (${trip.completedDropsCount}/${trip.dropsCount})`}
                             </Text>
                           </View>
                         ) : trip.isFullyCompleted ? (
@@ -1385,7 +1423,13 @@ export default function TripScheduleScreen({ navigation }: any) {
                                 : `⚠️ Missing ${trip.dropsCount - trip.completedDropsCount}`}
                             </Text>
                           </View>
-                        ) : null}
+                        ) : (
+                          <View style={[styles.confirmationBadgePill, { backgroundColor: '#F1F5F9' }]}>
+                            <Text style={[styles.confirmationBadgeText, { color: '#64748B' }]}>
+                              {language === 'th' ? 'ยังไม่เริ่มเดินทาง' : 'Not Started'}
+                            </Text>
+                          </View>
+                        )}
                       </View>
 
                       {/* Progress Bar for In Progress Trips */}
@@ -1500,8 +1544,8 @@ export default function TripScheduleScreen({ navigation }: any) {
                           </TouchableOpacity>
                         )}
 
-                        {/* Delete Button (only if draft / scheduled / revision and not overdue) */}
-                        {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && !trip.isOverdue && (
+                        {/* Delete Button (allowed for all trips except approved/pending) */}
+                        {trip.approvalStatus !== 'pending' && trip.approvalStatus !== 'approved' && (
                           <TouchableOpacity
                             style={styles.actionBtnSecondary}
                             onPress={() => handleDeleteTrip(trip.id)}

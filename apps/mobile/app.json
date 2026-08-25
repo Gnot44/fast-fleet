@@ -10,6 +10,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": ["location", "fetch"],
+        "NSCameraUsageDescription": "แอปพลิเคชันต้องการเข้าถึงกล้องถ่ายรูปเพื่อถ่ายภาพยืนยันการเข้าพบลูกค้าและสลิปค่าใช้จ่าย",
+        "NSPhotoLibraryUsageDescription": "แอปพลิเคชันต้องการเข้าถึงคลังรูปภาพเพื่อแนบภาพยืนยันการเข้าพบและสลิปค่าใช้จ่าย",
         "NSLocationWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งเพื่อบันทึกพิกัดขณะปฏิบัติงานและยืนยันการเข้าพบลูกค้า",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งในเบื้องหลังตลอดเวลาเพื่อบันทึกเส้นทางและสถานะงานแบบอัตโนมัติแม้ปิดหน้าจอ",
         "NSLocationAlwaysUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งตลอดเวลาเพื่อติดตามการเดินทางของทีมการตลาด"
@@ -26,6 +28,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -45,6 +51,13 @@
     "plugins": [
       "expo-sqlite",
       "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "แอปพลิเคชันต้องการเข้าถึงคลังรูปภาพเพื่อแนบภาพยืนยันการเข้าพบและสลิปค่าใช้จ่าย",
+          "cameraPermission": "แอปพลิเคชันต้องการเข้าถึงกล้องถ่ายรูปเพื่อถ่ายภาพยืนยันการเข้าพบลูกค้าและสลิปค่าใช้จ่าย"
+        }
+      ],
       [
         "expo-location",
         {

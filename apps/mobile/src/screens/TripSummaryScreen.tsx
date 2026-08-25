@@ -12,6 +12,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -350,6 +351,43 @@ export default function TripSummaryScreen({ navigation, route }: any) {
       setIsEditStartOdoOpen(false);
       return;
     }
+
+    const startNum = parseFloat(trimmed.replace(/,/g, ''));
+    if (!isNaN(startNum)) {
+      const conflictingDropIdx = dropsList.findIndex((d: any) => {
+        const raw = d.odometer || d.odometer_reading;
+        if (raw !== null && raw !== undefined && raw !== '') {
+          const num = parseFloat(String(raw).replace(/,/g, ''));
+          return !isNaN(num) && num > 0 && num < startNum;
+        }
+        return false;
+      });
+
+      if (conflictingDropIdx !== -1) {
+        const confDrop = dropsList[conflictingDropIdx];
+        const confOdo = parseFloat(String(confDrop.odometer || confDrop.odometer_reading).replace(/,/g, ''));
+        Alert.alert(
+          language === 'th' ? '⚠️ แจ้งเตือนเลขไมล์เริ่มต้น' : '⚠️ Start Odometer Warning',
+          language === 'th'
+            ? `เลขไมล์เริ่มต้นที่คุณระบุ (${startNum.toLocaleString()} กม.) มากกว่าจุดที่ #${conflictingDropIdx + 1} "${confDrop.name}" (${confOdo.toLocaleString()} กม.) ซึ่งจะทำให้เลขไมล์ถอยหลัง\n\nต้องการยืนยันบันทึกใช่หรือไม่?`
+            : `Start odometer (${startNum.toLocaleString()} km) is greater than drop #${conflictingDropIdx + 1} (${confOdo.toLocaleString()} km). Confirm anyway?`,
+          [
+            { text: language === 'th' ? 'แก้ไขใหม่' : 'Cancel', style: 'cancel' },
+            {
+              text: language === 'th' ? 'ยืนยันบันทึก' : 'Confirm',
+              style: 'destructive',
+              onPress: () => commitStartOdo(trimmed),
+            },
+          ]
+        );
+        return;
+      }
+    }
+
+    await commitStartOdo(trimmed);
+  };
+
+  const commitStartOdo = async (trimmed: string) => {
     setStartOdometer(trimmed);
     setIsEditStartOdoOpen(false);
 
@@ -617,6 +655,31 @@ export default function TripSummaryScreen({ navigation, route }: any) {
     );
   };
 
+  const handleSummaryGoBack = () => {
+    if (params.returnScreen === 'TripSchedule') {
+      navigation.navigate('TripSchedule');
+      return;
+    }
+    if (params.returnScreen === 'Dashboard' || isRevision || isApproved || isPendingReview) {
+      navigation.navigate('Dashboard');
+      return;
+    }
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Dashboard');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleSummaryGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [params.returnScreen, isRevision, isApproved, isPendingReview]);
+
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView
@@ -628,18 +691,24 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           <SafeAreaView edges={['top']} style={styles.headerInner}>
             <TouchableOpacity
               style={styles.headerIconButton}
-              onPress={() => navigation.goBack()}
+              onPress={handleSummaryGoBack}
               activeOpacity={0.8}
             >
               <ArrowLeft size={20} color="#FFFFFF" />
             </TouchableOpacity>
             <View style={styles.headerCenter}>
-              <Text style={styles.headerTitle}>
-                {isRevision
-                  ? (language === 'th' ? 'แก้ไขรายงานทริป' : 'Revise Trip Report')
-                  : t('summary_title')}
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {tripRoute || (language === 'th' ? 'สรุปรายงานทริป' : 'Trip Summary')}
               </Text>
-              <Text style={styles.headerSub} numberOfLines={1}>{tripRoute}</Text>
+              <Text style={styles.headerSub} numberOfLines={1}>
+                {isRevision
+                  ? (language === 'th' ? '⚠️ ส่งกลับแก้ไข' : '⚠️ Revision Requested')
+                  : (isApproved
+                      ? (language === 'th' ? '✓ ได้รับการอนุมัติแล้ว' : '✓ Approved')
+                      : (isPendingReview
+                          ? (language === 'th' ? '⏳ รอ Admin อนุมัติ' : '⏳ Pending Review')
+                          : (language === 'th' ? 'สรุปรายงานการเข้าพบลูกค้า' : 'Field Visit Summary')))}
+              </Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <LanguageTogglePill />
@@ -718,29 +787,28 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
         {/* Drops Confirmation Status Banner */}
         {(() => {
-          const confirmedCount = dropsList.filter((d: any, idx: number) => {
-            if (d.isConfirmed !== undefined) return !!d.isConfirmed;
-            return idx < 2;
+          const completedCount = dropsList.filter((d: any) => {
+            return !!d.isConfirmed && (d.isDataComplete || d.status === 'Completed' || d.status === 'completed');
           }).length;
-          const hasUnconfirmed = confirmedCount < dropsList.length;
+          const hasIncomplete = completedCount < dropsList.length;
 
           return (
-            <View style={[styles.successBanner, hasUnconfirmed && styles.unconfirmedBanner]}>
-              {hasUnconfirmed ? (
-                <AlertTriangle size={24} color="#D97706" />
+            <View style={[styles.successBanner, hasIncomplete && styles.unconfirmedBanner]}>
+              {hasIncomplete ? (
+                <AlertTriangle size={22} color="#D97706" />
               ) : (
-                <CheckCircle2 size={24} color="#166534" />
+                <CheckCircle2 size={22} color="#166534" />
               )}
               <View style={{ flex: 1 }}>
-                <Text style={[styles.successBannerTitle, hasUnconfirmed && { color: '#92400E' }]}>
-                  {hasUnconfirmed
-                    ? (language === 'th' ? `ยังยืนยันไม่ครบ (${confirmedCount}/${dropsList.length} จุด)` : `Incomplete Visits (${confirmedCount}/${dropsList.length} Confirmed)`)
-                    : t('tracker_all_done')}
+                <Text style={[styles.successBannerTitle, hasIncomplete && { color: '#92400E' }]}>
+                  {hasIncomplete
+                    ? (language === 'th' ? `ข้อมูลยังไม่ครบถ้วน (${completedCount}/${dropsList.length} จุด)` : `Incomplete Visits (${completedCount}/${dropsList.length})`)
+                    : (language === 'th' ? 'เข้าพบและบันทึกข้อมูลครบถ้วน ✓' : t('tracker_all_done'))}
                 </Text>
-                <Text style={[styles.successBannerSub, hasUnconfirmed && { color: '#B45309' }]}>
-                  {hasUnconfirmed
-                    ? (language === 'th' ? 'มีจุดที่ยังไม่ได้เปิดสวิตช์ยืนยันเข้าพบ แตะรายชื่อด้านล่างเพื่อกดยืนยันย้อนหลัง' : 'Some stops are not confirmed. Tap client below to verify.')
-                    : `${dropsList.length} ${t('dash_total_clients')} • ${selectedVehicle}`}
+                <Text style={[styles.successBannerSub, hasIncomplete && { color: '#B45309' }]}>
+                  {hasIncomplete
+                    ? (language === 'th' ? 'แตะรายการจุดเข้าพบด้านล่างเพื่อกรอกข้อมูลให้สมบูรณ์' : 'Tap stops below to complete required details.')
+                    : (language === 'th' ? `เข้าพบลูกค้าครบทั้ง ${dropsList.length} จุดเรียบร้อยแล้ว` : `All ${dropsList.length} ${t('dash_total_clients')} Completed`)}
                 </Text>
               </View>
             </View>
@@ -966,6 +1034,30 @@ export default function TripSummaryScreen({ navigation, route }: any) {
               const dropExp = getDropExpenses(dropItem, index);
               const dropExpSum = dropExp.reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
 
+              // Resolve Previous Odometer for rollback checking
+              let prevOdoVal: number | null = null;
+              for (let i = index - 1; i >= 0; i--) {
+                const prevD = dropsList[i];
+                const raw = prevD?.odometer || prevD?.odometer_reading;
+                if (raw !== null && raw !== undefined && raw !== '') {
+                  const num = parseFloat(String(raw).replace(/,/g, ''));
+                  if (!isNaN(num) && num > 0) {
+                    prevOdoVal = num;
+                    break;
+                  }
+                }
+              }
+              if (prevOdoVal === null && startOdometer) {
+                const num = parseFloat(String(startOdometer).replace(/,/g, ''));
+                if (!isNaN(num) && num > 0) prevOdoVal = num;
+              }
+
+              const dropOdoRaw = dropItem.odometer || dropItem.odometer_reading;
+              const dropOdoNum = dropOdoRaw !== null && dropOdoRaw !== undefined && dropOdoRaw !== ''
+                ? parseFloat(String(dropOdoRaw).replace(/,/g, ''))
+                : null;
+              const isDropOdoRollback = dropOdoNum !== null && !isNaN(dropOdoNum) && prevOdoVal !== null && dropOdoNum < prevOdoVal;
+
               return (
                 <TouchableOpacity
                   key={dropItem.id || index}
@@ -1057,26 +1149,48 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                     </View>
 
                     <View style={styles.metaRow}>
-                      <View style={styles.metaPill}>
-                        <Camera size={13} color="#1D4ED8" />
-                        <Text style={styles.metaPillText}>
-                          {(() => {
-                            const pCount = Array.isArray(dropItem.photos) && dropItem.photos.length > 0
-                              ? dropItem.photos.length
-                              : parsePhotos(dropItem.client_photo_url).length;
-                            return `${pCount} ${language === 'th' ? 'รูปถ่าย' : 'Photos'}`;
-                          })()}
-                        </Text>
-                      </View>
-                      <View style={styles.metaPill}>
-                        <CreditCard size={13} color="#1D4ED8" />
-                        <Text style={styles.metaPillText}>฿{dropExpSum.toFixed(2)}</Text>
-                      </View>
-                      {(index === 0 || dropItem.note || dropItem.meetingMinutes) && (
+                      {dropOdoNum !== null && !isNaN(dropOdoNum) && dropOdoNum > 0 && (
+                        <View style={[styles.metaPill, isDropOdoRollback && { backgroundColor: '#FEE2E2', borderColor: '#FECACA', borderWidth: 1 }]}>
+                          <Gauge size={12} color={isDropOdoRollback ? '#DC2626' : '#1D4ED8'} />
+                          <Text style={[styles.metaPillText, isDropOdoRollback && { color: '#DC2626', fontWeight: '700' }]}>
+                            ODO: {dropOdoNum.toLocaleString()} km
+                          </Text>
+                          {isDropOdoRollback && (
+                            <Text style={{ fontSize: 9, color: '#DC2626', fontWeight: '800' }}>
+                              (⚠️ ถอยหลัง)
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      {(() => {
+                        const pCount = Array.isArray(dropItem.photos) && dropItem.photos.length > 0
+                          ? dropItem.photos.length
+                          : parsePhotos(dropItem.client_photo_url).length;
+                        if (pCount === 0) return null;
+                        return (
+                          <View style={styles.metaPill}>
+                            <Camera size={12} color="#1D4ED8" />
+                            <Text style={styles.metaPillText}>
+                              {`${pCount} ${language === 'th' ? 'รูป' : 'Photos'}`}
+                            </Text>
+                          </View>
+                        );
+                      })()}
+                      {dropExpSum > 0 && (
+                        <View style={styles.metaPill}>
+                          <CreditCard size={12} color="#1D4ED8" />
+                          <Text style={styles.metaPillText}>฿{dropExpSum.toFixed(2)}</Text>
+                        </View>
+                      )}
+                      {Boolean(
+                        (dropItem.note && dropItem.note.trim()) ||
+                        (typeof dropItem.meetingMinutes === 'string' && dropItem.meetingMinutes.trim()) ||
+                        (dropItem.meetingMinutes?.notes && dropItem.meetingMinutes.notes.trim())
+                      ) && (
                         <View style={[styles.metaPill, { backgroundColor: '#F3E8FF' }]}>
-                          <FileText size={13} color="#7C3AED" />
+                          <FileText size={12} color="#7C3AED" />
                           <Text style={[styles.metaPillText, { color: '#7C3AED' }]}>
-                            {language === 'th' ? 'มีบันทึกการประชุม' : 'Notes Attached'}
+                            {language === 'th' ? 'มีบันทึก' : 'Notes'}
                           </Text>
                         </View>
                       )}
@@ -1606,7 +1720,8 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
-    gap: 8,
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 6,
   },
   metaPill: {
@@ -1614,9 +1729,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   metaPillText: {
     fontSize: 10,

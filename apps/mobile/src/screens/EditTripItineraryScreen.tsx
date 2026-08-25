@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   TouchableWithoutFeedback,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -48,31 +49,26 @@ import {
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
-
-interface DropItem {
-  id: string;
-  name: string;
-  address: string;
-  recipient?: string;
-  phone?: string;
-  items?: string;
-  latitude?: number;
-  longitude?: number;
-  isConfirmed?: boolean;
-  meetingMinutes?: string;
-  photos?: string[];
-  expenses?: any[];
-}
+import { useTripDraft, StopItem } from '../lib/TripDraftContext';
 
 export default function EditTripItineraryScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
-  const initialDrops: DropItem[] = Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : [];
   const currentDropIndex = typeof params.currentDropIndex === 'number' ? params.currentDropIndex : 0;
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
 
-  const [drops, setDrops] = useState<DropItem[]>(initialDrops);
+  const {
+    activeTripDrops,
+    setActiveTripDrops,
+    addActiveTripDrop,
+    updateActiveTripDrop,
+    removeActiveTripDrop,
+  } = useTripDraft();
+
+  const drops = activeTripDrops;
+  const setDrops = setActiveTripDrops;
+
   const [optimizing, setOptimizing] = useState(false);
 
   // AI Re-Optimize Modal State
@@ -103,6 +99,42 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   const mapRef = useRef<MapView | null>(null);
   const searchTimeoutRef = useRef<any>(null);
   const isSelectingRef = useRef<boolean>(false);
+
+  // Initialize or Fallback load drops on mount
+  useEffect(() => {
+    if (Array.isArray(params.drops) && params.drops.length > 0 && activeTripDrops.length === 0) {
+      setActiveTripDrops(params.drops);
+    } else if (activeTripDrops.length === 0 && params.tripId) {
+      async function loadDbAppointments() {
+        try {
+          const { data: appts } = await supabase
+            .from('appointments')
+            .select('*')
+            .eq('trip_id', params.tripId)
+            .order('sequence_order', { ascending: true });
+
+          if (appts && appts.length > 0) {
+            const mapped: StopItem[] = appts.map((a: any) => ({
+              id: a.id,
+              appointmentId: a.id,
+              name: a.company_name,
+              recipient: a.recipient_name || a.customer_name || '',
+              phone: a.recipient_phone || '',
+              items: a.agenda || '',
+              address: a.destination_address || '',
+              latitude: a.destination_lat || undefined,
+              longitude: a.destination_lng || undefined,
+              isConfirmed: !!a.confirmation_status || a.status === 'completed',
+            }));
+            setActiveTripDrops(mapped);
+          }
+        } catch (e) {
+          console.warn('Error loading fallback appointments:', e);
+        }
+      }
+      loadDbAppointments();
+    }
+  }, [params.tripId]);
 
   // Manual Reordering
   const handleMoveUp = (index: number) => {
@@ -139,21 +171,18 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   // Add New Drop Mid-Trip
   const handleAddNewDrop = () => {
     navigation.navigate('AddNewDrop', {
-      onAddDrop: (newDrop: DropItem) => {
-        setDrops((prev) => [...prev, newDrop]);
-        Alert.alert('เพิ่มลูกค้านัดหมายสำเร็จ', `เพิ่ม "${newDrop.name}" เข้าสู่แผนการเดินทางเรียบร้อยแล้ว`);
-      },
+      returnScreen: 'EditTripItinerary',
+      isEditing: false,
     });
   };
 
   // Edit Existing Drop Mid-Trip
-  const handleEditDrop = (drop: DropItem, index: number) => {
+  const handleEditDrop = (drop: StopItem, index: number) => {
     navigation.navigate('AddNewDrop', {
       drop,
       isEditing: true,
-      onEditDrop: (updatedDrop: DropItem) => {
-        setDrops((prev) => prev.map((d, i) => (i === index ? { ...d, ...updatedDrop } : d)));
-      },
+      editIndex: index,
+      returnScreen: 'EditTripItinerary',
     });
   };
 
@@ -170,7 +199,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
         text: 'ลบลูกค้านัดหมาย',
         style: 'destructive',
         onPress: () => {
-          setDrops((prev) => prev.filter((_, i) => i !== index));
+          setDrops(drops.filter((_, i) => i !== index));
         },
       },
     ]);
@@ -510,11 +539,33 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
       [
         {
           text: language === 'th' ? 'กลับไปหน้าติดตามการเดินทาง' : 'Back to Tracker',
-          onPress: () => navigation.goBack(),
+          onPress: () => {
+            navigation.navigate('ActiveTracker', {
+              drops,
+              tripId: route.params?.tripId,
+            });
+          },
         },
       ]
     );
   };
+
+  const handleEditItineraryGoBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('ActiveTracker');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleEditItineraryGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, []);
 
   const remainingDropsCount = drops.filter((d) => !d.isConfirmed).length;
 
@@ -524,7 +575,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={handleEditItineraryGoBack}
           activeOpacity={0.8}
         >
           <ArrowLeft size={20} color="#03246B" />

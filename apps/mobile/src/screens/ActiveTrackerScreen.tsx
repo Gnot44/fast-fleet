@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -47,6 +48,7 @@ import {
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { useTripDraft } from '../lib/TripDraftContext';
 
 const defaultInitialDrops: any[] = [];
 
@@ -66,10 +68,36 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     params.currentOdometer ? parseFloat(params.currentOdometer) : null
   );
 
+  const { activeTripDrops, setActiveTripDrops } = useTripDraft();
+
   // Exact drops array passed from previous screens
   const [drops, setDrops] = useState<any[]>(
-    Array.isArray(params.drops) ? params.drops : []
+    Array.isArray(params.drops) && params.drops.length > 0
+      ? params.drops
+      : (activeTripDrops.length > 0 ? activeTripDrops : [])
   );
+
+  // Sync initial drops to Context on mount if not already populated
+  useEffect(() => {
+    if (Array.isArray(params.drops) && params.drops.length > 0 && activeTripDrops.length === 0) {
+      setActiveTripDrops(params.drops);
+    }
+  }, [params.drops]);
+
+  // Sync drops when returning from EditTripItinerary or when activeTripDrops changes
+  useEffect(() => {
+    if (activeTripDrops.length > 0) {
+      setDrops(activeTripDrops);
+    }
+  }, [activeTripDrops]);
+
+  useEffect(() => {
+    if (Array.isArray(route?.params?.drops) && route.params.drops.length > 0) {
+      setDrops(route.params.drops);
+      setActiveTripDrops(route.params.drops);
+    }
+  }, [route?.params?.drops]);
+
   const [currentDropIndex, setCurrentDropIndex] = useState<number>(
     typeof params.dropIndex === 'number' ? params.dropIndex : 0
   );
@@ -228,6 +256,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
               };
             });
             setDrops(mapped);
+            setActiveTripDrops(mapped);
           }
         } catch (err) {
           console.warn('Error fetching fallback drops in ActiveTracker:', err);
@@ -522,15 +551,29 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   const handleOpenGoogleMaps = handleOpenNavigation;
 
   // Open Edit Itinerary to reorder or add drops
+  const lastProcessedTimeRef = useRef<number>(0);
+
+  // Handle added or updated drops returned from AddNewDrop
+  useEffect(() => {
+    const timestamp = route.params?.timestamp || 0;
+    if (route.params?.addedDrop && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const newDrop = route.params.addedDrop;
+      setDrops((prev) => [...prev, newDrop]);
+    }
+    if (route.params?.updatedDrop && typeof route.params?.editIndex === 'number' && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const { updatedDrop, editIndex } = route.params;
+      setDrops((prev) => prev.map((d, i) => (i === editIndex ? { ...d, ...updatedDrop } : d)));
+    }
+  }, [route.params?.addedDrop, route.params?.updatedDrop, route.params?.editIndex, route.params?.timestamp]);
+
   const handleOpenEditItinerary = () => {
     navigation.navigate('EditTripItinerary', {
       tripId,
       drops,
       currentDropIndex: nextSequentialDropIndex !== -1 ? nextSequentialDropIndex : 0,
       startLocation,
-      onUpdateDrops: (updated: any[]) => {
-        setDrops(updated);
-      },
     });
   };
 
@@ -538,9 +581,9 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     navigation.navigate('AddNewDrop', {
       drop: dropItem,
       isEditing: true,
-      onEditDrop: (updated: any) => {
-        setDrops((prev) => prev.map((d, i) => (i === idx ? { ...d, ...updated } : d)));
-      },
+      editIndex: idx,
+      returnScreen: 'ActiveTracker',
+      timestamp: Date.now(),
     });
   };
 
@@ -591,6 +634,15 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       ]
     );
   };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBackToDashboard();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [language]);
 
   const isCurrentTargetDone = !!activeDrop?.isConfirmed;
   const isFutureDropViewing = !isCurrentTargetDone && nextSequentialDropIndex !== -1 && currentDropIndex > nextSequentialDropIndex;

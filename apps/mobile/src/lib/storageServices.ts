@@ -1,3 +1,4 @@
+import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
 
@@ -119,19 +120,35 @@ export async function uploadImageToSupabase(
 }
 
 /**
- * Pick image from Camera with Base64 support
+ * Pick image from Camera with Base64 support & explicit permission checks
  */
 export async function pickImageFromCamera(): Promise<{ uri: string; name?: string; base64?: string } | null> {
   try {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted && perm.status !== 'granted') {
+    if (Platform.OS === 'web') {
       return pickImageFromLibrary();
+    }
+
+    const { status: existingStatus, granted: existingGranted } = await ImagePicker.getCameraPermissionsAsync();
+    let isGranted = existingGranted || existingStatus === 'granted';
+
+    if (!isGranted) {
+      const { status: newStatus, granted: newGranted } = await ImagePicker.requestCameraPermissionsAsync();
+      isGranted = newGranted || newStatus === 'granted';
+    }
+
+    if (!isGranted) {
+      Alert.alert(
+        'ขอสิทธิ์การใช้งานกล้อง',
+        'กรุณาอนุญาตให้แอปพลิเคชันเข้าถึงกล้องถ่ายรูปในการตั้งค่าเพื่อถ่ายภาพหน้างานจริงหรือสลิปค่าใช้จ่าย',
+        [{ text: 'ตกลง' }]
+      );
+      return null;
     }
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.8,
+      quality: 0.6,
       base64: true,
     });
 
@@ -144,21 +161,38 @@ export async function pickImageFromCamera(): Promise<{ uri: string; name?: strin
       };
     }
     return null;
-  } catch (e) {
+  } catch (e: any) {
     console.warn('Camera launch failed, falling back to library:', e);
     return pickImageFromLibrary();
   }
 }
 
 /**
- * Pick image from Photo Library / Gallery with Base64 support
+ * Pick image from Photo Library / Gallery with Base64 support & explicit permission checks
  */
 export async function pickImageFromLibrary(): Promise<{ uri: string; name?: string; base64?: string } | null> {
   try {
+    const checkPerm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    let isGranted = checkPerm.granted || checkPerm.status === 'granted';
+
+    if (!isGranted) {
+      const requestPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      isGranted = requestPerm.granted || requestPerm.status === 'granted';
+    }
+
+    if (!isGranted) {
+      Alert.alert(
+        'ขอสิทธิ์เข้าถึงรูปภาพ',
+        'กรุณาอนุญาตให้แอปพลิเคชันเข้าถึงรูปภาพเพื่อเลือกรูปภาพจากคลัง',
+        [{ text: 'ตกลง' }]
+      );
+      return null;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.8,
+      quality: 0.6,
       base64: true,
     });
 
@@ -171,8 +205,9 @@ export async function pickImageFromLibrary(): Promise<{ uri: string; name?: stri
       };
     }
     return null;
-  } catch (e) {
+  } catch (e: any) {
     console.warn('Photo library error:', e);
+    Alert.alert('เกิดข้อผิดพลาดในการเลือกรูปภาพ', e?.message || 'ไม่สามารถเข้าถึงคลังรูปภาพได้');
     return null;
   }
 }

@@ -38,10 +38,12 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { useTripDraft } from '../lib/TripDraftContext';
 
 export default function AddNewDropScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
+  const { addStop, updateStop, addActiveTripDrop, updateActiveTripDrop } = useTripDraft();
   const params = route?.params || {};
   const isEditing = !!params.isEditing;
   const initialDrop = params.drop || {};
@@ -58,17 +60,8 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   // Visit Agenda State
   const defaultAgenda = initialDrop.items || '';
   const [meetingAgenda, setMeetingAgenda] = useState(defaultAgenda);
-  const [selectedAgendaKey, setSelectedAgendaKey] = useState<string>(() => {
-    if (defaultAgenda.includes('นำเสนอ') || defaultAgenda.toLowerCase().includes('pitch')) return 'pitch';
-    if (defaultAgenda.includes('ต่อสัญญา') || defaultAgenda.toLowerCase().includes('renewal')) return 'renewal';
-    if (defaultAgenda.includes('ตรวจระบบ') || defaultAgenda.toLowerCase().includes('health')) return 'healthcheck';
-    if (defaultAgenda.includes('แนะนำสินค้า') || defaultAgenda.toLowerCase().includes('demo')) return 'demo';
-    if (defaultAgenda.startsWith('อื่นๆ') || defaultAgenda.toLowerCase().startsWith('other')) return 'other';
-    return 'pitch';
-  });
-  const [customAgendaText, setCustomAgendaText] = useState(
-    defaultAgenda.startsWith('อื่นๆ:') ? defaultAgenda.replace('อื่นๆ:', '').trim() : ''
-  );
+  const [selectedAgendaKey, setSelectedAgendaKey] = useState<string>('pitch');
+  const [customAgendaText, setCustomAgendaText] = useState('');
 
   const [destinationAddress, setDestinationAddress] = useState(initialDrop.address || DEFAULT_BANGKOK_LOCATION.address);
   const [selectedCoord, setSelectedCoord] = useState({
@@ -79,6 +72,32 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   const mapRef = useRef<MapView | null>(null);
   const searchTimeoutRef = useRef<any>(null);
   const isSelectingRef = useRef<boolean>(false);
+
+  // Sync state whenever route.params changes
+  useEffect(() => {
+    setIsSubmitting(false);
+    const d = route?.params?.drop || {};
+    const editing = !!route?.params?.isEditing;
+    setCustomerName(d.recipient || '');
+    setPhoneNumber(d.phone || '');
+    setCompanyName(d.name || '');
+    setDestinationAddress(d.address || DEFAULT_BANGKOK_LOCATION.address);
+    setSelectedCoord({
+      latitude: d.latitude || DEFAULT_BANGKOK_LOCATION.latitude,
+      longitude: d.longitude || DEFAULT_BANGKOK_LOCATION.longitude,
+    });
+    const agenda = d.items || '';
+    setMeetingAgenda(agenda);
+    if (agenda.includes('นำเสนอ') || agenda.toLowerCase().includes('pitch')) setSelectedAgendaKey('pitch');
+    else if (agenda.includes('ต่อสัญญา') || agenda.toLowerCase().includes('renewal')) setSelectedAgendaKey('renewal');
+    else if (agenda.includes('ตรวจระบบ') || agenda.toLowerCase().includes('health')) setSelectedAgendaKey('healthcheck');
+    else if (agenda.includes('แนะนำสินค้า') || agenda.toLowerCase().includes('demo')) setSelectedAgendaKey('demo');
+    else if (agenda.startsWith('อื่นๆ') || agenda.toLowerCase().startsWith('other')) setSelectedAgendaKey('other');
+    else setSelectedAgendaKey('pitch');
+    setCustomAgendaText(agenda.startsWith('อื่นๆ:') ? agenda.replace('อื่นๆ:', '').trim() : '');
+    setSearchQuery('');
+    setPredictions([]);
+  }, [route?.params]);
 
   // Fast live GPS fetch
   const handleUseCurrentLocation = async () => {
@@ -185,7 +204,6 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   };
 
   const handleConfirm = () => {
-    if (isSubmitting) return;
     if (!customerName && !companyName && !destinationAddress) {
       Alert.alert(
         language === 'th' ? 'กรุณากรอกข้อมูล' : 'Information Required',
@@ -194,12 +212,16 @@ export default function AddNewDropScreen({ navigation, route }: any) {
       return;
     }
 
-    setIsSubmitting(true);
+    const isEditingMode = !!params.isEditing;
+    const dropId = (isEditingMode && initialDrop.id)
+      ? initialDrop.id
+      : `drop_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     const payload = {
-      id: initialDrop.id || `client-${Date.now()}`,
-      name: companyName || customerName || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit'),
+      id: dropId,
+      name: companyName.trim() || customerName.trim() || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit'),
       address: destinationAddress || 'Bangkok Central Area',
-      recipient: customerName || 'Client Representative',
+      recipient: customerName.trim() || 'Client Representative',
       phone: phoneNumber.trim() || '',
       items: meetingAgenda || (language === 'th' ? 'นำเสนอแผนงาน' : 'Product Demo'),
       latitude: selectedCoord.latitude,
@@ -209,13 +231,29 @@ export default function AddNewDropScreen({ navigation, route }: any) {
       ...(initialDrop.note ? { note: initialDrop.note } : {}),
     };
 
-    if (isEditing && params.onEditDrop) {
-      params.onEditDrop(payload);
-    } else if (params.onAddDrop) {
-      params.onAddDrop(payload);
+    const targetScreen = params.returnScreen || 'NewAppointment';
+    if (targetScreen === 'NewAppointment') {
+      if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
+        updateStop(params.editIndex, payload);
+      } else {
+        addStop(payload);
+      }
+      navigation.goBack();
+    } else if (targetScreen === 'EditTripItinerary') {
+      if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
+        updateActiveTripDrop(params.editIndex, payload);
+      } else {
+        addActiveTripDrop(payload);
+      }
+      navigation.goBack();
+    } else {
+      navigation.navigate(targetScreen, {
+        addedDrop: !isEditingMode ? payload : undefined,
+        updatedDrop: isEditingMode ? payload : undefined,
+        editIndex: params.editIndex,
+        timestamp: Date.now(),
+      });
     }
-
-    navigation.goBack();
   };
 
   return (

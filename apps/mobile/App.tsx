@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LanguageProvider } from './src/lib/LanguageContext';
 import { ThemeProvider } from './src/lib/ThemeContext';
+import { TripDraftProvider } from './src/lib/TripDraftContext';
 
 import LoginScreen from './src/screens/LoginScreen';
 import PrivacyConsentScreen from './src/screens/PrivacyConsentScreen';
@@ -26,52 +27,54 @@ export default function App() {
     <SafeAreaProvider>
       <ThemeProvider>
         <LanguageProvider>
-          <StatusBar style="auto" />
-          <NavigationContainer>
-            <Stack.Navigator
-              initialRouteName="Login"
-              screenOptions={{
-                headerShown: false,
-                animation: 'slide_from_right',
-              }}
-            >
-              {/* M1. Mobile Login */}
-              <Stack.Screen name="Login" component={LoginScreen} />
+          <TripDraftProvider>
+            <StatusBar style="auto" />
+            <NavigationContainer>
+              <Stack.Navigator
+                initialRouteName="Login"
+                screenOptions={{
+                  headerShown: false,
+                  animation: 'slide_from_right',
+                }}
+              >
+                {/* M1. Mobile Login */}
+                <Stack.Screen name="Login" component={LoginScreen} />
 
-              {/* M2. Privacy & GPS Consent */}
-              <Stack.Screen name="PrivacyConsent" component={PrivacyConsentScreen} />
+                {/* M2. Privacy & GPS Consent */}
+                <Stack.Screen name="PrivacyConsent" component={PrivacyConsentScreen} />
 
-              {/* M3. Main Dashboard */}
-              <Stack.Screen name="Dashboard" component={DashboardScreen} />
+                {/* M3. Main Dashboard */}
+                <Stack.Screen name="Dashboard" component={DashboardScreen} />
 
-              {/* M4. Create Trip (Start Now / Plan Later) */}
-              <Stack.Screen name="NewAppointment" component={NewAppointmentScreen} />
+                {/* M4. Create Trip (Start Now / Plan Later) */}
+                <Stack.Screen name="NewAppointment" component={NewAppointmentScreen} />
 
-              {/* M5. Add New Drop (Map & Details) */}
-              <Stack.Screen name="AddNewDrop" component={AddNewDropScreen} />
+                {/* M5. Add New Drop (Map & Details) */}
+                <Stack.Screen name="AddNewDrop" component={AddNewDropScreen} />
 
-              {/* M6. Optimized Route Preview */}
-              <Stack.Screen name="RoutePreview" component={RoutePreviewScreen} />
+                {/* M6. Optimized Route Preview */}
+                <Stack.Screen name="RoutePreview" component={RoutePreviewScreen} />
 
-              {/* M7. Active Tracking */}
-              <Stack.Screen name="ActiveTracker" component={ActiveTrackerScreen} />
+                {/* M7. Active Tracking */}
+                <Stack.Screen name="ActiveTracker" component={ActiveTrackerScreen} />
 
-              {/* M8. Edit Itinerary Mid-Trip */}
-              <Stack.Screen name="EditTripItinerary" component={EditTripItineraryScreen} />
+                {/* M8. Edit Itinerary Mid-Trip */}
+                <Stack.Screen name="EditTripItinerary" component={EditTripItineraryScreen} />
 
-              {/* M9. Drop Reporting (Confirmation Toggle, Odometer, Expenses & Photos) */}
-              <Stack.Screen name="DropReporting" component={DropReportingScreen} />
+                {/* M9. Drop Reporting (Confirmation Toggle, Odometer, Expenses & Photos) */}
+                <Stack.Screen name="DropReporting" component={DropReportingScreen} />
 
-              {/* M10. Trip Summary (4-KPI Grid, Per-Drop Reports & Submit) */}
-              <Stack.Screen name="TripSummary" component={TripSummaryScreen} />
+                {/* M10. Trip Summary (4-KPI Grid, Per-Drop Reports & Submit) */}
+                <Stack.Screen name="TripSummary" component={TripSummaryScreen} />
 
-              {/* Calendar / Schedule */}
-              <Stack.Screen name="TripSchedule" component={TripScheduleScreen} />
+                {/* Calendar / Schedule */}
+                <Stack.Screen name="TripSchedule" component={TripScheduleScreen} />
 
-              {/* User Profile */}
-              <Stack.Screen name="UserProfile" component={UserProfileScreen} />
-            </Stack.Navigator>
-          </NavigationContainer>
+                {/* User Profile */}
+                <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+              </Stack.Navigator>
+            </NavigationContainer>
+          </TripDraftProvider>
         </LanguageProvider>
       </ThemeProvider>
     </SafeAreaProvider>

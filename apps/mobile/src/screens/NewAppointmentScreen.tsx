@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Keyboard,
   TouchableWithoutFeedback,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -42,6 +43,7 @@ import {
   Zap,
   Phone,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import {
   getLiveDeviceLocation,
@@ -55,21 +57,7 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
-
-interface StopItem {
-  id: string;
-  name: string;
-  address: string;
-  recipient?: string;
-  phone?: string;
-  items?: string;
-  latitude?: number;
-  longitude?: number;
-  appointmentId?: string;
-  isConfirmed?: boolean;
-}
-
-const initialStops: StopItem[] = [];
+import { useTripDraft, StopItem } from '../lib/TripDraftContext';
 
 const MONTH_NAMES_TH = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -86,17 +74,31 @@ const TIME_SLOTS = [
 export default function NewAppointmentScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
-  const [tabMode, setTabMode] = useState<'startNow' | 'planLater'>('startNow');
+  
+  const {
+    draft,
+    setTripName,
+    setOdometer,
+    setStartLocation,
+    setIsStartSubmitted,
+    setTabMode,
+    setSelectedDate: setDraftDate,
+    setSelectedTimeSlot: setDraftTimeSlot,
+    removeStop,
+    setStops,
+    resetDraft,
+    loadExistingTripDraft,
+  } = useTripDraft();
 
-  // Start Location State
-  const [odometer, setOdometer] = useState('');
-  const [startLocationCoord, setStartLocationCoord] = useState({
-    latitude: DEFAULT_BANGKOK_LOCATION.latitude,
-    longitude: DEFAULT_BANGKOK_LOCATION.longitude,
-    name: DEFAULT_BANGKOK_LOCATION.name,
-    address: DEFAULT_BANGKOK_LOCATION.address,
-  });
-  const [isStartSubmitted, setIsStartSubmitted] = useState(false);
+  const stops = draft.stops;
+  const tripName = draft.tripName;
+  const odometer = draft.odometer;
+  const startLocationCoord = draft.startLocation;
+  const isStartSubmitted = draft.isStartSubmitted;
+  const tabMode = draft.tabMode;
+  const selectedDate = new Date(draft.selectedDate);
+  const selectedTimeSlot = draft.selectedTimeSlot;
+
   const [fetchingGps, setFetchingGps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -108,19 +110,11 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
   const startSearchTimeout = useRef<any>(null);
   const isSelectingStartRef = useRef<boolean>(false);
 
-  // Plan Later & Trip Info State
-  const [tripName, setTripName] = useState('');
-  
   // Date & Time Picker Modal State
   const [showDateTimePicker, setShowDateTimePicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState('08:30 AM');
   const [calViewYear, setCalViewYear] = useState<number>(new Date().getFullYear());
   const [calViewMonth, setCalViewMonth] = useState<number>(new Date().getMonth());
   const [scheduledDisplay, setScheduledDisplay] = useState('Today • 08:30 AM');
-
-  // Stops list
-  const [stops, setStops] = useState<StopItem[]>(initialStops);
 
   // Optimized Route State & Modal
   const [showOptimizeModal, setShowOptimizeModal] = useState(false);
@@ -135,65 +129,54 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     reducedKm: '8.0',
   });
 
-  // Auto fetch current live GPS on mount
-  useEffect(() => {
-    handleFetchCurrentGps(false);
-  }, []);
-
-  // Load existing trip data if editing from Dashboard or TripSchedule
-  useEffect(() => {
-    async function loadExistingTrip() {
-      const tripId = route?.params?.tripId;
-      if (!tripId) return;
-
-      try {
-        const { data: tripData } = await supabase
-          .from('trips')
-          .select('*, appointments(*)')
-          .eq('id', tripId)
-          .single();
-
-        if (tripData) {
-          if (tripData.title) setTripName(tripData.title);
-          if (tripData.start_odometer) setOdometer(tripData.start_odometer.toString());
-          const startLoc = tripData.start_location as any;
-          if (startLoc) {
-            setStartLocationCoord({
-              latitude: startLoc.latitude || DEFAULT_BANGKOK_LOCATION.latitude,
-              longitude: startLoc.longitude || DEFAULT_BANGKOK_LOCATION.longitude,
-              name: startLoc.name || DEFAULT_BANGKOK_LOCATION.name,
-              address: startLoc.address || DEFAULT_BANGKOK_LOCATION.address,
-            });
-            setIsStartSubmitted(true);
-          }
-          if (tripData.status === 'scheduled') {
-            setTabMode('planLater');
-          }
-          if (Array.isArray(tripData.appointments) && tripData.appointments.length > 0) {
-            const sorted = [...tripData.appointments].sort(
-              (a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)
-            );
-            setStops(
-              sorted.map((a: any) => ({
-                id: a.id,
-                appointmentId: a.id,
-                name: a.company_name,
-                recipient: a.recipient_name || a.customer_name || '',
-                phone: a.recipient_phone || '',
-                items: a.agenda || '',
-                address: a.destination_address || '',
-                latitude: a.destination_lat || undefined,
-                longitude: a.destination_lng || undefined,
-                isConfirmed: !!a.confirmation_status,
-              }))
-            );
-          }
-        }
-      } catch (e) {
-        console.warn('Error loading existing trip in NewAppointmentScreen:', e);
-      }
+  const setStartLocationCoord = (
+    locOrUpdater:
+      | { latitude: number; longitude: number; name: string; address: string }
+      | ((prev: { latitude: number; longitude: number; name: string; address: string }) => {
+          latitude: number;
+          longitude: number;
+          name: string;
+          address: string;
+        })
+  ) => {
+    if (typeof locOrUpdater === 'function') {
+      setStartLocation(locOrUpdater(startLocationCoord));
+    } else {
+      setStartLocation(locOrUpdater);
     }
-    loadExistingTrip();
+  };
+
+  const setSelectedDate = (d: Date) => {
+    setDraftDate(d);
+    updateScheduledDisplayText(d, selectedTimeSlot);
+  };
+
+  const setSelectedTimeSlot = (slot: string) => {
+    setDraftTimeSlot(slot);
+    updateScheduledDisplayText(selectedDate, slot);
+  };
+
+  // Load existing trip data if editing
+  useEffect(() => {
+    const tripId = route?.params?.tripId;
+    if (tripId && draft.editingTripId !== tripId) {
+      async function loadTrip() {
+        try {
+          const { data: tripData } = await supabase
+            .from('trips')
+            .select('*, appointments(*)')
+            .eq('id', tripId)
+            .single();
+
+          if (tripData) {
+            loadExistingTripDraft(tripId, tripData);
+          }
+        } catch (e) {
+          console.warn('Error loading existing trip in NewAppointmentScreen:', e);
+        }
+      }
+      loadTrip();
+    }
   }, [route?.params?.tripId]);
 
   // Format scheduled display when date/time changes
@@ -374,9 +357,8 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
 
   const handleAddStop = () => {
     navigation.navigate('AddNewDrop', {
-      onAddDrop: (newDrop: StopItem) => {
-        setStops((prev) => [...prev, newDrop]);
-      },
+      returnScreen: 'NewAppointment',
+      isEditing: false,
     });
   };
 
@@ -384,9 +366,8 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     navigation.navigate('AddNewDrop', {
       drop: stop,
       isEditing: true,
-      onEditDrop: (updated: StopItem) => {
-        setStops((prev) => prev.map((s, i) => (i === index ? { ...s, ...updated } : s)));
-      },
+      editIndex: index,
+      returnScreen: 'NewAppointment',
     });
   };
 
@@ -401,7 +382,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
       );
       return;
     }
-    setStops((prev) => prev.filter((s) => s.id !== id));
+    removeStop(id);
   };
 
   // Manual Reordering (Move Up / Move Down)
@@ -637,6 +618,13 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           }
         }
       } else {
+        // Mark any previous unfinished in_progress trips as completed for this staff
+        await supabase
+          .from('trips')
+          .update({ status: 'completed' })
+          .eq('staff_id', user.id)
+          .eq('status', 'in_progress');
+
         // Create brand new in_progress trip in Supabase
         const { data: createdTrip, error: tripErr } = await supabase
           .from('trips')
@@ -687,10 +675,13 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
         await supabase.from('appointments').insert(apptInserts);
       }
 
+      // Clear draft on successful launch
+      await resetDraft();
+
       setIsSaving(false);
 
       // Launch ActiveTracker directly so driver starts driving!
-      navigation.navigate('ActiveTracker', {
+      navigation.replace('ActiveTracker', {
         tripId: activeTripId,
         tripCode: tripCode,
         tripTitle: finalTripTitle,
@@ -893,9 +884,8 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
         .from('appointments')
         .insert(apptInserts);
 
-      if (apptErr) {
-        console.warn('Error inserting appointments:', apptErr);
-      }
+      // Clear draft on save
+      await resetDraft();
 
       setIsSaving(false);
 
@@ -981,6 +971,23 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     setCalViewYear(d.getFullYear());
   };
 
+  const handleNewApptGoBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Dashboard');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleNewApptGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -993,7 +1000,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           <View style={styles.headerTopRow}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => navigation.goBack()}
+              onPress={handleNewApptGoBack}
               activeOpacity={0.8}
             >
               <ArrowLeft size={20} color="#03246B" />
@@ -1288,13 +1295,13 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
               <Text style={styles.stopsSectionTitle}>
                 {t('plan_clients_list')}{' '}
                 <Text style={styles.stopsSectionCount}>
-                  ({isStartSubmitted ? 1 + stops.length : stops.length})
+                  ({stops.length})
                 </Text>
               </Text>
             </View>
 
             <View style={styles.stopsList}>
-              {/* Sequence #1: START LOCATION */}
+              {/* Sequence: START LOCATION */}
               {isStartSubmitted ? (
                 <View style={[styles.stopCard, styles.startStopCard]}>
                   <View style={styles.startBadgeCircle}>
@@ -1302,7 +1309,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                   </View>
                   <View style={styles.stopDetails}>
                     <Text style={[styles.stopName, { color: '#166534' }]} numberOfLines={1}>
-                      1. {startLocationCoord.name}
+                      {startLocationCoord.name}
                     </Text>
                     <Text style={styles.stopAddress} numberOfLines={1}>
                       {startLocationCoord.address}
@@ -1330,14 +1337,14 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                 <View style={styles.unconfirmedStartWarning}>
                   <Lock size={15} color="#B45309" />
                   <Text style={styles.unconfirmedStartWarningText}>
-                    1. {language === 'th' ? 'กรุณากดยืนยันพิกัดจุดเริ่มต้นด้านบน' : 'Please confirm starting location above'}
+                    {language === 'th' ? 'กรุณากดยืนยันพิกัดจุดเริ่มต้นด้านบน' : 'Please confirm starting location above'}
                   </Text>
                 </View>
               )}
 
               {/* Destination Stops */}
               {stops.map((stop, index) => {
-                const displaySeqNumber = isStartSubmitted ? index + 2 : index + 1;
+                const displaySeqNumber = index + 1;
 
                 return (
                   <View
@@ -1878,7 +1885,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                             )}
                           </View>
                           <Text style={styles.modalTimelineName}>
-                            {index + 2}. {stop.name}
+                            {index + 1}. {stop.name}
                           </Text>
                           <Text style={styles.modalTimelineSub}>{stop.address}</Text>
                           {detail?.reason ? (

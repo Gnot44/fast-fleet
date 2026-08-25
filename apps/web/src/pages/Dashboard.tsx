@@ -98,21 +98,33 @@ function MapFocusController({
   const map = useMap();
 
   useEffect(() => {
-    if (selectedSpecialist && selectedSpecialist.telemetry.hasGpsFix) {
-      if (selectedSpecialist.hasActiveTrip && selectedSpecialist.routeCoordinates && selectedSpecialist.routeCoordinates.length > 1) {
-        const bounds = L.latLngBounds(selectedSpecialist.routeCoordinates);
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15, animate: true });
-      } else {
-        map.flyTo(
-          [selectedSpecialist.telemetry.lat, selectedSpecialist.telemetry.lng],
-          14,
-          { animate: true }
-        );
+    if (selectedSpecialist) {
+      const validDropPoints = (selectedSpecialist.drops || [])
+        .filter((d) => typeof d.lat === 'number' && typeof d.lng === 'number' && d.lat !== 0)
+        .map((d) => [d.lat, d.lng] as [number, number]);
+
+      if (selectedSpecialist.telemetry.hasGpsFix) {
+        validDropPoints.push([selectedSpecialist.telemetry.lat, selectedSpecialist.telemetry.lng]);
+      }
+
+      if (validDropPoints.length > 1) {
+        const bounds = L.latLngBounds(validDropPoints);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: true });
+      } else if (validDropPoints.length === 1) {
+        map.flyTo(validDropPoints[0], 14, { animate: true });
       }
     } else if (specialists.length > 0) {
-      const validPoints = specialists
-        .filter((s) => s.telemetry.hasGpsFix && s.telemetry.lat && s.telemetry.lng)
-        .map((s) => [s.telemetry.lat, s.telemetry.lng] as [number, number]);
+      const validPoints: [number, number][] = [];
+      specialists.forEach((s) => {
+        if (s.telemetry.hasGpsFix) {
+          validPoints.push([s.telemetry.lat, s.telemetry.lng]);
+        }
+        (s.drops || []).forEach((d) => {
+          if (typeof d.lat === 'number' && typeof d.lng === 'number' && d.lat !== 0) {
+            validPoints.push([d.lat, d.lng]);
+          }
+        });
+      });
       if (validPoints.length > 1) {
         const bounds = L.latLngBounds(validPoints);
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
@@ -166,7 +178,10 @@ export default function Dashboard() {
             trip_code,
             title,
             status,
+            approval_status,
+            start_location,
             created_at,
+            started_at,
             appointments (
               id,
               sequence_order,
@@ -190,17 +205,25 @@ export default function Dashboard() {
       if (profiles && profiles.length > 0) {
         const mapped: SpecialistActiveTrip[] = profiles.map((p: any) => {
           const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
-          // Only trips currently in_progress are considered active on the live map
-          const activeTrip = Array.isArray(p.trips)
-            ? p.trips.find((t: any) => t.status === 'in_progress')
-            : null;
+          
+          // Sort trips by started_at / created_at descending (newest first!)
+          const sortedTrips = Array.isArray(p.trips)
+            ? [...p.trips].sort((a: any, b: any) => new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime())
+            : [];
+
+          // Find the active or planned/upcoming trip for the specialist (prioritizing newest in_progress / scheduled)
+          const activeTrip = sortedTrips.find((t: any) => t.status === 'in_progress') ||
+                             sortedTrips.find((t: any) => t.status === 'scheduled') ||
+                             sortedTrips.find((t: any) => t.status === 'draft') ||
+                             sortedTrips.find((t: any) => t.approval_status === 'pending') ||
+                             sortedTrips[0] || null;
 
           const hasActiveTrip = !!activeTrip;
           const appts = hasActiveTrip ? (activeTrip?.appointments || []) : [];
           
-          const hasGps = typeof p.current_lat === 'number' && typeof p.current_lng === 'number' && p.current_lat !== 0;
-          const lat = hasGps ? p.current_lat : 13.7563;
-          const lng = hasGps ? p.current_lng : 100.5018;
+          const startLoc = activeTrip?.start_location as any;
+          const startLat = (startLoc && typeof startLoc.latitude === 'number' && startLoc.latitude !== 0) ? startLoc.latitude : null;
+          const startLng = (startLoc && typeof startLoc.longitude === 'number' && startLoc.longitude !== 0) ? startLoc.longitude : null;
 
           const sortedAppts = [...appts].sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0));
 
@@ -208,10 +231,10 @@ export default function Dashboard() {
             ? sortedAppts.map((a: any, idx: number) => {
                 const dropLat = typeof a.destination_lat === 'number' && a.destination_lat !== 0
                   ? a.destination_lat
-                  : (hasGps ? lat : 13.7563);
+                  : (13.7563 + (idx * 0.015));
                 const dropLng = typeof a.destination_lng === 'number' && a.destination_lng !== 0
                   ? a.destination_lng
-                  : (hasGps ? lng : 100.5018);
+                  : (100.5018 + (idx * 0.012));
 
                 return {
                   dropNumber: a.sequence_order || idx + 1,
@@ -225,8 +248,14 @@ export default function Dashboard() {
               })
             : [];
 
+          const hasGps = typeof p.current_lat === 'number' && typeof p.current_lng === 'number' && p.current_lat !== 0;
+          const lat = hasGps ? p.current_lat : (startLat || (drops.length > 0 ? drops[0].lat : 13.7563));
+          const lng = hasGps ? p.current_lng : (startLng || (drops.length > 0 ? drops[0].lng : 100.5018));
+
           const routeCoords: [number, number][] = hasActiveTrip && drops.length > 0
-            ? drops.map((d) => [d.lat, d.lng] as [number, number])
+            ? (startLat && startLng
+                ? [[startLat, startLng], ...drops.map((d) => [d.lat, d.lng] as [number, number])]
+                : (hasGps ? [[lat, lng], ...drops.map((d) => [d.lat, d.lng] as [number, number])] : drops.map((d) => [d.lat, d.lng] as [number, number])))
             : (hasGps ? [[lat, lng]] : []);
 
           const realBattery = typeof p.battery_level === 'number' && p.battery_level >= 0
@@ -237,7 +266,7 @@ export default function Dashboard() {
           const speedText = speedVal > 0 ? `${speedVal} km/h (กำลังเดินทาง)` : '0 km/h (จอด/อยู่กับที่)';
           const currentAddress = hasGps
             ? (p.current_address || `พิกัด: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-            : 'ยังไม่ได้รับสัญญาณ GPS จากอุปกรณ์';
+            : (startLoc?.address || startLoc?.name || (drops.length > 0 ? `จุดนัดหมาย: ${drops[0].address}` : 'ยังไม่ได้รับสัญญาณ GPS จากอุปกรณ์'));
 
           const relativePing = formatRelativeTime(p.last_seen_at);
 
@@ -980,8 +1009,8 @@ export default function Dashboard() {
                 );
               })}
 
-              {/* Live Specialist Markers */}
-              {mapVisibleSpecialists.map((spec) => (
+              {/* Live Specialist Markers (Only rendered when device has active GPS telemetry fix) */}
+              {mapVisibleSpecialists.filter((spec) => spec.telemetry.hasGpsFix).map((spec) => (
                 <Marker
                   key={spec.id}
                   position={[spec.telemetry.lat, spec.telemetry.lng]}

@@ -1054,10 +1054,15 @@ export default function VisitHistory() {
                 {/* 1. ODO Start / End */}
                 <div>
                   <div className="text-[10.5px] text-slate-500 font-medium">ODO เริ่ม ➔ จบ:</div>
-                  <div className="font-mono font-bold text-slate-900 dark:text-white tnum mt-0.5">
-                    {formatOdoNumber(selectedTrip.vehicle.startOdo)} ➔ {formatOdoNumber(selectedTrip.vehicle.endOdo, 'ไม่ได้บันทึก')}
+                  <div className="font-mono font-bold text-slate-900 dark:text-white tnum mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span>{formatOdoNumber(selectedTrip.vehicle.startOdo)} ➔ {formatOdoNumber(selectedTrip.vehicle.endOdo, 'ไม่ได้บันทึก')}</span>
+                    {selectedTrip.vehicle.startOdo !== undefined && selectedTrip.vehicle.endOdo !== undefined && selectedTrip.vehicle.endOdo < selectedTrip.vehicle.startOdo && (
+                      <span className="text-[9.5px] px-1.5 py-0.2 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-bold rounded border border-rose-300">
+                        ⚠️ ถอยหลัง
+                      </span>
+                    )}
                   </div>
-                  <div className={`text-[10px] font-bold mt-0.5 ${selectedTrip.totalOdoDistance !== undefined ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 italic'}`}>
+                  <div className={`text-[10px] font-bold mt-0.5 ${selectedTrip.totalOdoDistance !== undefined ? (selectedTrip.vehicle.endOdo && selectedTrip.vehicle.startOdo && selectedTrip.vehicle.endOdo < selectedTrip.vehicle.startOdo ? 'text-rose-600 dark:text-rose-400 font-extrabold' : 'text-blue-600 dark:text-blue-400') : 'text-slate-400 italic'}`}>
                     Total: {selectedTrip.totalOdoDistance !== undefined ? `${selectedTrip.totalOdoDistance.toLocaleString()} กม.` : 'คำนวณไม่ได้'}
                   </div>
                 </div>
@@ -1159,7 +1164,7 @@ export default function VisitHistory() {
               {activeTab === 'drops' && (
                 <div className="space-y-3">
                   <div className="space-y-3">
-                    {selectedTrip.visits.map((v) => (
+                    {selectedTrip.visits.map((v, vIdx) => (
                       <div
                         key={v.id}
                         className="p-4 bg-slate-50/90 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5 text-xs shadow-2xs"
@@ -1205,8 +1210,19 @@ export default function VisitHistory() {
                               <span className="text-[10px] text-slate-400 font-mono italic">ODO (km): -</span>
                             )}
                             {typeof v.odometerReading === 'number' && v.odometerReading > 0 ? (
-                              <span className="inline-flex items-center gap-1 font-mono text-[10.5px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 font-medium">
+                              <span className={`inline-flex items-center gap-1 font-mono text-[10.5px] px-2 py-0.5 rounded-lg border font-medium ${
+                                (() => {
+                                  const prevDropOdo = selectedTrip.visits.slice(0, vIdx).reverse().find((pv) => typeof pv.odometerReading === 'number' && pv.odometerReading > 0)?.odometerReading ?? selectedTrip.vehicle.startOdo;
+                                  return (prevDropOdo !== undefined && v.odometerReading < prevDropOdo)
+                                    ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 font-bold'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700';
+                                })()
+                              }`}>
                                 เลขไมล์: {v.odometerReading.toLocaleString()}
+                                {(() => {
+                                  const prevDropOdo = selectedTrip.visits.slice(0, vIdx).reverse().find((pv) => typeof pv.odometerReading === 'number' && pv.odometerReading > 0)?.odometerReading ?? selectedTrip.vehicle.startOdo;
+                                  return (prevDropOdo !== undefined && v.odometerReading < prevDropOdo) ? ' (⚠️ ถอยหลัง)' : '';
+                                })()}
                               </span>
                             ) : (
                               <span className="text-[10px] text-slate-400 font-mono italic">เลขไมล์: ยังไม่ระบุ</span>
