@@ -57,7 +57,7 @@ export default function AdminLayout() {
         className={`fixed top-0 left-0 h-full bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col z-50 transition-all duration-300 shadow-sm ${
           isMobileMenuOpen ? 'translate-x-0 w-64 shadow-2xl' : '-translate-x-full md:translate-x-0'
         } ${
-          isSidebarCollapsed ? 'md:w-sidebar-collapsed' : 'md:w-sidebar-expanded'
+          isSidebarCollapsed ? 'md:w-20' : 'md:w-64'
         }`}
       >
         {/* Brand Header */}
@@ -82,7 +82,7 @@ export default function AdminLayout() {
           {/* Close button on mobile drawer */}
           <button
             onClick={() => setIsMobileMenuOpen(false)}
-            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
@@ -161,22 +161,22 @@ export default function AdminLayout() {
 
       {/* Main Content Wrapper */}
       <div
-        className={`flex-1 flex flex-col h-screen relative transition-all duration-300 ${
-          isSidebarCollapsed ? 'md:ml-sidebar-collapsed' : 'md:ml-sidebar-expanded'
-        } ml-0`}
+        className={`flex-1 flex flex-col min-w-0 h-screen relative transition-all duration-300 ${
+          isSidebarCollapsed ? 'md:pl-20' : 'md:pl-64'
+        } pl-0`}
       >
         {/* TopNavBar Component */}
         <header
-          className={`fixed top-0 right-0 h-16 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 flex justify-between items-center px-4 sm:px-6 z-40 transition-all duration-300 ${
-            isSidebarCollapsed ? 'md:w-[calc(100%-76px)]' : 'md:w-[calc(100%-250px)]'
-          } w-full`}
+          className={`fixed top-0 right-0 h-16 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 flex justify-between items-center px-3 sm:px-6 z-40 transition-all duration-300 ${
+            isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-64'
+          }`}
         >
           {/* Left: Hamburger Menu & Search */}
-          <div className="flex items-center gap-3 flex-1">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
             {/* Mobile Hamburger Toggle */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all flex shrink-0 tactile-btn"
+              className="md:hidden p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all flex shrink-0 tactile-btn cursor-pointer"
               title="Open Navigation"
             >
               <span className="material-symbols-outlined text-[22px]">menu</span>
@@ -185,7 +185,7 @@ export default function AdminLayout() {
             {/* Desktop Sidebar Collapse Toggle */}
             <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="hidden md:flex p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all shrink-0 tactile-btn"
+              className="hidden md:flex p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all shrink-0 tactile-btn cursor-pointer"
               title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
             >
               <span className="material-symbols-outlined text-[20px]">
@@ -194,7 +194,7 @@ export default function AdminLayout() {
             </button>
 
             {/* Global Search Bar */}
-            <div className="hidden sm:flex items-center bg-slate-100/80 dark:bg-slate-800/60 rounded-xl px-3.5 py-1.5 border border-slate-200/70 dark:border-slate-700/60 w-64 md:w-80 focus-within:border-blue-500 focus-within:bg-white dark:focus-within:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all text-xs">
+            <div className="hidden lg:flex items-center bg-slate-100/80 dark:bg-slate-800/60 rounded-xl px-3.5 py-1.5 border border-slate-200/70 dark:border-slate-700/60 w-56 xl:w-72 focus-within:border-blue-500 focus-within:bg-white dark:focus-within:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all text-xs">
               <span className="material-symbols-outlined text-slate-400 dark:text-slate-500 mr-2 text-[18px]">search</span>
               <input
                 className="bg-transparent border-none outline-none w-full placeholder:text-slate-400 dark:placeholder:text-slate-500 p-0 text-slate-900 dark:text-slate-100 font-medium"
@@ -205,9 +205,9 @@ export default function AdminLayout() {
           </div>
 
           {/* Right Header Controls */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Live Telemetry Ping Heartbeat Status */}
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="tracking-tight font-mono">LIVE GPS</span>
             </div>
@@ -221,10 +221,10 @@ export default function AdminLayout() {
             {/* Schedule Navigation Button */}
             <button
               onClick={() => navigate('/admin/schedule')}
-              className="hidden lg:flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold text-xs bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl px-3 py-1.5 border border-slate-200/80 dark:border-slate-700/80 transition-all tactile-btn cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold text-xs bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200/80 dark:border-slate-700/80 transition-all tactile-btn cursor-pointer"
             >
               <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[17px]">calendar_month</span>
-              <span>{t('header_calendar_btn')}</span>
+              <span className="hidden md:inline">{t('header_calendar_btn')}</span>
             </button>
 
             {/* Notifications */}
@@ -256,15 +256,15 @@ export default function AdminLayout() {
         </header>
 
         {/* Page Content Canvas */}
-        <main className="flex-1 mt-16 mb-7 overflow-y-auto p-3 sm:p-5 lg:p-6 bg-white dark:bg-slate-950 pb-16">
+        <main className="flex-1 min-w-0 mt-16 mb-7 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6 bg-white dark:bg-slate-950 pb-16">
           <Outlet />
         </main>
 
         {/* Footer Component */}
         <footer
-          className={`fixed bottom-0 right-0 h-7 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 flex justify-between items-center px-4 sm:px-6 z-30 transition-all duration-300 ${
-            isSidebarCollapsed ? 'md:w-[calc(100%-76px)]' : 'md:w-[calc(100%-250px)]'
-          } w-full text-[11px]`}
+          className={`fixed bottom-0 right-0 h-7 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 flex justify-between items-center px-3 sm:px-6 z-30 transition-all duration-300 ${
+            isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-64'
+          } text-[11px]`}
         >
           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium truncate">
             <span className="truncate">

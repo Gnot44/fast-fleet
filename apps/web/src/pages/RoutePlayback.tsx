@@ -473,9 +473,9 @@ export default function RoutePlayback() {
   const currentSpecialist = specialistsList.find((s) => s.id === selectedStaffId);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased">
+    <div className="flex flex-col h-full min-h-[550px] bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased rounded-3xl border border-slate-200/80 dark:border-slate-800/80">
       {/* 1. Header Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-3 sm:px-5 py-2.5 shadow-2xs flex flex-wrap items-center justify-between gap-2.5 shrink-0 z-20">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-3 sm:px-5 py-2.5 shadow-2xs flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-2.5 shrink-0 z-20">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Driver / Vehicle Selector */}
           <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all">

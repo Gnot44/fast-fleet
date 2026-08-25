@@ -103,6 +103,11 @@ export default function SpecialistScheduleCalendar() {
 
   // Modals & Drawers
   const [selectedTrip, setSelectedTrip] = useState<SpecialistTripSchedule | null>(null);
+  const [selectedDaySchedule, setSelectedDaySchedule] = useState<{
+    dayNumber: number;
+    dateStr: string;
+    trips: SpecialistTripSchedule[];
+  } | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<{ url: string; location?: string; amount?: number } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -1378,9 +1383,9 @@ export default function SpecialistScheduleCalendar() {
       </div>
 
       {/* Date Range & Status Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col md:flex-row gap-3.5 items-stretch md:items-center justify-between">
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col xl:flex-row gap-3.5 items-stretch xl:items-center justify-between">
         {/* Search Box */}
-        <div className="relative flex-1 min-w-[220px]">
+        <div className="relative flex-1 min-w-0">
           <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-slate-400 text-[18px]">search</span>
           <input
             type="text"
@@ -1392,9 +1397,9 @@ export default function SpecialistScheduleCalendar() {
         </div>
 
         {/* Date Presets & Pickers */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Preset Buttons */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 overflow-x-auto scrollbar-hide">
             {[
               { id: 'today', label: 'วันนี้' },
               { id: 'week', label: 'สัปดาห์นี้' },
@@ -1405,7 +1410,7 @@ export default function SpecialistScheduleCalendar() {
               <button
                 key={p.id}
                 onClick={() => setDatePreset(p.id as any)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all tactile-btn cursor-pointer ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all tactile-btn cursor-pointer whitespace-nowrap shrink-0 ${
                   datePreset === p.id
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -1597,35 +1602,64 @@ export default function SpecialistScheduleCalendar() {
                   {calendarDays.map((d, idx) => (
                     <div
                       key={idx}
-                      className={`min-h-[95px] sm:min-h-[110px] p-2 flex flex-col justify-between ${
+                      className={`min-h-[110px] sm:min-h-[125px] p-2 flex flex-col justify-start transition-colors ${
                         !d.dayNumber
                           ? 'bg-slate-50/40 dark:bg-slate-800/20'
                           : d.isToday
                           ? 'bg-blue-50/40 dark:bg-blue-950/30'
-                          : 'bg-white dark:bg-slate-900'
+                          : 'bg-white dark:bg-slate-900 hover:bg-slate-50/60 dark:hover:bg-slate-850/40'
                       }`}
                     >
                       {d.dayNumber ? (
                         <>
-                          <div className="flex items-center justify-between text-xs">
-                            <span className={`font-bold font-mono tnum ${d.isToday ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                              {d.dayNumber}
-                            </span>
-                            {d.isToday && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold">
-                                วันนี้
+                          <div
+                            onClick={() => {
+                              if (d.trips.length > 0 && d.dateStr) {
+                                setSelectedDaySchedule({
+                                  dayNumber: d.dayNumber!,
+                                  dateStr: d.dateStr,
+                                  trips: d.trips,
+                                });
+                              }
+                            }}
+                            className={`flex items-center justify-between text-xs pb-1 select-none ${
+                              d.trips.length > 0 ? 'cursor-pointer group' : ''
+                            }`}
+                            title={d.trips.length > 0 ? `ดูสรุปทั้ง ${d.trips.length} ทริปของวันนี้` : undefined}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`font-bold font-mono tnum ${
+                                  d.isToday
+                                    ? 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 w-6 h-6 rounded-full flex items-center justify-center -ml-0.5'
+                                    : 'text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400'
+                                }`}
+                              >
+                                {d.dayNumber}
+                              </span>
+                              {d.isToday && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold">
+                                  วันนี้
+                                </span>
+                              )}
+                            </div>
+
+                            {d.trips.length > 0 && (
+                              <span className="text-[9.5px] font-bold font-mono text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md transition-colors">
+                                {d.trips.length} ทริป
                               </span>
                             )}
                           </div>
 
-                          <div className="space-y-1 mt-1">
-                            {d.trips.slice(0, 3).map((tr) => {
+                          <div className="space-y-1 mt-1 flex-1">
+                            {/* Render all trips if <= 4, or first 3 + interactive button if > 4 */}
+                            {(d.trips.length <= 4 ? d.trips : d.trips.slice(0, 3)).map((tr) => {
                               const badge = getStatusBadge(tr.status);
                               return (
                                 <div
                                   key={tr.id}
                                   onClick={() => setSelectedTrip(tr)}
-                                  className={`p-1.5 rounded-xl text-[10.5px] font-bold border truncate cursor-pointer hover:opacity-85 transition-all tactile-btn flex items-center justify-between gap-1 ${badge.bg} ${badge.text} ${badge.border}`}
+                                  className={`p-1.5 rounded-xl text-[10.5px] font-bold border truncate cursor-pointer hover:opacity-85 hover:scale-[1.01] transition-all tactile-btn flex items-center justify-between gap-1 shadow-2xs ${badge.bg} ${badge.text} ${badge.border}`}
                                   title={`${tr.specialistName}: ${tr.tripTitle} (${tr.tripCode})`}
                                 >
                                   <span className="truncate">{tr.tripTitle}</span>
@@ -1635,10 +1669,25 @@ export default function SpecialistScheduleCalendar() {
                                 </div>
                               );
                             })}
-                            {d.trips.length > 3 && (
-                              <div className="text-[9px] text-blue-600 font-bold text-center">
-                                +{d.trips.length - 3} ทริปเพิ่มเติม
-                              </div>
+
+                            {d.trips.length > 4 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (d.dateStr) {
+                                    setSelectedDaySchedule({
+                                      dayNumber: d.dayNumber!,
+                                      dateStr: d.dateStr,
+                                      trips: d.trips,
+                                    });
+                                  }
+                                }}
+                                className="w-full text-[9.5px] text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/80 rounded-lg py-1 px-1.5 transition-all text-center border border-blue-200/70 dark:border-blue-800/70 cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
+                              >
+                                <span>+{d.trips.length - 3} ทริปเพิ่มเติม</span>
+                                <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+                              </button>
                             )}
                           </div>
                         </>
@@ -1985,6 +2034,155 @@ export default function SpecialistScheduleCalendar() {
                 </div>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Day Schedule Overview Modal */}
+      {selectedDaySchedule && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800 space-y-4 animate-scale-up max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-600 text-[22px]">calendar_today</span>
+                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                    ตารางทริปวันที่ {selectedDaySchedule.dayNumber} {monthNames[currentMonth]} {currentYear}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  มีทั้งหมด <strong>{selectedDaySchedule.trips.length} ทริป</strong> ในวันนี้
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDaySchedule(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 flex items-center justify-center cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Day Quick Summary Stats */}
+            {(() => {
+              const dayDrops = selectedDaySchedule.trips.reduce((acc, t) => acc + t.drops.length, 0);
+              const dayCompletedDrops = selectedDaySchedule.trips.reduce(
+                (acc, t) => acc + t.drops.filter((d) => d.status === 'Completed').length,
+                0
+              );
+              const dayGpsDist = selectedDaySchedule.trips.reduce((acc, t) => acc + (t.totalGpsDistanceKm || 0), 0);
+              const dayExp = selectedDaySchedule.trips.reduce((acc, t) => acc + (t.totalExpenses || 0), 0);
+
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700 text-xs">
+                  <div>
+                    <div className="text-[10.5px] text-slate-500 font-medium">จำนวนทริป:</div>
+                    <div className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                      {selectedDaySchedule.trips.length} ทริป
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] text-slate-500 font-medium">จุดเข้าพบ:</div>
+                    <div className="font-mono font-bold text-emerald-600 text-sm">
+                      {dayCompletedDrops}/{dayDrops} จุด
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] text-slate-500 font-medium">ระยะทางรวม:</div>
+                    <div className="font-mono font-bold text-purple-600 text-sm">
+                      {dayGpsDist.toLocaleString(undefined, { maximumFractionDigits: 1 })} กม.
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] text-slate-500 font-medium">ค่าใช้จ่ายรวม:</div>
+                    <div className="font-mono font-bold text-amber-600 text-sm">
+                      ฿{dayExp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Trips List for the day */}
+            <div className="space-y-3">
+              {selectedDaySchedule.trips.map((tr, idx) => {
+                const badge = getStatusBadge(tr.status);
+                const closedDrops = tr.drops.filter((d) => d.status === 'Completed').length;
+                return (
+                  <div
+                    key={tr.id || idx}
+                    onClick={() => {
+                      setSelectedTrip(tr);
+                    }}
+                    className="p-4 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 transition-all cursor-pointer shadow-2xs hover:shadow-xs space-y-2.5 group"
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800">
+                          {tr.tripCode}
+                        </span>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                          {tr.tripTitle}
+                        </h4>
+                      </div>
+                      <span className={`px-2.5 py-0.5 rounded-xl text-[11px] font-bold border ${badge.bg} ${badge.text} ${badge.border}`}>
+                        {badge.label}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-3 flex-wrap">
+                      <span>👤 {tr.specialistName} ({tr.specialistNickname})</span>
+                      <span>🚗 {tr.assignedVehicle}</span>
+                      <span>⏱️ {tr.timeSlot}</span>
+                    </div>
+
+                    {/* Drops Strip */}
+                    {tr.drops.length > 0 && (
+                      <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                        <div className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                          📍 จุดเข้าพบ ({closedDrops}/{tr.drops.length} สำเร็จ):
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {tr.drops.map((dp, dIdx) => (
+                            <span
+                              key={dp.id || dIdx}
+                              className={`text-[10px] px-2 py-0.5 rounded-lg font-medium border ${
+                                dp.status === 'Completed'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              #{dp.dropNumber} {dp.clientName}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metrics strip */}
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                      <div className="flex items-center gap-3">
+                        <span>
+                          🛰️ GPS: <strong className="font-mono text-purple-600">{tr.totalGpsDistanceKm || 0} km</strong>
+                        </span>
+                        {tr.totalExpenses > 0 && (
+                          <span>
+                            💰 เบิกจ่าย:{' '}
+                            <strong className="font-mono text-amber-600">
+                              ฿{tr.totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </strong>
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-blue-600 dark:text-blue-400 font-bold text-[11px] flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                        <span>ดูรายละเอียดทริป</span>
+                        <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

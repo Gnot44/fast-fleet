@@ -836,9 +836,9 @@ export default function Dashboard() {
       </div>
 
       {/* Main Split Layout: Interactive Map Canvas (7 Cols) + Specialists Telemetry Cards (5 Cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:h-[720px]">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:h-[720px]">
         {/* Left 7 Cols: Interactive Map Canvas */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden flex flex-col relative h-[420px] sm:h-[500px] lg:h-full">
+        <div className="xl:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden flex flex-col relative h-[420px] sm:h-[500px] xl:h-full">
           {/* Glass HUD Focus Controller Bar */}
           <div className="px-4 sm:px-5 py-3 glass-hud border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2 z-10">
             <div className="flex items-center gap-2.5">
@@ -1037,7 +1037,7 @@ export default function Dashboard() {
         </div>
 
         {/* Right 5 Cols: Specialist Telemetry Cards */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-4 sm:p-5 flex flex-col h-[540px] lg:h-full overflow-hidden">
+        <div className="xl:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-4 sm:p-5 flex flex-col h-[540px] xl:h-full overflow-hidden">
           {/* Search Box */}
           <div className="relative mb-3.5">
             <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-slate-400 dark:text-slate-500 text-[18px]">

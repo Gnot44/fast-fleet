@@ -910,8 +910,8 @@ export default function DriverManagement() {
       ) : (
         /* Table View of Specialists */
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto scrollbar-hide">
+            <table className="w-full text-left text-xs min-w-[900px]">
               <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200/80 dark:border-slate-700/80">
                 <tr>
                   <th className="p-3.5 pl-4">พนักงาน (Employee)</th>

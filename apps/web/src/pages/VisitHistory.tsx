@@ -838,9 +838,9 @@ export default function VisitHistory() {
       </div>
 
       {/* Main 2-Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
         {/* Left Column: Trips Queue & Search Filter (5 cols) */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-4 sm:p-5 space-y-3.5">
+        <div className="xl:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-4 sm:p-5 space-y-3.5">
           {/* Search and Tabs */}
           <div className="space-y-2.5">
             <div className="relative">
@@ -981,7 +981,7 @@ export default function VisitHistory() {
         </div>
 
         {/* Right Column: Detailed Trip Inspection & Approval Workflow (7 cols) */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-5 sm:p-6 space-y-4">
+        <div className="xl:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-5 sm:p-6 space-y-4">
           {!selectedTrip ? (
             <div className="py-24 text-center text-slate-400 dark:text-slate-500 space-y-2">
               <span className="material-symbols-outlined text-5xl text-slate-300 dark:text-slate-600">fact_check</span>
