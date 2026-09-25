@@ -107,7 +107,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
   const [isDataComplete, setIsDataComplete] = useState<boolean>(
     drop.isDataComplete !== undefined
       ? !!drop.isDataComplete
-      : (drop.status === 'completed' || drop.status === 'Completed')
+      : (drop.status?.toLowerCase() === 'completed')
   );
 
   // Odometer (Do NOT prefill fake numbers. Leave empty unless already recorded for this drop)
@@ -152,6 +152,22 @@ export default function DropReportingScreen({ navigation, route }: any) {
     const num = parseFloat(String(odometer).replace(/,/g, ''));
     return !isNaN(num) && num > 0 ? num : null;
   }, [odometer]);
+
+  // Identify whether previous reference point is start odometer or previous drop
+  const isRefFromStartOdo = React.useMemo(() => {
+    for (let i = dropIndex - 1; i >= 0; i--) {
+      const raw = drops[i]?.odometer || drops[i]?.odometer_reading;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const num = parseFloat(String(raw).replace(/,/g, ''));
+        if (!isNaN(num) && num > 0) return false;
+      }
+    }
+    return true;
+  }, [drops, dropIndex]);
+
+  const prevPointLabel = isRefFromStartOdo
+    ? (language === 'th' ? 'เลขไมล์เริ่มต้นทริป' : 'trip start odometer')
+    : (language === 'th' ? 'จุดก่อนหน้า' : 'previous stop');
 
   const isRollbackWarning = currentOdoNum !== null && previousPointOdometer !== null && currentOdoNum < previousPointOdometer;
   const isAheadOfNextWarning = currentOdoNum !== null && nextPointOdometer !== null && currentOdoNum > nextPointOdometer;
@@ -662,8 +678,9 @@ export default function DropReportingScreen({ navigation, route }: any) {
               const cleanedPhotos = parsePhotos(updatedDrop.photos || drop.photos);
               return cleanedPhotos.length > 0 ? (cleanedPhotos.length === 1 ? cleanedPhotos[0] : JSON.stringify(cleanedPhotos)) : null;
             })(),
-            completed_at: updatedDrop.isConfirmed ? new Date().toISOString() : null,
+            completed_at: (updatedDrop.isConfirmed && updatedDrop.isDataComplete) ? new Date().toISOString() : null,
             arrived_at: new Date().toISOString(),
+            driver_notes: null,
           })
           .eq('id', apptId);
 
@@ -674,32 +691,36 @@ export default function DropReportingScreen({ navigation, route }: any) {
             .delete()
             .eq('appointment_id', apptId);
 
-          for (const exp of updatedDrop.expenses) {
-            const amt = parseFloat(exp.amount);
-            if (amt > 0) {
-              const catMap: Record<string, string> = {
-                'ค่าทางด่วน': 'toll',
-                'ค่าที่จอดรถ': 'parking',
-                'ค่าน้ำมัน': 'fuel',
-                'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
-                'ค่าเลี้ยงรับรอง': 'entertainment',
-                'อื่นๆ': 'other',
-              };
-              const cat = catMap[exp.category] || exp.category || 'other';
+          const catMap: Record<string, string> = {
+            'ค่าทางด่วน': 'toll',
+            'ค่าที่จอดรถ': 'parking',
+            'ค่าน้ำมัน': 'fuel',
+            'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
+            'ค่าเลี้ยงรับรอง': 'entertainment',
+            'อื่นๆ': 'other',
+          };
 
-              await supabase.from('expenses').insert({
-                staff_id: staffId,
-                trip_id: tripId,
-                appointment_id: apptId,
-                category: cat,
-                title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
-                amount: amt,
-                receipt_url: exp.receiptUri,
-                receipt_image_path: exp.receiptUri,
-                notes: exp.note,
-                status: 'pending',
-              });
-            }
+          const expenseRows = updatedDrop.expenses
+            .map((exp: any) => ({
+              exp,
+              amt: parseFloat(exp.amount),
+            }))
+            .filter(({ amt }: any) => amt > 0)
+            .map(({ exp, amt }: any) => ({
+              staff_id: staffId,
+              trip_id: tripId,
+              appointment_id: apptId,
+              category: catMap[exp.category] || exp.category || 'other',
+              title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
+              amount: amt,
+              receipt_url: exp.receiptUri,
+              receipt_image_path: exp.receiptUri,
+              notes: exp.note,
+              status: 'pending',
+            }));
+
+          if (expenseRows.length > 0) {
+            await supabase.from('expenses').insert(expenseRows);
           }
         }
       }
@@ -726,6 +747,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
       isConfirmed: isConf,
       isDataComplete: isDataComplete,
       isVisited: isConf,
+      visited_at: drop.visited_at || (isConf ? new Date().toISOString() : undefined),
       odometer,
       items: visitAgenda,
       agenda: visitAgenda,
@@ -763,6 +785,8 @@ export default function DropReportingScreen({ navigation, route }: any) {
     const apptId = drop.appointmentId || drop.id;
     if (apptId) {
       supabase.from('appointments').update({
+        status: draftDrop.isConfirmed ? (isDataComplete ? 'completed' : 'incomplete') : (drop.status || 'pending'),
+        completed_at: (draftDrop.isConfirmed && isDataComplete) ? new Date().toISOString() : null,
         driver_notes: JSON.stringify({
           hasDraft: true,
           draftPhotos: photos,
@@ -792,37 +816,21 @@ export default function DropReportingScreen({ navigation, route }: any) {
     });
   };
 
+  const handleGoBackRef = useRef(handleGoBack);
+  handleGoBackRef.current = handleGoBack;
+
   // Hardware Back button handling on Android
   useEffect(() => {
     const onBackPress = () => {
-      handleGoBack();
+      handleGoBackRef.current();
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => backHandler.remove();
-  }, [handleGoBack]);
+  }, []);
 
   const handleSaveAndClose = async () => {
     if (isSaving) return;
-
-    if (isRollbackWarning && currentOdoNum !== null && previousPointOdometer !== null) {
-      Alert.alert(
-        language === 'th' ? '⚠️ ตรวจพบเลขไมล์ถอยหลัง' : '⚠️ Odometer Rollback Warning',
-        language === 'th'
-          ? `เลขไมล์ที่คุณระบุ (${currentOdoNum.toLocaleString()} กม.) น้อยกว่าจุดก่อนหน้า (${previousPointOdometer.toLocaleString()} กม.)\n\nกรุณาตรวจสอบว่าพิมพ์ตัวเลขผิดหลักหรือไม่ คุณต้องการยืนยันบันทึกค่านี้ใช่หรือไม่?`
-          : `Entered odometer (${currentOdoNum.toLocaleString()} km) is less than previous reading (${previousPointOdometer.toLocaleString()} km). Confirm anyway?`,
-        [
-          { text: language === 'th' ? 'กลับไปแก้ไข' : 'Go Back & Edit', style: 'cancel' },
-          {
-            text: language === 'th' ? 'ยืนยันบันทึก' : 'Confirm & Save',
-            style: 'destructive',
-            onPress: () => executeSaveAndClose(),
-          },
-        ]
-      );
-      return;
-    }
-
     await executeSaveAndClose();
   };
 
@@ -839,8 +847,10 @@ export default function DropReportingScreen({ navigation, route }: any) {
       // Clear local draft since drop is saved
       AsyncStorage.removeItem(draftKey).catch(() => {});
 
+      // Persist immediately to Supabase
+      await saveDropToDatabase(updatedDrop);
+
       if (isEditingFromSummary) {
-        // Pass staged updates back in memory to TripSummary (will be saved when user saves draft or submits)
         navigation.navigate('TripSummary', {
           tripId: params.tripId,
           drops: allUpdatedDrops,
@@ -849,9 +859,6 @@ export default function DropReportingScreen({ navigation, route }: any) {
         });
         return;
       }
-
-      // Persist immediately to Supabase during Active Tracking
-      await saveDropToDatabase(updatedDrop);
 
       // Find next unconfirmed drop (not just dropIndex + 1)
       const nextUnconfirmedIdx = allUpdatedDrops.findIndex((d: any, idx: number) => idx > dropIndex && !d.isConfirmed);
@@ -1002,20 +1009,20 @@ export default function DropReportingScreen({ navigation, route }: any) {
             placeholderTextColor="#94A3B8"
           />
 
-          {/* Rollback Warning Alert Card */}
+          {/* Rollback Warning Alert Card (informational only - does not block saving) */}
           {isRollbackWarning && currentOdoNum !== null && previousPointOdometer !== null && (
             <View style={styles.odoWarningBox}>
               <AlertTriangle size={16} color="#DC2626" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.odoWarningTitle}>
                   {language === 'th'
-                    ? '⚠️ แจ้งเตือน: เลขไมล์น้อยกว่าจุดก่อนหน้า (เลขไมล์ถอยหลัง)'
-                    : '⚠️ Warning: Odometer is less than previous stop'}
+                    ? `⚠️ แจ้งเตือน: เลขไมล์น้อยกว่า${prevPointLabel} (เลขไมล์ถอยหลัง)`
+                    : `⚠️ Warning: Odometer is less than ${prevPointLabel}`}
                 </Text>
                 <Text style={styles.odoWarningSub}>
                   {language === 'th'
-                    ? `เลขไมล์ที่กรอก (${currentOdoNum.toLocaleString()} กม.) น้อยกว่าจุดก่อนหน้า (${previousPointOdometer.toLocaleString()} กม.) กรุณาตรวจสอบว่าพิมพ์ตัวเลขตกหล่นหรือพิมพ์ผิดหลักหรือไม่`
-                    : `Entered odometer (${currentOdoNum.toLocaleString()} km) is less than previous reading (${previousPointOdometer.toLocaleString()} km). Please verify.`}
+                    ? `เลขไมล์ที่กรอก (${currentOdoNum.toLocaleString()} กม.) น้อยกว่า${prevPointLabel} (${previousPointOdometer.toLocaleString()} กม.) กรุณาตรวจสอบว่าพิมพ์ตัวเลขตกหล่นหรือพิมพ์ผิดหลักหรือไม่`
+                    : `Entered odometer (${currentOdoNum.toLocaleString()} km) is less than ${prevPointLabel} (${previousPointOdometer.toLocaleString()} km). Please verify.`}
                 </Text>
               </View>
             </View>
@@ -1045,8 +1052,8 @@ export default function DropReportingScreen({ navigation, route }: any) {
             <View style={styles.odoHintRow}>
               <Text style={styles.odoHintText}>
                 {language === 'th'
-                  ? `📍 เลขไมล์จุดก่อนหน้า: ${previousPointOdometer.toLocaleString()} กม.`
-                  : `📍 Previous stop odometer: ${previousPointOdometer.toLocaleString()} km`}
+                  ? `📍 ${prevPointLabel}: ${previousPointOdometer.toLocaleString()} กม.`
+                  : `📍 ${prevPointLabel}: ${previousPointOdometer.toLocaleString()} km`}
               </Text>
             </View>
           )}
@@ -1614,7 +1621,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
       {/* Proof Photo Action Overlay */}
       {isPhotoPickerOpen && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 9999 }]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <TouchableOpacity
             style={styles.bottomSheetBackdrop}
             activeOpacity={1}
@@ -1686,7 +1693,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
 
       {/* Receipt Slip Picker Overlay */}
       {isReceiptPickerOpen && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 9999 }]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <TouchableOpacity
             style={styles.bottomSheetBackdrop}
             activeOpacity={1}
@@ -1775,9 +1782,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',

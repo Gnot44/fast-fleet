@@ -109,7 +109,9 @@ function parsePhotos(photoField?: any): string[] {
           const parsed = typeof unescaped === 'string' ? JSON.parse(unescaped) : unescaped;
           extract(parsed);
           return;
-        } catch (e) {}
+        } catch {
+          // ignore malformed JSON
+        }
       }
       if (trimmed.includes('||')) {
         trimmed.split('||').forEach((s) => extract(s.trim()));
@@ -201,7 +203,11 @@ export default function VisitHistory() {
     async function loadTrips() {
       try {
         setLoading(true);
-        const { data: trips, error } = await supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id;
+        const cachedRole = localStorage.getItem('fastfleet_user_role') || 'admin';
+
+        let tripQuery = supabase
           .from('trips')
           .select(`
             id,
@@ -223,13 +229,12 @@ export default function VisitHistory() {
               phone,
               avatar_url,
               department,
-              staff (
-                staff_id,
-                territory,
-                assigned_vehicle,
-                vehicle_plate,
-                vehicle_model
-              )
+              employee_id,
+              territory,
+              assigned_vehicle,
+              assigned_vehicle_plate,
+              assigned_vehicle_model,
+              vehicle_type
             ),
             appointments (
               id,
@@ -264,6 +269,12 @@ export default function VisitHistory() {
           .in('approval_status', ['pending', 'approved', 'revision_requested'])
           .order('created_at', { ascending: false });
 
+        if (cachedRole === 'specialist' && currentUserId) {
+          tripQuery = tripQuery.eq('staff_id', currentUserId);
+        }
+
+        const { data: trips, error } = await tripQuery;
+
         if (error) {
           console.error('Error fetching visit trips from Supabase:', error);
         }
@@ -287,7 +298,6 @@ export default function VisitHistory() {
           const mapped: MarketingTripApprovalRecord[] = submittedTrips.map((t: any) => {
             const rawProf = t.profiles;
             const prof = (Array.isArray(rawProf) ? rawProf[0] : rawProf) || {};
-            const staffObj = Array.isArray(prof.staff) ? prof.staff[0] : prof.staff;
             const appts = (t.appointments || []).sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0));
             const exps = t.expenses || [];
             
@@ -311,7 +321,7 @@ export default function VisitHistory() {
 
             const fullName = prof.full_name || 'kosit goonlaboot';
             const nick = prof.nickname || fullName.split(' ')[0] || 'kosit';
-            const empId = staffObj?.staff_id || 'AITS10002772';
+            const empId = prof.employee_id || 'AITS10002772';
             const revMatch = t.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
             const revCount = revMatch ? parseInt(revMatch[1], 10) : (t.approval_status === 'revision_requested' ? 1 : 0);
             const cleanFeedback = t.manager_feedback?.replace(/\[(?:รอบที่|REV:)\s*\d+\]\s*/i, '').trim() || t.manager_feedback || '';
@@ -335,12 +345,12 @@ export default function VisitHistory() {
                 initials: fullName.slice(0, 2).toUpperCase(),
                 phone: prof.phone || '096-410-5303',
                 department: prof.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-                territory: staffObj?.territory || 'Bangkok Central (B2B)',
+                territory: prof.territory || 'Bangkok Central (B2B)',
                 employeeId: empId,
               },
               vehicle: {
-                plate: staffObj?.vehicle_plate || '1กข-4452 กทม.',
-                model: staffObj?.vehicle_model || 'Isuzu D-Max',
+                plate: prof.assigned_vehicle_plate || prof.assigned_vehicle || '1กข-4452 กทม.',
+                model: prof.assigned_vehicle_model || 'Isuzu D-Max',
                 startOdo: odoMetrics.startOdo,
                 endOdo: odoMetrics.endOdo,
               },
@@ -439,20 +449,29 @@ export default function VisitHistory() {
 
     loadTrips();
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedLoadTrips = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadTrips();
+      }, 500);
+    };
+
     const channel = supabase
       .channel('visit-history-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => {
-        loadTrips();
+        debouncedLoadTrips();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => {
-        loadTrips();
+        debouncedLoadTrips();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => {
-        loadTrips();
+        debouncedLoadTrips();
       })
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -527,10 +546,12 @@ export default function VisitHistory() {
     const tripId = selectedTrip.id;
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       await supabase.from('trips').update({
         approval_status: 'approved',
         status: 'completed',
         approved_at: new Date().toISOString(),
+        approved_by: user?.id || null,
       }).eq('id', tripId);
 
       await supabase.from('expenses').update({
@@ -572,6 +593,7 @@ export default function VisitHistory() {
       await supabase.from('trips').update({
         approval_status: 'pending',
         approved_at: null,
+        approved_by: null,
       }).eq('id', tripId);
     } catch (err) {
       console.warn('Error resetting approval status in DB:', err);
@@ -679,17 +701,29 @@ export default function VisitHistory() {
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1 className="font-extrabold text-xl sm:text-2xl text-slate-900 dark:text-white tracking-tight">
-                {language === 'th' ? 'ศูนย์ตรวจสอบ & อนุมัติการเดินทาง' : 'Trip Approvals & Audit Hub'}
+                {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                  ? (language === 'th' ? 'ประวัติการเดินทาง & ตรวจสอบรายงาน' : 'Your Trip History & Reports')
+                  : (language === 'th' ? 'ศูนย์ตรวจสอบ & อนุมัติการเดินทาง' : 'Trip Approvals & Audit Hub')}
               </h1>
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/70">
-                <span className="material-symbols-outlined text-[14px]">verified</span>
-                Manager Audit Studio
+              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border ${
+                localStorage.getItem('fastfleet_user_role') === 'specialist'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/70'
+                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70'
+              }`}>
+                <span className="material-symbols-outlined text-[14px]">
+                  {localStorage.getItem('fastfleet_user_role') === 'specialist' ? 'badge' : 'verified'}
+                </span>
+                {localStorage.getItem('fastfleet_user_role') === 'specialist' ? 'Specialist Workspace' : 'Manager Audit Studio'}
               </span>
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1">
-              {language === 'th'
-                ? 'ตรวจสอบความถูกต้องของเลขไมล์ ODO, ระยะทาง GPS จาก Google Maps, บันทึกการเข้าพบลูกค้า และสลิปค่าใช้จ่ายภาคสนาม'
-                : 'Audit verified Odometer readings, Google Maps GPS telemetry, client meeting minutes, and itemized drop receipts'}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th'
+                  ? 'ตรวจสอบประวัติการเดินทาง เลขไมล์ ODO ระยะทาง Google Maps บันทึกการเข้าพบลูกค้า สลิป และสถานะการอนุมัติรายงานของคุณ'
+                  : 'View itemized trip logs, odometer readings, Google Maps routes, client meeting minutes, receipts, and approval feedback.')
+                : (language === 'th'
+                  ? 'ตรวจสอบความถูกต้องของเลขไมล์ ODO, ระยะทาง GPS จาก Google Maps, บันทึกการเข้าพบลูกค้า และสลิปค่าใช้จ่ายภาคสนาม'
+                  : 'Audit verified Odometer readings, Google Maps GPS telemetry, client meeting minutes, and itemized drop receipts')}
             </p>
           </div>
         </div>
@@ -1007,9 +1041,30 @@ export default function VisitHistory() {
                   </p>
                 </div>
 
-                {/* Manager Action Buttons */}
+                {/* Specialist Status Indicator / Manager Action Buttons */}
                 <div className="flex items-center gap-2 shrink-0 flex-wrap w-full sm:w-auto justify-end">
-                  {selectedTrip.approvalStatus === 'Approved' ? (
+                  {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+                    <div className="flex items-center gap-2">
+                      {selectedTrip.approvalStatus === 'Approved' && (
+                        <span className="px-3.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                          อนุมัติเรียบร้อยแล้ว
+                        </span>
+                      )}
+                      {selectedTrip.approvalStatus === 'Revision Requested' && (
+                        <span className="px-3.5 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                          <span className="material-symbols-outlined text-[16px]">assignment_return</span>
+                          ส่งกลับให้แก้ไข (ดูความคิดเห็นด้านล่าง)
+                        </span>
+                      )}
+                      {selectedTrip.approvalStatus === 'Pending Approval' && (
+                        <span className="px-3.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                          <span className="material-symbols-outlined text-[16px]">hourglass_top</span>
+                          รอผู้จัดการตรวจสอบอนุมัติ
+                        </span>
+                      )}
+                    </div>
+                  ) : selectedTrip.approvalStatus === 'Approved' ? (
                     <>
                       <button
                         onClick={handleOpenRejectModal}

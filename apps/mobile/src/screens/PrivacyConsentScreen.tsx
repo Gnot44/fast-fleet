@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -234,6 +235,28 @@ export default function PrivacyConsentScreen({ navigation }: any) {
       routes: [{ name: 'Login' }],
     });
   };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      Alert.alert(
+        language === 'th' ? 'ออกจากระบบ / กลับไปหน้า Login' : 'Sign Out / Return to Login',
+        language === 'th'
+          ? 'คุณต้องการออกจากระบบและกลับไปหน้าเข้าสู่ระบบใช่หรือไม่?'
+          : 'Do you want to sign out and return to the login screen?',
+        [
+          { text: language === 'th' ? 'ยกเลิก' : 'Cancel', style: 'cancel' },
+          {
+            text: language === 'th' ? 'ออกจากระบบ' : 'Sign Out',
+            style: 'destructive',
+            onPress: () => handleSignOut(),
+          },
+        ]
+      );
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [language]);
 
   const isLocationGranted = Platform.OS === 'ios'
     ? (foregroundStatus === 'granted')

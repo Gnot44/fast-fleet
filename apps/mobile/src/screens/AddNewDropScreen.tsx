@@ -12,9 +12,11 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   TouchableWithoutFeedback,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { GOOGLE_MAPS_TILE_URL } from '../lib/mapConfig';
 import {
   ArrowLeft,
   Search,
@@ -28,7 +30,9 @@ import {
   Phone,
   Briefcase,
   FileText,
+  Maximize2,
 } from 'lucide-react-native';
+import LocationPickerModal from '../components/LocationPickerModal';
 import {
   fetchPlacePredictions,
   fetchPlaceDetails,
@@ -38,24 +42,53 @@ import {
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
-import { useTripDraft } from '../lib/TripDraftContext';
+import { useTripDraft, StopItem } from '../lib/TripDraftContext';
+import { supabase } from '../lib/supabase';
 
 export default function AddNewDropScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
-  const { addStop, updateStop, addActiveTripDrop, updateActiveTripDrop } = useTripDraft();
+  const {
+    addStop,
+    updateStop,
+    addActiveTripDrop,
+    updateActiveTripDrop,
+    activeTripDrops,
+    setActiveTripDrops,
+  } = useTripDraft();
   const params = route?.params || {};
   const isEditing = !!params.isEditing;
-  const initialDrop = params.drop || {};
+  const initialDrop = isEditing ? (params.drop || {}) : {};
 
   const [searchQuery, setSearchQuery] = useState('');
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
   const [fetchingGps, setFetchingGps] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [customerName, setCustomerName] = useState(initialDrop.recipient || '');
+  const rawInitCust = (
+    initialDrop.customerName ||
+    initialDrop.recipient ||
+    initialDrop.customer_name ||
+    initialDrop.recipient_name ||
+    ''
+  ).trim();
+  const isDummyInitCust =
+    !rawInitCust ||
+    rawInitCust.toLowerCase() === 'client representative' ||
+    rawInitCust === 'ลูกค้านัดหมาย' ||
+    rawInitCust === 'จุดลูกค้า' ||
+    rawInitCust === 'Client Visit';
+
+  const [customerName, setCustomerName] = useState(isDummyInitCust ? '' : rawInitCust);
   const [phoneNumber, setPhoneNumber] = useState(initialDrop.phone || '');
-  const [companyName, setCompanyName] = useState(initialDrop.name || '');
+  const [companyName, setCompanyName] = useState(
+    initialDrop.companyName ||
+    initialDrop.company_name ||
+    (initialDrop.name !== rawInitCust && initialDrop.name !== initialDrop.address ? initialDrop.name : '') ||
+    ''
+  );
+  const [showPickerModal, setShowPickerModal] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   
   // Visit Agenda State
   const defaultAgenda = initialDrop.items || '';
@@ -68,26 +101,62 @@ export default function AddNewDropScreen({ navigation, route }: any) {
     latitude: initialDrop.latitude || DEFAULT_BANGKOK_LOCATION.latitude,
     longitude: initialDrop.longitude || DEFAULT_BANGKOK_LOCATION.longitude,
   });
-
   const mapRef = useRef<MapView | null>(null);
   const searchTimeoutRef = useRef<any>(null);
   const isSelectingRef = useRef<boolean>(false);
+  const dropGeocodeTimer = useRef<any>(null);
+  const isInteractingDropMapRef = useRef(false);
+
+  // Sync camera when selectedCoord changes programmatically (GPS, Search, or Modal)
+  useEffect(() => {
+    if (selectedCoord.latitude && selectedCoord.longitude && !isInteractingDropMapRef.current) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: selectedCoord.latitude,
+          longitude: selectedCoord.longitude,
+          latitudeDelta: 0.006,
+          longitudeDelta: 0.006,
+        },
+        400
+      );
+    }
+  }, [selectedCoord.latitude, selectedCoord.longitude]);
+
+  const handleDropMapRegionChange = () => {
+    isInteractingDropMapRef.current = true;
+  };
+
+  const handleDropMapRegionChangeComplete = (region: any) => {
+    if (!region?.latitude || !region?.longitude) return;
+    setSelectedCoord({
+      latitude: region.latitude,
+      longitude: region.longitude,
+    });
+
+    if (dropGeocodeTimer.current) clearTimeout(dropGeocodeTimer.current);
+    dropGeocodeTimer.current = setTimeout(async () => {
+      isInteractingDropMapRef.current = false;
+      const geocode = await reverseGeocodeGoogle(region.latitude, region.longitude);
+      setCompanyName(geocode.name);
+      setDestinationAddress(geocode.address);
+    }, 400);
+  };
 
   // Sync state whenever route.params changes
   useEffect(() => {
     setIsSubmitting(false);
-    const d = route?.params?.drop || {};
     const editing = !!route?.params?.isEditing;
-    setCustomerName(d.recipient || '');
+    const d = editing ? (route?.params?.drop || {}) : {};
+    setCustomerName(d.recipient || d.customerName || '');
     setPhoneNumber(d.phone || '');
-    setCompanyName(d.name || '');
+    setCompanyName(d.name || d.companyName || '');
     setDestinationAddress(d.address || DEFAULT_BANGKOK_LOCATION.address);
     setSelectedCoord({
       latitude: d.latitude || DEFAULT_BANGKOK_LOCATION.latitude,
       longitude: d.longitude || DEFAULT_BANGKOK_LOCATION.longitude,
     });
     const agenda = d.items || '';
-    setMeetingAgenda(agenda);
+    setMeetingAgenda(agenda || (language === 'th' ? 'นำเสนอแผนงาน' : 'Product Demo'));
     if (agenda.includes('นำเสนอ') || agenda.toLowerCase().includes('pitch')) setSelectedAgendaKey('pitch');
     else if (agenda.includes('ต่อสัญญา') || agenda.toLowerCase().includes('renewal')) setSelectedAgendaKey('renewal');
     else if (agenda.includes('ตรวจระบบ') || agenda.toLowerCase().includes('health')) setSelectedAgendaKey('healthcheck');
@@ -97,7 +166,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
     setCustomAgendaText(agenda.startsWith('อื่นๆ:') ? agenda.replace('อื่นๆ:', '').trim() : '');
     setSearchQuery('');
     setPredictions([]);
-  }, [route?.params]);
+  }, [route?.params?.drop, route?.params?.isEditing, route?.params?.timestamp]);
 
   // Fast live GPS fetch
   const handleUseCurrentLocation = async () => {
@@ -163,12 +232,31 @@ export default function AddNewDropScreen({ navigation, route }: any) {
     }, 300);
   };
 
-  // Select place from Google autocomplete dropdown
+  // Select place from autocomplete dropdown
   const handleSelectPrediction = async (prediction: PlacePrediction) => {
     isSelectingRef.current = true;
     setSearchQuery('');
     setPredictions([]);
     Keyboard.dismiss();
+
+    if (prediction.latitude && prediction.longitude) {
+      setCompanyName(prediction.main_text);
+      setDestinationAddress(prediction.description);
+      setSelectedCoord({
+        latitude: prediction.latitude,
+        longitude: prediction.longitude,
+      });
+      mapRef.current?.animateToRegion(
+        {
+          latitude: prediction.latitude,
+          longitude: prediction.longitude,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
+        },
+        500
+      );
+      return;
+    }
 
     const details = await fetchPlaceDetails(prediction.place_id);
     if (details) {
@@ -195,15 +283,49 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   const handleMapPress = async (e: any) => {
     Keyboard.dismiss();
     setPredictions([]);
-    const coord = e.nativeEvent.coordinate;
+    const coord = e.nativeEvent?.coordinate;
+    if (!coord) return;
     setSelectedCoord(coord);
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: coord.latitude,
+        longitude: coord.longitude,
+        latitudeDelta: 0.008,
+        longitudeDelta: 0.008,
+      },
+      300
+    );
 
     const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
     setCompanyName(geocode.name);
     setDestinationAddress(geocode.address);
   };
 
-  const handleConfirm = () => {
+  const handleConfirmPickerLocation = (loc: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    address: string;
+  }) => {
+    isInteractingDropMapRef.current = false;
+    setSelectedCoord({ latitude: loc.latitude, longitude: loc.longitude });
+    setCompanyName(loc.name);
+    setDestinationAddress(loc.address);
+    setTimeout(() => {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          latitudeDelta: 0.006,
+          longitudeDelta: 0.006,
+        },
+        400
+      );
+    }, 300);
+  };
+
+  const handleConfirm = async () => {
     if (!customerName && !companyName && !destinationAddress) {
       Alert.alert(
         language === 'th' ? 'กรุณากรอกข้อมูล' : 'Information Required',
@@ -212,49 +334,238 @@ export default function AddNewDropScreen({ navigation, route }: any) {
       return;
     }
 
-    const isEditingMode = !!params.isEditing;
-    const dropId = (isEditingMode && initialDrop.id)
-      ? initialDrop.id
-      : `drop_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    setIsSubmitting(true);
+    try {
+      const targetScreen = route?.params?.returnScreen || params.returnScreen || 'NewAppointment';
+      const isEditingMode = !!(route?.params?.isEditing ?? params.isEditing);
+      const activeDropData = isEditingMode ? (route?.params?.drop || params.drop || {}) : {};
+      const tripId = route?.params?.tripId || params.tripId;
+      let dropId = (isEditingMode && activeDropData.id)
+        ? activeDropData.id
+        : `drop_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    const payload = {
-      id: dropId,
-      name: companyName.trim() || customerName.trim() || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit'),
-      address: destinationAddress || 'Bangkok Central Area',
-      recipient: customerName.trim() || 'Client Representative',
-      phone: phoneNumber.trim() || '',
-      items: meetingAgenda || (language === 'th' ? 'นำเสนอแผนงาน' : 'Product Demo'),
-      latitude: selectedCoord.latitude,
-      longitude: selectedCoord.longitude,
-      ...(initialDrop.expenses ? { expenses: initialDrop.expenses } : {}),
-      ...(initialDrop.photos ? { photos: initialDrop.photos } : {}),
-      ...(initialDrop.note ? { note: initialDrop.note } : {}),
-    };
+      const cleanCustomer = customerName.trim();
+      const cleanCompany = companyName.trim();
+      const cleanAddress = (destinationAddress || 'Bangkok Central Area').trim();
 
-    const targetScreen = params.returnScreen || 'NewAppointment';
-    if (targetScreen === 'NewAppointment') {
-      if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
-        updateStop(params.editIndex, payload);
-      } else {
-        addStop(payload);
+      // Resolved display name: Customer Name if provided, else destination address, else company
+      const resolvedDisplayName = cleanCustomer || cleanAddress || cleanCompany || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop');
+
+      // 1. If tripId exists and caller is not a staging screen, persist directly to Supabase
+      if (tripId && targetScreen !== 'EditTripItinerary') {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const { data: tripRow } = await (supabase.from('trips' as any) as any)
+            .select('staff_id')
+            .eq('id', tripId)
+            .single();
+          const staffId = tripRow?.staff_id || user?.id || '42284d55-3997-4add-9226-dd9cf2f085df';
+
+          const resolvedCompanyName = cleanCompany || cleanCustomer || cleanAddress || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop');
+          const resolvedCustomerName = cleanCustomer || cleanCompany || cleanAddress || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit');
+
+          if (isEditingMode && activeDropData.id && !String(activeDropData.id).startsWith('drop_')) {
+            // Update existing appointment in Supabase
+            await (supabase.from('appointments' as any) as any)
+              .update({
+                company_name: resolvedCompanyName,
+                customer_name: resolvedCustomerName,
+                recipient_name: cleanCustomer || resolvedCustomerName,
+                recipient_phone: phoneNumber.trim() || '',
+                destination_address: cleanAddress,
+                destination_lat: selectedCoord.latitude,
+                destination_lng: selectedCoord.longitude,
+                agenda: meetingAgenda || 'เข้าพบและนำเสนอสินค้า',
+              })
+              .eq('id', activeDropData.id);
+            dropId = activeDropData.id;
+          } else {
+            // Query current max sequence_order for this trip
+            const { data: existingAppts } = await (supabase.from('appointments' as any) as any)
+              .select('sequence_order')
+              .eq('trip_id', tripId)
+              .order('sequence_order', { ascending: false })
+              .limit(1);
+
+            const maxSeq = existingAppts?.[0]?.sequence_order || 0;
+            const currentCount = typeof params.currentCount === 'number' ? params.currentCount : activeTripDrops.length;
+            const nextSeq = Math.max(maxSeq + 1, currentCount + 1, 1);
+
+            const { data: inserted, error: insertErr } = await (supabase.from('appointments' as any) as any)
+              .insert({
+                trip_id: tripId,
+                staff_id: staffId,
+                type: 'appointment',
+                sequence_order: nextSeq,
+                company_name: resolvedCompanyName,
+                customer_name: resolvedCustomerName,
+                recipient_name: cleanCustomer || resolvedCustomerName,
+                recipient_phone: phoneNumber.trim() || '',
+                destination_address: cleanAddress,
+                destination_lat: selectedCoord.latitude || 13.7563,
+                destination_lng: selectedCoord.longitude || 100.5018,
+                agenda: meetingAgenda || 'เข้าพบและนำเสนอสินค้า',
+                status: 'pending',
+                confirmation_status: false,
+              })
+              .select('id')
+              .single();
+
+            if (insertErr) {
+              console.error('Error inserting appointment to Supabase:', insertErr);
+            } else if (inserted?.id) {
+              dropId = inserted.id;
+            }
+          }
+        } catch (dbErr) {
+          console.error('Failed to sync appointment with Supabase:', dbErr);
+        }
       }
-      navigation.goBack();
-    } else if (targetScreen === 'EditTripItinerary') {
-      if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
-        updateActiveTripDrop(params.editIndex, payload);
-      } else {
-        addActiveTripDrop(payload);
+
+      const payload: StopItem = {
+        id: dropId,
+        appointmentId: dropId,
+        name: resolvedDisplayName,
+        address: cleanAddress,
+        recipient: cleanCustomer || '',
+        customerName: cleanCustomer || '',
+        companyName: cleanCompany || '',
+        phone: phoneNumber.trim() || '',
+        items: meetingAgenda || (language === 'th' ? 'นำเสนอแผนงาน' : 'Product Demo'),
+        latitude: selectedCoord.latitude,
+        longitude: selectedCoord.longitude,
+        isConfirmed: isEditingMode ? !!activeDropData.isConfirmed : false,
+        isVisited: isEditingMode ? !!activeDropData.isVisited : false,
+        isDataComplete: isEditingMode ? !!activeDropData.isDataComplete : false,
+        status: isEditingMode ? (activeDropData.status || 'pending') : 'pending',
+        ...(isEditingMode && activeDropData.odometer ? { odometer: activeDropData.odometer } : {}),
+        ...(isEditingMode && activeDropData.expenses ? { expenses: activeDropData.expenses } : {}),
+        ...(isEditingMode && activeDropData.photos ? { photos: activeDropData.photos } : {}),
+        ...(isEditingMode && activeDropData.note ? { note: activeDropData.note } : {}),
+        ...(isEditingMode && activeDropData.meetingMinutes ? { meetingMinutes: activeDropData.meetingMinutes } : {}),
+        ...(tripId ? { tripId, trip_id: tripId } : {}),
+      };
+
+      // Direct callback support for reliable, synchronous staging updates (e.g. from EditTripItinerary)
+      if (typeof route?.params?.onSaveDrop === 'function') {
+        route.params.onSaveDrop(payload);
+        navigation.goBack();
+        return;
       }
+      if (typeof params.onSaveDrop === 'function') {
+        params.onSaveDrop(payload);
+        navigation.goBack();
+        return;
+      }
+
+      if (targetScreen === 'NewAppointment') {
+        if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
+          updateStop(params.editIndex, payload);
+        } else {
+          addStop(payload);
+        }
+        navigation.goBack();
+      } else if (targetScreen === 'ActiveTracker') {
+        // Sync to activeTripDrops in TripDraftContext for active trip screens
+        if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
+          updateActiveTripDrop(params.editIndex, payload);
+          navigation.navigate('ActiveTracker', {
+            tripId: tripId,
+            updatedDrop: payload,
+            editIndex: params.editIndex,
+            timestamp: Date.now(),
+          });
+        } else {
+          addActiveTripDrop(payload);
+          navigation.navigate('ActiveTracker', {
+            tripId: tripId,
+            addedDrop: payload,
+            timestamp: Date.now(),
+          });
+        }
+      } else if (targetScreen === 'EditTripItinerary') {
+        const currentDrops: StopItem[] = Array.isArray(route?.params?.currentDrops)
+          ? route.params.currentDrops
+          : (Array.isArray(params?.currentDrops) ? params.currentDrops : (activeTripDrops.length > 0 ? activeTripDrops : []));
+
+        let nextDrops: StopItem[];
+        if (isEditingMode && typeof params.editIndex === 'number' && params.editIndex >= 0) {
+          nextDrops = currentDrops.map((d, i) => (i === params.editIndex ? { ...d, ...payload } : d));
+        } else {
+          const existingIdx = currentDrops.findIndex((d) => d.id === payload.id);
+          if (existingIdx !== -1) {
+            nextDrops = currentDrops.map((d, i) => (i === existingIdx ? { ...d, ...payload } : d));
+          } else {
+            nextDrops = [...currentDrops, payload];
+          }
+        }
+
+        // Return to EditTripItinerary with staged drops (will be committed to activeTripDrops & DB upon tapping Apply)
+        navigation.navigate('EditTripItinerary', {
+          tripId: tripId,
+          drops: nextDrops,
+          addedDrop: payload,
+          updatedDrop: isEditingMode ? payload : null,
+          editIndex: isEditingMode ? params.editIndex : null,
+          timestamp: Date.now(),
+        });
+      } else {
+        // Staged screens (e.g. RoutePreview)
+        navigation.navigate(
+          targetScreen,
+          isEditingMode
+            ? { updatedDrop: payload, editIndex: params.editIndex, addedDrop: null, timestamp: Date.now() }
+            : { addedDrop: payload, updatedDrop: null, editIndex: null, timestamp: Date.now() }
+        );
+      }
+    } catch (err) {
+      console.error('Error in AddNewDrop handleConfirm:', err);
       navigation.goBack();
-    } else {
-      navigation.navigate(targetScreen, {
-        addedDrop: !isEditingMode ? payload : undefined,
-        updatedDrop: isEditingMode ? payload : undefined,
-        editIndex: params.editIndex,
-        timestamp: Date.now(),
-      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const doGoBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (params.returnScreen) {
+      navigation.navigate(params.returnScreen);
+    } else {
+      navigation.navigate('NewAppointment');
+    }
+  };
+
+  const handleAddNewDropGoBack = () => {
+    const hasUnsavedInfo = !isEditing && (customerName.trim().length > 0 || phoneNumber.trim().length > 0 || companyName.trim().length > 0);
+    if (hasUnsavedInfo) {
+      Alert.alert(
+        language === 'th' ? 'ยกเลิกการเพิ่มจุดส่ง?' : 'Discard New Drop?',
+        language === 'th'
+          ? 'ข้อมูลที่คุณกรอกไว้ยังไม่ได้บันทึก คุณต้องการยกเลิกและย้อนกลับใช่หรือไม่?'
+          : 'You have unsaved drop details. Are you sure you want to discard them?',
+        [
+          { text: language === 'th' ? 'กรอกต่อ' : 'Keep Editing', style: 'cancel' },
+          {
+            text: language === 'th' ? 'ละทิ้ง' : 'Discard',
+            style: 'destructive',
+            onPress: () => doGoBack(),
+          },
+        ]
+      );
+      return;
+    }
+    doGoBack();
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleAddNewDropGoBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, [customerName, phoneNumber, companyName, isEditing, language, params.returnScreen]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -267,7 +578,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={handleAddNewDropGoBack}
             activeOpacity={0.8}
           >
             <ArrowLeft size={20} color="#03246B" />
@@ -299,9 +610,15 @@ export default function AddNewDropScreen({ navigation, route }: any) {
           contentContainerStyle={styles.scrollInner}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={scrollEnabled}
         >
           {/* Interactive Google Map Container */}
-          <View style={styles.mapContainer}>
+          <View
+            style={styles.mapContainer}
+            onTouchStart={() => setScrollEnabled(false)}
+            onTouchEnd={() => setScrollEnabled(true)}
+            onTouchCancel={() => setScrollEnabled(true)}
+          >
             {Platform.OS === 'web' ? (
               <View style={styles.webMapFallback}>
                 <MapPin size={36} color="#1D4ED8" />
@@ -315,31 +632,47 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 ref={mapRef}
                 style={styles.map}
                 provider={PROVIDER_GOOGLE}
+                mapType="standard"
                 showsUserLocation={true}
-                region={{
+                initialRegion={{
                   latitude: selectedCoord.latitude,
                   longitude: selectedCoord.longitude,
-                  latitudeDelta: 0.008,
-                  longitudeDelta: 0.008,
+                  latitudeDelta: 0.006,
+                  longitudeDelta: 0.006,
                 }}
+                onRegionChange={handleDropMapRegionChange}
+                onRegionChangeComplete={handleDropMapRegionChangeComplete}
                 onPress={handleMapPress}
               >
-                <Marker
-                  coordinate={selectedCoord}
-                  title={companyName || 'Client Meeting Location'}
-                  description={destinationAddress}
-                  draggable
-                  onDragEnd={async (e) => {
-                    const c = e.nativeEvent.coordinate;
-                    setSelectedCoord(c);
-                    const geocode = await reverseGeocodeGoogle(c.latitude, c.longitude);
-                    setCompanyName(geocode.name);
-                    setDestinationAddress(geocode.address);
-                  }}
-                  pinColor="#1D4ED8"
+                <UrlTile
+                  urlTemplate={GOOGLE_MAPS_TILE_URL}
+                  maximumZ={19}
+                  flipY={false}
+                  zIndex={-1}
                 />
               </MapView>
             )}
+
+            {/* Center Pin Overlay (Always 100% visible on screen, never disappears) */}
+            <View style={styles.inlineCenterPinAnchor} pointerEvents="none">
+              <View style={[styles.inlinePinBubble, { backgroundColor: '#1D4ED8' }]}>
+                <Text style={styles.inlinePinBubbleText} numberOfLines={1}>
+                  {companyName.trim() || destinationAddress.split(',')[0] || (language === 'th' ? 'จุดลูกค้า' : 'Client Stop')}
+                </Text>
+              </View>
+              <View style={[styles.inlinePinArrow, { borderTopColor: '#1D4ED8' }]} />
+              <View style={styles.inlinePinIconWrap}>
+                <MapPin size={32} color="#1D4ED8" fill="#1D4ED8" />
+              </View>
+              <View style={[styles.inlineGroundDot, { backgroundColor: '#1D4ED8' }]} />
+            </View>
+
+            {/* Drag to Pin Instruction Hint Badge */}
+            <View style={styles.inlineMapHintBadge} pointerEvents="none">
+              <Text style={styles.inlineMapHintText}>
+                {language === 'th' ? 'เลื่อนแผนที่หรือแตะเพื่อปักหมุด' : 'Drag map or tap to pin'}
+              </Text>
+            </View>
 
             {/* Google Places Floating Search Bar */}
             <View style={styles.searchSectionWrapper}>
@@ -390,6 +723,18 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 </View>
               )}
             </View>
+
+            {/* Floating Full-Screen Pin Button */}
+            <TouchableOpacity
+              style={styles.expandMapBtn}
+              onPress={() => setShowPickerModal(true)}
+              activeOpacity={0.85}
+            >
+              <Maximize2 size={13} color="#1D4ED8" />
+              <Text style={styles.expandMapBtnText}>
+                {t('pin_on_map') || 'ปักหมุดบนแผนที่'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Client Details Card */}
@@ -523,7 +868,19 @@ export default function AddNewDropScreen({ navigation, route }: any) {
 
               {/* Destination Address */}
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>{t('add_location')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Text style={styles.inputLabel}>{t('add_location')}</Text>
+                  <TouchableOpacity
+                    style={styles.pinShortcutBtn}
+                    onPress={() => setShowPickerModal(true)}
+                    activeOpacity={0.8}
+                  >
+                    <MapPin size={13} color="#1D4ED8" />
+                    <Text style={styles.pinShortcutBtnText}>
+                      {t('pin_on_map') || 'ปักหมุดบนแผนที่'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={styles.inputFieldContainer}>
                   <Map size={16} color="#747686" style={styles.inputIcon} />
                   <TextInput
@@ -558,6 +915,21 @@ export default function AddNewDropScreen({ navigation, route }: any) {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Location Picker Modal */}
+        <LocationPickerModal
+          visible={showPickerModal}
+          onClose={() => setShowPickerModal(false)}
+          onConfirm={handleConfirmPickerLocation}
+          initialLocation={{
+            latitude: selectedCoord.latitude,
+            longitude: selectedCoord.longitude,
+            name: companyName,
+            address: destinationAddress,
+          }}
+          title={language === 'th' ? 'ปักหมุดจุดเข้าพบลูกค้า' : 'Pin Client Location'}
+          pinColor="#1D4ED8"
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -580,9 +952,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -618,13 +990,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 280,
     borderRadius: 24,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
     backgroundColor: '#E2E8F0',
     marginTop: 16,
     position: 'relative',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
+    borderRadius: 24,
   },
   webMapFallback: {
     flex: 1,
@@ -812,5 +1185,171 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#1D4ED8',
+  },
+  customDropMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  customDropBubble: {
+    backgroundColor: '#1D4ED8',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  customDropText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 11,
+  },
+  customDropArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#1D4ED8',
+    alignSelf: 'center',
+    marginTop: -1,
+    marginBottom: -3,
+  },
+  customDropPinCircle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineCenterPinAnchor: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -75,
+    marginTop: -52,
+    width: 150,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 15,
+  },
+  inlinePinBubble: {
+    backgroundColor: '#1D4ED8',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    maxWidth: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  inlinePinBubbleText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  inlinePinArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#1D4ED8',
+    alignSelf: 'center',
+    marginBottom: -2,
+  },
+  inlinePinIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  inlineGroundDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#1D4ED8',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    marginTop: -2,
+  },
+  inlineMapHintBadge: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    backgroundColor: 'rgba(3, 36, 107, 0.88)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  inlineMapHintText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  expandMapBtn: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 25,
+  },
+  expandMapBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  pinShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  pinShortcutBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
   },
 });

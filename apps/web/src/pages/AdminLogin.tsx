@@ -37,15 +37,6 @@ export default function AdminLogin() {
       });
 
       if (error) {
-        // If Supabase auth failed, check if default admin bypass or show error
-        if (trimmedEmail.toLowerCase() === 'admin@fastfleet.io') {
-          localStorage.setItem('fastfleet_user_role', 'admin');
-          localStorage.setItem('fastfleet_user_name', 'System Administrator');
-          localStorage.setItem('fastfleet_user_nick', 'Admin');
-          localStorage.removeItem('fastfleet_user_avatar');
-          navigate('/admin/dashboard');
-          return;
-        }
         setErrorMessage(
           language === 'th'
             ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง'
@@ -79,16 +70,19 @@ export default function AdminLogin() {
       navigate('/admin/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);
-      // Fallback for offline/local admin
-      navigate('/admin/dashboard');
+      setErrorMessage(
+        language === 'th'
+          ? 'เกิดข้อผิดพลาดในการเชื่อมต่อระบบ กรุณาลองใหม่อีกครั้ง'
+          : err?.message || 'Connection error. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const fillQuickDemo = (demoEmail: string) => {
+  const fillQuickDemo = (demoEmail: string, demoPass: string) => {
     setEmail(demoEmail);
-    setPassword('demo123456');
+    setPassword(demoPass);
   };
 
   return (
@@ -279,14 +273,14 @@ export default function AdminLogin() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => fillQuickDemo('admin@fastfleet.io')}
+                  onClick={() => fillQuickDemo('admin@fastfleet.io', 'FastFleet@2026')}
                   className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700 transition-all tactile-btn"
                 >
-                  👑 Admin Bypass
+                  👑 Admin
                 </button>
                 <button
                   type="button"
-                  onClick={() => fillQuickDemo('specialist1@fastfleet.io')}
+                  onClick={() => fillQuickDemo('somchai.r@marketing.com', 'Password123!')}
                   className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700 transition-all tactile-btn"
                 >
                   📍 Specialist

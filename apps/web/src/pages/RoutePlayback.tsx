@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -194,7 +194,11 @@ export default function RoutePlayback() {
   // Load specialists from Supabase
   useEffect(() => {
     async function loadSpecialists() {
-      const { data } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+      const cachedRole = localStorage.getItem('fastfleet_user_role') || 'admin';
+
+      let query = supabase
         .from('profiles')
         .select(`
           id,
@@ -202,23 +206,28 @@ export default function RoutePlayback() {
           nickname,
           avatar_url,
           department,
-          staff:staff (
-            staff_id,
-            assigned_vehicle,
-            vehicle_plate,
-            territory
-          )
+          employee_id,
+          assigned_vehicle,
+          assigned_vehicle_plate,
+          assigned_vehicle_model,
+          vehicle_type,
+          territory
         `)
         .eq('role', 'specialist');
 
+      if (cachedRole === 'specialist' && currentUserId) {
+        query = query.eq('id', currentUserId);
+      }
+
+      const { data } = await query;
+
       if (data && data.length > 0) {
         setSpecialistsList(data);
-        // Default to kosit if present, otherwise first specialist
-        const kositUser = data.find((s) => s.nickname === 'kosit' || s.full_name?.toLowerCase().includes('kosit'));
-        if (kositUser) {
-          setSelectedStaffId(kositUser.id);
+        if (cachedRole === 'specialist' && currentUserId) {
+          setSelectedStaffId(currentUserId);
         } else {
-          setSelectedStaffId(data[0].id);
+          // If admin, default to first or currently selected
+          setSelectedStaffId((prev) => prev && data.some((s) => s.id === prev) ? prev : data[0].id);
         }
       }
     }
@@ -226,7 +235,7 @@ export default function RoutePlayback() {
   }, []);
 
   // Fetch Production Telemetry Data from Supabase
-  const loadRouteHistoryData = async () => {
+  const loadRouteHistoryData = useCallback(async () => {
     if (!selectedStaffId) return;
 
     setLoading(true);
@@ -315,13 +324,13 @@ export default function RoutePlayback() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedStaffId, startDate, startTime, endDate, endTime]);
 
   useEffect(() => {
     if (selectedStaffId) {
       loadRouteHistoryData();
     }
-  }, [selectedStaffId, startDate, endDate]);
+  }, [selectedStaffId, loadRouteHistoryData]);
 
   const activePoint = telemetryPoints[currentIndex] || telemetryPoints[0] || null;
 
@@ -480,17 +489,23 @@ export default function RoutePlayback() {
           {/* Driver / Vehicle Selector */}
           <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 px-2.5 py-1.5 rounded-xl shadow-2xs transition-all">
             <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">directions_car</span>
-            <select
-              value={selectedStaffId}
-              onChange={(e) => setSelectedStaffId(e.target.value)}
-              className="bg-transparent font-extrabold text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer pr-1"
-            >
-              {specialistsList.map((spec) => (
-                <option key={spec.id} value={spec.id} className="dark:bg-slate-900 text-slate-900 dark:text-slate-100">
-                  {spec.staff?.[0]?.vehicle_plate || 'Isuzu D-Max'} • {spec.full_name} ({spec.nickname})
-                </option>
-              ))}
-            </select>
+            {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+              <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                {currentSpecialist?.assigned_vehicle_plate || currentSpecialist?.assigned_vehicle || 'ยานพาหนะของฉัน'} • {currentSpecialist?.full_name || 'Specialist'} ({currentSpecialist?.nickname || 'คุณ'})
+              </span>
+            ) : (
+              <select
+                value={selectedStaffId}
+                onChange={(e) => setSelectedStaffId(e.target.value)}
+                className="bg-transparent font-extrabold text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer pr-1"
+              >
+                {specialistsList.map((spec) => (
+                  <option key={spec.id} value={spec.id} className="dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                    {spec.assigned_vehicle_plate || spec.assigned_vehicle || 'Isuzu D-Max'} • {spec.full_name} ({spec.nickname})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Unified Compact Date & Time Inputs */}

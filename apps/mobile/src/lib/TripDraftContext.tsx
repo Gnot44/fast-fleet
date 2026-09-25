@@ -7,12 +7,24 @@ export interface StopItem {
   name: string;
   address: string;
   recipient?: string;
+  customerName?: string;
+  companyName?: string;
   phone?: string;
   items?: string;
   latitude?: number;
   longitude?: number;
   appointmentId?: string;
   isConfirmed?: boolean;
+  isVisited?: boolean;
+  status?: string;
+  odometer?: string | number;
+  expenses?: any[];
+  photos?: any[];
+  note?: string;
+  meetingMinutes?: string;
+  isDataComplete?: boolean;
+  tripId?: string;
+  trip_id?: string;
 }
 
 export interface TripDraftState {
@@ -64,6 +76,7 @@ interface TripDraftContextType {
   setStops: (stops: StopItem[]) => void;
   reorderStops: (stops: StopItem[]) => void;
   resetDraft: () => Promise<void>;
+  setEditingTripId: (id: string | null) => void;
   loadExistingTripDraft: (tripId: string, tripData: any) => void;
   isLoaded: boolean;
   
@@ -186,9 +199,14 @@ export function TripDraftProvider({ children }: { children: ReactNode }) {
 
   const resetDraft = async () => {
     setDraftState(defaultDraft);
+    setActiveTripDrops([]);
     try {
       await AsyncStorage.removeItem(DRAFT_STORAGE_KEY);
     } catch (e) {}
+  };
+
+  const setEditingTripId = (id: string | null) => {
+    setDraftState((prev) => ({ ...prev, editingTripId: id }));
   };
 
   const loadExistingTripDraft = (tripId: string, tripData: any) => {
@@ -231,6 +249,32 @@ export function TripDraftProvider({ children }: { children: ReactNode }) {
   // Active Trip Drops Management
   const [activeTripDrops, setActiveTripDrops] = useState<StopItem[]>([]);
 
+  const setActiveTripDropsSafe = (newDrops: StopItem[]) => {
+    setActiveTripDrops((prev) => {
+      if (prev === newDrops) return prev;
+      if (
+        Array.isArray(prev) &&
+        Array.isArray(newDrops) &&
+        prev.length === newDrops.length &&
+        prev.every((p, i) => {
+          const n = newDrops[i];
+          return (
+            p?.id === n?.id &&
+            p?.isConfirmed === n?.isConfirmed &&
+            p?.status === n?.status &&
+            p?.odometer === n?.odometer &&
+            p?.name === n?.name &&
+            p?.note === n?.note &&
+            p?.isDataComplete === n?.isDataComplete
+          );
+        })
+      ) {
+        return prev;
+      }
+      return newDrops;
+    });
+  };
+
   const addActiveTripDrop = (drop: StopItem) => {
     setActiveTripDrops((prev) => [...prev, drop]);
   };
@@ -262,10 +306,11 @@ export function TripDraftProvider({ children }: { children: ReactNode }) {
         setStops,
         reorderStops,
         resetDraft,
+        setEditingTripId,
         loadExistingTripDraft,
         isLoaded,
         activeTripDrops,
-        setActiveTripDrops,
+        setActiveTripDrops: setActiveTripDropsSafe,
         addActiveTripDrop,
         updateActiveTripDrop,
         removeActiveTripDrop,

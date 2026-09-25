@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -40,10 +40,12 @@ import {
   Navigation as NavigationIcon,
   Home,
   Save,
+  Lock,
 } from 'lucide-react-native';
 
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { getDistanceMeters } from '../lib/mapServices';
 
 function parsePhotos(photoField?: any): string[] {
   if (!photoField) return [];
@@ -130,115 +132,277 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
   // Sync state when route params change (e.g. from DropReporting edit)
   useEffect(() => {
-    if (params.drops && Array.isArray(params.drops) && params.drops.length > 0) {
-      setDropsList(params.drops);
-    } else if (params.updatedDropIndex !== undefined && params.updatedDrop) {
+    if (route.params?.drops && Array.isArray(route.params.drops) && route.params.drops.length > 0) {
+      setDropsList(route.params.drops);
+    } else if (route.params?.updatedDropIndex !== undefined && route.params?.updatedDrop) {
       // Single drop update from DropReporting edit
+      const { updatedDropIndex, updatedDrop } = route.params;
       setDropsList((prev) => {
         const next = [...prev];
-        next[params.updatedDropIndex] = {
-          ...next[params.updatedDropIndex],
-          ...params.updatedDrop,
+        next[updatedDropIndex] = {
+          ...next[updatedDropIndex],
+          ...updatedDrop,
         };
         return next;
       });
     }
-  }, [params]);
+  }, [route.params?.drops, route.params?.updatedDropIndex, route.params?.updatedDrop]);
 
   useEffect(() => {
-    if (params.isRevision !== undefined) setIsRevision(!!params.isRevision);
-    if (params.revisionCount !== undefined) setRevisionCount(params.revisionCount);
-    if (params.managerFeedback !== undefined) setManagerFeedback(params.managerFeedback);
-    if (params.isApproved !== undefined) setIsApproved(!!params.isApproved);
-    if (params.isPendingReview !== undefined) setIsPendingReview(!!params.isPendingReview);
-  }, [params.isRevision, params.revisionCount, params.managerFeedback, params.isApproved, params.isPendingReview]);
+    if (route.params?.isRevision !== undefined) setIsRevision(!!route.params.isRevision);
+    if (route.params?.revisionCount !== undefined) setRevisionCount(route.params.revisionCount);
+    if (route.params?.managerFeedback !== undefined) setManagerFeedback(route.params.managerFeedback);
+    if (route.params?.isApproved !== undefined) setIsApproved(!!route.params.isApproved);
+    if (route.params?.isPendingReview !== undefined) setIsPendingReview(!!route.params.isPendingReview);
+  }, [route.params?.isRevision, route.params?.revisionCount, route.params?.managerFeedback, route.params?.isApproved, route.params?.isPendingReview]);
 
-  // Load trip status & manager feedback directly from Supabase
-  useEffect(() => {
-    async function loadTripMeta() {
-      if (!params.tripId) return;
-      try {
-        const { data: tripData } = await supabase
-          .from('trips')
-          .select('approval_status, manager_feedback, status')
-          .eq('id', params.tripId)
-          .single();
-        if (tripData) {
-          if (tripData.approval_status === 'revision_requested') {
-            setIsRevision(true);
-            setIsApproved(false);
-            setIsPendingReview(false);
-            const revMatch = tripData.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
-            const count = revMatch ? parseInt(revMatch[1], 10) : 1;
-            setRevisionCount(count);
-            const cleanFeedback = tripData.manager_feedback?.replace(/\[(?:รอบที่|REV:)\s*\d+\]\s*/i, '').trim() || tripData.manager_feedback || '';
-            setManagerFeedback(cleanFeedback);
-          } else if (tripData.approval_status === 'approved') {
-            setIsApproved(true);
-            setIsRevision(false);
-            setIsPendingReview(false);
-          } else if (tripData.approval_status === 'pending') {
-            setIsPendingReview(true);
-            setIsRevision(false);
-            setIsApproved(false);
+  // Trip meta and DB data for odometer & duration calculations
+  const [dbTripData, setDbTripData] = useState<any>(null);
+
+  // Unified function to load trip status, manager feedback, timestamps, appointments & expenses from Supabase
+  const loadTripDataAndDrops = async () => {
+    if (!params.tripId) return;
+    try {
+      // 1. Fetch trip metadata
+      const { data: tripData } = await supabase
+        .from('trips')
+        .select('approval_status, manager_feedback, status, created_at, started_at, start_odometer, end_odometer, current_odometer, total_distance_km')
+        .eq('id', params.tripId)
+        .single();
+
+      if (tripData) {
+        setDbTripData(tripData);
+        if (tripData.approval_status === 'revision_requested') {
+          setIsRevision(true);
+          setIsApproved(false);
+          setIsPendingReview(false);
+          const revMatch = tripData.manager_feedback?.match(/\[(?:รอบที่|REV:)\s*(\d+)\]/i);
+          const count = revMatch ? parseInt(revMatch[1], 10) : 1;
+          setRevisionCount(count);
+          const cleanFeedback = tripData.manager_feedback?.replace(/\[(?:รอบที่|REV:)\s*\d+\]\s*/i, '').trim() || tripData.manager_feedback || '';
+          setManagerFeedback(cleanFeedback);
+        } else if (tripData.approval_status === 'approved') {
+          setIsApproved(true);
+          setIsRevision(false);
+          setIsPendingReview(false);
+        } else if (tripData.approval_status === 'pending') {
+          setIsPendingReview(true);
+          setIsRevision(false);
+          setIsApproved(false);
+        }
+      }
+
+      // 2. Fetch fresh appointments from DB with joined expenses
+      const { data: appts } = await supabase
+        .from('appointments')
+        .select('*, expenses(*)')
+        .eq('trip_id', params.tripId)
+        .order('sequence_order', { ascending: true });
+
+      if (appts && appts.length > 0) {
+        const reverseCatMap: Record<string, string> = {
+          toll: 'ค่าทางด่วน',
+          parking: 'ค่าที่จอดรถ',
+          fuel: 'ค่าน้ำมัน',
+          entertainment: 'ค่าอาหาร / เลี้ยงรับรอง',
+          other: 'อื่นๆ',
+        };
+
+        const dbMappedDrops = appts.map((a: any) => {
+          const tripExpenses = a.expenses || [];
+          const mappedExps = tripExpenses.map((e: any) => ({
+            id: e.id,
+            category: reverseCatMap[e.category] || e.category,
+            amount: String(e.amount),
+            receiptUri: e.receipt_url || e.receipt_image_path,
+            receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+            note: e.notes || '',
+          }));
+
+          let apptPhotos = parsePhotos(a.client_photo_url);
+          let apptExpsFinal = mappedExps;
+          let apptNote = a.meeting_notes || '';
+          let apptOdo = a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined;
+          let apptAgenda = a.agenda || '';
+          let apptIsComplete = a.status?.toLowerCase() === 'completed';
+
+          if (a.driver_notes && typeof a.driver_notes === 'string') {
+            try {
+              const draftData = JSON.parse(a.driver_notes);
+              if (draftData) {
+                if (Array.isArray(draftData.draftPhotos) && draftData.draftPhotos.length > 0) {
+                  apptPhotos = parsePhotos(draftData.draftPhotos);
+                }
+                if (Array.isArray(draftData.draftExpenses) && draftData.draftExpenses.length > 0) {
+                  apptExpsFinal = draftData.draftExpenses;
+                }
+                if (draftData.draftNote) apptNote = draftData.draftNote;
+                if (draftData.draftOdometer) apptOdo = String(draftData.draftOdometer);
+                if (draftData.draftAgenda) apptAgenda = draftData.draftAgenda;
+                if (draftData.draftIsComplete !== undefined) {
+                  apptIsComplete = !!draftData.draftIsComplete;
+                }
+              }
+            } catch (e) {}
           }
-        }
-      } catch (err) {
-        console.warn('Error loading trip meta in TripSummary:', err);
-      }
-    }
-    loadTripMeta();
-  }, [params.tripId]);
 
-  // Load expenses from Supabase for all drops if tripId is present (only once if dropsList has no expenses)
-  useEffect(() => {
-    async function loadTripExpenses() {
-      if (!params.tripId || hasInitialTripExpensesLoadedRef.current) return;
-      try {
-        const { data: dbExpenses } = await supabase
-          .from('expenses')
-          .select('*')
-          .eq('trip_id', params.tripId);
+          const rawCust = (a.recipient_name || a.customer_name || '').trim();
+          const isDummyCust =
+            !rawCust ||
+            rawCust.toLowerCase() === 'client representative' ||
+            rawCust === 'ลูกค้านัดหมาย' ||
+            rawCust === 'จุดลูกค้า' ||
+            rawCust === 'client visit';
+          const cleanCust = isDummyCust ? '' : rawCust;
+          const displayName = cleanCust || a.destination_address || a.company_name || '';
 
-        if (dbExpenses && dbExpenses.length > 0) {
-          hasInitialTripExpensesLoadedRef.current = true;
-          const reverseCatMap: Record<string, string> = {
-            'toll': 'ค่าทางด่วน',
-            'parking': 'ค่าที่จอดรถ',
-            'fuel': 'ค่าน้ำมัน',
-            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
-            'other': 'อื่นๆ',
+          return {
+            id: a.id,
+            appointmentId: a.id,
+            name: displayName,
+            recipient: cleanCust,
+            customerName: cleanCust,
+            companyName: a.company_name || '',
+            phone: a.recipient_phone || '',
+            items: apptAgenda,
+            agenda: apptAgenda,
+            address: a.destination_address || '',
+            latitude: a.destination_lat || undefined,
+            longitude: a.destination_lng || undefined,
+            isConfirmed: !!a.confirmation_status,
+            isDataComplete: apptIsComplete && a.status?.toLowerCase() !== 'incomplete',
+            status: a.status || (a.confirmation_status ? (apptIsComplete ? 'completed' : 'incomplete') : 'pending'),
+            meetingMinutes: apptNote,
+            note: apptNote,
+            photos: apptPhotos,
+            expenses: apptExpsFinal,
+            odometer: apptOdo,
+            odometer_reading: a.odometer_reading,
           };
-          setDropsList((prev) =>
-            prev.map((d) => {
-              if (Array.isArray(d.expenses) && d.expenses.length > 0) {
-                return d;
-              }
-              const apptId = d.appointmentId || d.id;
-              const apptExps = dbExpenses.filter((e) => e.appointment_id === apptId);
-              if (apptExps.length > 0) {
-                return {
-                  ...d,
-                  expenses: apptExps.map((e) => ({
-                    id: e.id,
-                    category: reverseCatMap[e.category] || e.category || 'ค่าใช้จ่ายเข้าพบ',
-                    amount: String(e.amount),
-                    receiptUri: e.receipt_url || e.receipt_image_path,
-                    receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
-                    note: e.notes || '',
-                  })),
-                };
-              }
-              return d;
-            })
-          );
-        }
-      } catch (err) {
-        console.warn('Error loading trip expenses in TripSummary:', err);
+        });
+
+        setDropsList(dbMappedDrops);
+      }
+    } catch (err) {
+      console.warn('Error loading trip meta and appointments in TripSummary:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadTripDataAndDrops();
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadTripDataAndDrops();
+    });
+    return unsubscribe;
+  }, [params.tripId, navigation]);
+
+  // Computed GPS Distance based on coordinates from start point to all drops
+  const computedGpsDistanceKm = useMemo(() => {
+    if (params.gpsDistance !== undefined && typeof params.gpsDistance === 'number' && params.gpsDistance > 0) {
+      return params.gpsDistance;
+    }
+    let totalMeters = 0;
+    let prevLat = typeof startLocation?.latitude === 'number' ? startLocation.latitude : 13.7563;
+    let prevLng = typeof startLocation?.longitude === 'number' ? startLocation.longitude : 100.5018;
+
+    for (const drop of dropsList) {
+      const dropLat = typeof drop.latitude === 'number' ? drop.latitude : parseFloat(drop.latitude);
+      const dropLng = typeof drop.longitude === 'number' ? drop.longitude : parseFloat(drop.longitude);
+      if (!isNaN(dropLat) && !isNaN(dropLng) && dropLat !== 0 && dropLng !== 0) {
+        totalMeters += getDistanceMeters(
+          { latitude: prevLat, longitude: prevLng },
+          { latitude: dropLat, longitude: dropLng }
+        );
+        prevLat = dropLat;
+        prevLng = dropLng;
+      } else {
+        totalMeters += 8500; // 8.5 km estimate per stop
       }
     }
-    loadTripExpenses();
-  }, [params.tripId]);
+    // Road winding factor (approx 1.28x of straight-line haversine in Bangkok)
+    const roadDistanceKm = (totalMeters * 1.28) / 1000;
+    return Math.max(1.0, Math.round(roadDistanceKm * 10) / 10);
+  }, [startLocation, dropsList, params.gpsDistance]);
+
+  // Computed Odometer Distance based on start odometer and latest recorded drop odometer
+  const computedOdoDistanceKm = useMemo(() => {
+    const startNum = parseFloat(String(startOdometer || '').replace(/,/g, ''));
+    if (isNaN(startNum) || startNum <= 0) return null;
+
+    // Check latest drop with odometer reading
+    for (let i = dropsList.length - 1; i >= 0; i--) {
+      const d = dropsList[i];
+      const raw = d.odometer || d.odometer_reading;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const num = parseFloat(String(raw).replace(/,/g, ''));
+        if (!isNaN(num) && num >= startNum) {
+          return Math.round((num - startNum) * 10) / 10;
+        }
+      }
+    }
+
+    if (dbTripData?.end_odometer && Number(dbTripData.end_odometer) >= startNum) {
+      return Math.round((Number(dbTripData.end_odometer) - startNum) * 10) / 10;
+    }
+
+    return null;
+  }, [startOdometer, dropsList, dbTripData]);
+
+  // Total trip elapsed duration from when start was pressed until finishing to summary
+  const tripDurationDisplay = useMemo(() => {
+    let startMs: number | null = null;
+    const startCandidate = params.startTime || params.startedAt || dbTripData?.started_at || dbTripData?.created_at;
+    if (startCandidate) {
+      const parsed = new Date(startCandidate).getTime();
+      if (!isNaN(parsed) && parsed > 0) {
+        startMs = parsed;
+      }
+    }
+
+    let totalMinutes: number;
+    if (startMs && !isNaN(startMs)) {
+      const elapsedMs = Math.max(0, Date.now() - startMs);
+      totalMinutes = Math.max(1, Math.round(elapsedMs / (1000 * 60)));
+    } else {
+      // Estimated elapsed time based on GPS distance + visit durations
+      const travelMins = Math.round((computedGpsDistanceKm / 35) * 60);
+      const visitMins = dropsList.length * 25;
+      totalMinutes = Math.max(15, travelMins + visitMins);
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return { hours, mins, totalMinutes };
+  }, [params.startTime, params.startedAt, dbTripData, computedGpsDistanceKm, dropsList.length]);
+
+  // Format check-in / visited time for a drop
+  const formatDropTime = (dropItem: any, _index: number, isComplete: boolean) => {
+    if (isComplete) {
+      const rawTime = dropItem.visited_at || dropItem.checkin_time;
+      if (rawTime) {
+        const d = new Date(rawTime);
+        if (!isNaN(d.getTime())) {
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          return `${hh}:${mm} น. • ${language === 'th' ? 'เข้าพบแล้ว' : 'Visited'}`;
+        }
+        if (typeof rawTime === 'string' && rawTime.includes(':')) {
+          const parts = rawTime.split(':');
+          const hh = String(parseInt(parts[0], 10) || 0).padStart(2, '0');
+          const mm = String(parseInt(parts[1], 10) || 0).padStart(2, '0');
+          return `${hh}:${mm} น. • ${language === 'th' ? 'เข้าพบแล้ว' : 'Visited'}`;
+        }
+      }
+      return language === 'th' ? '✓ บันทึกสำเร็จ • เข้าพบแล้ว' : '✓ Completed • Visited';
+    }
+
+    if (dropItem.appointmentTime || dropItem.plannedTime) {
+      return `${language === 'th' ? 'เวลานัดหมาย' : 'Scheduled'}: ${dropItem.appointmentTime || dropItem.plannedTime} น. • ${language === 'th' ? 'ข้อมูลยังไม่สมบูรณ์ (แตะเพื่อแก้ไข)' : 'Incomplete (tap to edit)'}`;
+    }
+    return language === 'th' ? '⚠️ รอดำเนินการ • ข้อมูลไม่สมบูรณ์ (แตะเพื่อแก้ไข)' : '⚠️ Pending • Incomplete (tap to edit)';
+  };
+
+
 
   // Aggregate breakdown by each client
   const clientExpensesBreakdown = dropsList.map((drop, index) => {
@@ -409,7 +573,18 @@ export default function TripSummaryScreen({ navigation, route }: any) {
     );
   };
 
-  const incompleteDropsCount = dropsList.filter((d: any) => !d.isConfirmed || !d.isDataComplete).length;
+  const isDropFullyCompleted = (d: any): boolean => {
+    if (!d) return false;
+    if (!d.isConfirmed) return false;
+    const isComp = d.isDataComplete !== undefined
+      ? !!d.isDataComplete
+      : (d.status?.toLowerCase() === 'completed');
+    if (!isComp) return false;
+    if (d.status?.toLowerCase() === 'incomplete') return false;
+    return true;
+  };
+
+  const incompleteDropsCount = dropsList.filter((d: any) => !isDropFullyCompleted(d)).length;
   const isAllDropsCompleted = dropsList.length > 0 && incompleteDropsCount === 0;
 
   const syncTripDataToDatabase = async (targetApprovalStatus: 'draft' | 'pending' | 'revision_requested') => {
@@ -449,10 +624,12 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           trip_date: new Date().toISOString().split('T')[0],
           status: isPending ? 'completed' : 'in_progress',
           approval_status: targetApprovalStatus,
+          submitted_at: isPending ? new Date().toISOString() : null,
+          completed_at: isPending ? new Date().toISOString() : null,
           start_odometer: startOdoNum,
           end_odometer: endOdoNum,
           current_odometer: endOdoNum || startOdoNum,
-          total_distance_km: computedDist,
+          total_distance_km: computedDist !== null ? computedDist : computedGpsDistanceKm,
           total_expenses: totalExpenseAmount,
         })
         .select()
@@ -465,85 +642,92 @@ export default function TripSummaryScreen({ navigation, route }: any) {
         .update({
           status: isPending ? 'completed' : 'in_progress',
           approval_status: targetApprovalStatus,
+          submitted_at: isPending ? new Date().toISOString() : undefined,
+          completed_at: isPending ? new Date().toISOString() : undefined,
           start_odometer: startOdoNum,
           end_odometer: endOdoNum,
           current_odometer: endOdoNum || startOdoNum,
           total_expenses: totalExpenseAmount,
-          ...(computedDist ? { total_distance_km: computedDist } : {}),
+          total_distance_km: computedDist !== null ? computedDist : computedGpsDistanceKm,
         })
         .eq('id', tripId);
     }
 
-    // Sync appointments
+    // Sync appointments concurrently
     if (tripId && Array.isArray(dropsList)) {
-      for (let i = 0; i < dropsList.length; i++) {
-        const d = dropsList[i];
-        const isDataComp = !!d.isDataComplete;
-        const isConf = !!d.isConfirmed;
+      const catMap: Record<string, string> = {
+        'ค่าทางด่วน': 'toll',
+        'ค่าที่จอดรถ': 'parking',
+        'ค่าน้ำมัน': 'fuel',
+        'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
+        'ค่าเลี้ยงรับรอง': 'entertainment',
+        'อื่นๆ': 'other',
+      };
 
-        const dropExps = d.expenses || getDropExpenses(d, i);
-        const cleanedPhotos = parsePhotos(d.photos || d.client_photo_url);
-        const finalPhotoUrl = cleanedPhotos.length > 0 ? (cleanedPhotos.length === 1 ? cleanedPhotos[0] : JSON.stringify(cleanedPhotos)) : null;
+      await Promise.all(
+        dropsList.map(async (d: any, i: number) => {
+          const isDataComp = isDropFullyCompleted(d);
+          const isConf = !!d.isConfirmed;
 
-        const apptPayload: any = {
-          type: 'appointment',
-          trip_id: tripId,
-          staff_id: staffId,
-          company_name: d.name || `ลูกค้าจุดที่ ${i + 1}`,
-          customer_name: d.contactPerson || d.recipient || d.name || `ลูกค้าจุดที่ ${i + 1}`,
-          recipient_name: d.recipient || d.contactPerson || '',
-          recipient_phone: d.phone || d.contactPhone || '',
-          destination_address: d.address || '',
-          destination_lat: d.latitude || null,
-          destination_lng: d.longitude || null,
-          agenda: d.agenda || d.items || '',
-          sequence_order: i + 1,
-          confirmation_status: isConf,
-          meeting_notes: d.meetingMinutes || d.note || '',
-          status: isConf ? (isDataComp ? 'completed' : 'incomplete') : 'pending',
-        };
+          const dropExps = d.expenses || getDropExpenses(d, i);
+          const cleanedPhotos = parsePhotos(d.photos || d.client_photo_url);
+          const finalPhotoUrl = cleanedPhotos.length > 0 ? (cleanedPhotos.length === 1 ? cleanedPhotos[0] : JSON.stringify(cleanedPhotos)) : null;
 
-        if (isPending) {
-          // Submitted/Resubmitted to Admin: Commit the newly revised photos to official client_photo_url and clear draft!
-          apptPayload.client_photo_url = finalPhotoUrl;
-          apptPayload.driver_notes = null;
-        } else if (isRevision) {
-          // Saving draft during revision: Store draft photos in driver_notes so specialist keeps them, but DO NOT update client_photo_url (Admin won't see new draft photos yet!)
-          apptPayload.driver_notes = JSON.stringify({ draftPhotos: cleanedPhotos, draftExpenses: dropExps });
-        } else {
-          // Brand new draft:
-          apptPayload.client_photo_url = finalPhotoUrl;
-          apptPayload.driver_notes = null;
-        }
+          const apptPayload: any = {
+            type: 'appointment',
+            trip_id: tripId,
+            staff_id: staffId,
+            company_name: d.name || `ลูกค้าจุดที่ ${i + 1}`,
+            customer_name: d.contactPerson || d.recipient || d.name || `ลูกค้าจุดที่ ${i + 1}`,
+            recipient_name: d.recipient || d.contactPerson || '',
+            recipient_phone: d.phone || d.contactPhone || '',
+            destination_address: d.address || '',
+            destination_lat: d.latitude || null,
+            destination_lng: d.longitude || null,
+            agenda: d.agenda || d.items || '',
+            sequence_order: i + 1,
+            confirmation_status: isConf,
+            meeting_notes: d.meetingMinutes || d.note || '',
+            status: isConf ? (isDataComp ? 'completed' : 'incomplete') : 'pending',
+          };
 
-        let apptId = d.appointmentId || d.id;
-        if (apptId) {
-          await supabase
-            .from('appointments')
-            .update(apptPayload)
-            .eq('id', apptId);
-        } else {
-          const { data: newAppt } = await supabase
-            .from('appointments')
-            .insert(apptPayload)
-            .select()
-            .single();
-          if (newAppt) apptId = newAppt.id;
-        }
-        if (apptId && Array.isArray(dropExps)) {
-          await supabase.from('expenses').delete().eq('appointment_id', apptId);
-          for (const exp of dropExps) {
-            const amt = parseFloat(exp.amount);
-            if (amt > 0) {
-              const catMap: Record<string, string> = {
-                'ค่าทางด่วน': 'toll',
-                'ค่าที่จอดรถ': 'parking',
-                'ค่าน้ำมัน': 'fuel',
-                'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
-                'ค่าเลี้ยงรับรอง': 'entertainment',
-                'อื่นๆ': 'other',
-              };
-              await supabase.from('expenses').insert({
+          if (isPending) {
+            // Submitted/Resubmitted to Admin: Commit the newly revised photos to official client_photo_url and clear draft!
+            apptPayload.client_photo_url = finalPhotoUrl;
+            apptPayload.driver_notes = null;
+          } else if (isRevision) {
+            // Saving draft during revision: Store draft photos in driver_notes so specialist keeps them, but DO NOT update client_photo_url (Admin won't see new draft photos yet!)
+            apptPayload.driver_notes = JSON.stringify({ draftPhotos: cleanedPhotos, draftExpenses: dropExps });
+          } else {
+            // Brand new draft:
+            apptPayload.client_photo_url = finalPhotoUrl;
+            apptPayload.driver_notes = null;
+          }
+
+          let apptId = d.appointmentId || d.id;
+          if (apptId) {
+            await supabase
+              .from('appointments')
+              .update(apptPayload)
+              .eq('id', apptId);
+          } else {
+            const { data: newAppt } = await supabase
+              .from('appointments')
+              .insert(apptPayload)
+              .select()
+              .single();
+            if (newAppt) apptId = newAppt.id;
+          }
+
+          if (apptId && Array.isArray(dropExps)) {
+            await supabase.from('expenses').delete().eq('appointment_id', apptId);
+            const expenseRows = dropExps
+              .map((exp: any) => ({
+                exp,
+                amt: parseFloat(exp.amount),
+              }))
+              .filter(({ amt }: any) => amt > 0)
+              .map(({ exp, amt }: any) => ({
                 staff_id: staffId,
                 trip_id: tripId,
                 appointment_id: apptId,
@@ -554,11 +738,14 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                 receipt_image_path: exp.receiptUri,
                 notes: exp.note,
                 status: 'pending',
-              });
+              }));
+
+            if (expenseRows.length > 0) {
+              await supabase.from('expenses').insert(expenseRows);
             }
           }
-        }
-      }
+        })
+      );
     }
   };
 
@@ -595,13 +782,13 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
   const handleSubmitToAdmin = () => {
     if (isSaving) return;
-    const incompleteList = dropsList.filter((d: any) => !d.isConfirmed || !d.isDataComplete);
+    const incompleteList = dropsList.filter((d: any) => !isDropFullyCompleted(d));
     if (incompleteList.length > 0) {
       Alert.alert(
         language === 'th' ? 'ข้อมูลยังไม่ครบถ้วน ⚠️' : 'Incomplete Data ⚠️',
         language === 'th'
-          ? `มี ${incompleteList.length} จุดที่ยังไม่สมบูรณ์ (Incomplete) คุณต้องกรอกข้อมูลให้ครบถ้วนทุกจุดก่อนจึงจะส่งให้ Admin ได้\n\nหากต้องการออกไปก่อน กรุณากดปุ่ม "บันทึกและกลับไปแผนงานวันนี้"`
-          : `There are ${incompleteList.length} incomplete stops. Please complete all stops before submitting to Admin, or save draft to Planned Today.`
+          ? `มี ${incompleteList.length} จุดที่ยังไม่สมบูรณ์ (Incomplete) คุณต้องกรอกข้อมูลให้ครบถ้วนทุกจุดก่อนจึงจะส่งให้ Admin ได้\n\n(ข้อมูลถูกบันทึกอัตโนมัติแล้ว คุณสามารถกดย้อนกลับ ← เพื่อออกไปทำต่อทีหลังได้)`
+          : `There are ${incompleteList.length} incomplete stops. Please complete all stops before submitting to Admin.\n\n(Progress is auto-saved. You can tap Back ← to return and resume later.)`
       );
       return;
     }
@@ -656,6 +843,10 @@ export default function TripSummaryScreen({ navigation, route }: any) {
   };
 
   const handleSummaryGoBack = () => {
+    // If not yet approved or submitted, auto-sync latest trip totals to DB in background
+    if (!isApproved && !isPendingReview && params.tripId) {
+      syncTripDataToDatabase(isRevision ? 'revision_requested' : 'draft').catch((e) => console.warn('Auto-save on back note:', e));
+    }
     if (params.returnScreen === 'TripSchedule') {
       navigation.navigate('TripSchedule');
       return;
@@ -787,9 +978,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
         {/* Drops Confirmation Status Banner */}
         {(() => {
-          const completedCount = dropsList.filter((d: any) => {
-            return !!d.isConfirmed && (d.isDataComplete || d.status === 'Completed' || d.status === 'completed');
-          }).length;
+          const completedCount = dropsList.filter((d: any) => isDropFullyCompleted(d)).length;
           const hasIncomplete = completedCount < dropsList.length;
 
           return (
@@ -802,7 +991,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.successBannerTitle, hasIncomplete && { color: '#92400E' }]}>
                   {hasIncomplete
-                    ? (language === 'th' ? `ข้อมูลยังไม่ครบถ้วน (${completedCount}/${dropsList.length} จุด)` : `Incomplete Visits (${completedCount}/${dropsList.length})`)
+                    ? (language === 'th' ? `ข้อมูลยังไม่ครบถ้วน (เข้าพบแล้ว ${completedCount}/${dropsList.length} จุด)` : `Incomplete Visits (Completed ${completedCount}/${dropsList.length})`)
                     : (language === 'th' ? 'เข้าพบและบันทึกข้อมูลครบถ้วน ✓' : t('tracker_all_done'))}
                 </Text>
                 <Text style={[styles.successBannerSub, hasIncomplete && { color: '#B45309' }]}>
@@ -824,23 +1013,48 @@ export default function TripSummaryScreen({ navigation, route }: any) {
             <Text style={styles.kpiLabel}>{t('summary_total_visits')}</Text>
           </View>
 
-          {/* Card 2: Distance */}
+          {/* Card 2: Distance (with GPS and ODO) */}
           <View style={styles.kpiCard}>
             <Route size={22} color="#1D4ED8" />
             <Text style={styles.kpiValue}>
-              {((dropsList.length * 11.4) + 12.2).toFixed(1)} <Text style={styles.kpiUnit}>km</Text>
+              {computedOdoDistanceKm !== null ? computedOdoDistanceKm.toFixed(1) : computedGpsDistanceKm.toFixed(1)}{' '}
+              <Text style={styles.kpiUnit}>km</Text>
             </Text>
             <Text style={styles.kpiLabel}>{t('summary_total_distance')}</Text>
+
+            {/* ODO and GPS sub-metrics badge */}
+            <View style={styles.distanceSubMetricsRow}>
+              <View style={[styles.miniMetricBadge, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+                <Gauge size={9} color="#1D4ED8" />
+                <Text style={styles.miniMetricText}>
+                  ODO: {computedOdoDistanceKm !== null ? `${computedOdoDistanceKm.toFixed(1)} km` : '-'}
+                </Text>
+              </View>
+              <View style={[styles.miniMetricBadge, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
+                <NavigationIcon size={9} color="#16A34A" />
+                <Text style={[styles.miniMetricText, { color: '#166534' }]}>
+                  GPS: {computedGpsDistanceKm.toFixed(1)} km
+                </Text>
+              </View>
+            </View>
           </View>
 
-          {/* Card 3: Total Time */}
+          {/* Card 3: Total Time (Start to Finish) */}
           <View style={styles.kpiCard}>
             <Clock size={22} color="#1D4ED8" />
             <Text style={styles.kpiValue}>
-              {Math.floor(dropsList.length * 0.8) + 1}<Text style={styles.kpiUnit}>h</Text> {((dropsList.length * 18) % 60)}
+              {tripDurationDisplay.hours > 0 && (
+                <>
+                  {tripDurationDisplay.hours}<Text style={styles.kpiUnit}>h </Text>
+                </>
+              )}
+              {tripDurationDisplay.mins}
               <Text style={styles.kpiUnit}>m</Text>
             </Text>
             <Text style={styles.kpiLabel}>{t('summary_total_time')}</Text>
+            <Text style={styles.kpiSubLabel}>
+              {language === 'th' ? '⏱️ เริ่มทริปจนปิดสรุป' : '⏱️ Start to Finish'}
+            </Text>
           </View>
 
           {/* Card 4: Expenses */}
@@ -1027,10 +1241,8 @@ export default function TripSummaryScreen({ navigation, route }: any) {
             </TouchableOpacity>
 
             {dropsList.map((dropItem: any, index: number) => {
-              // isDataComplete controls Complete vs Incomplete badge on summary
-              const isDropComplete = dropItem.isDataComplete !== undefined
-                ? !!dropItem.isDataComplete
-                : (dropItem.status === 'Completed' || dropItem.status === 'completed');
+              // isDropComplete controls Complete vs Incomplete badge on summary
+              const isDropComplete = isDropFullyCompleted(dropItem);
               const dropExp = getDropExpenses(dropItem, index);
               const dropExpSum = dropExp.reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
 
@@ -1141,10 +1353,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                           !isDropComplete && { color: '#B45309', fontWeight: '700' },
                         ]}
                       >
-                        {`0${9 + Math.floor(index * 0.8)}:${15 + (index * 25) % 40}`} น.{' '}
-                        {isDropComplete
-                          ? (language === 'th' ? '• เข้าพบแล้ว' : '• Visited')
-                          : (language === 'th' ? '• ข้อมูลไม่สมบูรณ์ (แตะเพื่อแก้ไข)' : '• Incomplete (tap to edit)')}
+                        {formatDropTime(dropItem, index, isDropComplete)}
                       </Text>
                     </View>
 
@@ -1268,65 +1477,52 @@ export default function TripSummaryScreen({ navigation, route }: any) {
             </Text>
           </TouchableOpacity>
         ) : !isAllDropsCompleted ? (
+          <View style={{ width: '100%' }}>
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: '#94A3B8' }]}
+              onPress={() => {
+                Alert.alert(
+                  language === 'th' ? 'ยังส่งให้ Admin ไม่ได้ ⚠️' : 'Cannot Submit Yet ⚠️',
+                  language === 'th'
+                    ? `ยังมี ${incompleteDropsCount} จุดที่ข้อมูลยังไม่ครบถ้วนสมบูรณ์\n\nกรุณาแตะที่จุดที่มีเครื่องหมาย ⚠️ ในรายการด้านบนเพื่อเข้าไปกรอกข้อมูลและยืนยันความสมบูรณ์ให้ครบทุกจุดก่อนส่งให้ Admin\n\n(ข้อมูลถูกบันทึกอัตโนมัติแล้ว คุณสามารถกดย้อนกลับ ← เพื่อออกไปทำต่อทีหลังได้)`
+                    : `There are ${incompleteDropsCount} stops with incomplete data.\n\nPlease tap the stops marked with ⚠️ above to complete data before submitting to Admin.\n\n(Progress is auto-saved. You can tap Back ← to return to Dashboard and resume later.)`
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <Lock size={18} color="#FFFFFF" />
+              <Text style={styles.submitBtnText}>
+                {language === 'th'
+                  ? `ยังส่งไม่ได้ (ขาดข้อมูลอีก ${incompleteDropsCount} จุด)`
+                  : `Cannot Submit (${incompleteDropsCount} Incomplete)`}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.incompleteHelperNotice}>
+              {language === 'th'
+                ? '💡 แตะที่จุดที่มีเครื่องหมาย ⚠️ ด้านบนเพื่อเข้าไปกรอกข้อมูลให้ครบถ้วน'
+                : '💡 Tap incomplete stops marked with ⚠️ above to complete required details'}
+            </Text>
+          </View>
+        ) : (
           <TouchableOpacity
-            style={[styles.submitBtn, { backgroundColor: '#D97706' }, isSaving && { opacity: 0.7 }]}
-            onPress={handleSaveDraftAndReturn}
+            style={[styles.submitBtn, { backgroundColor: '#16A34A' }, isSaving && { opacity: 0.7 }]}
+            onPress={handleSubmitToAdmin}
             disabled={isSaving}
             activeOpacity={0.9}
           >
             {isSaving ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Save size={18} color="#FFFFFF" />
+              <Send size={18} color="#FFFFFF" />
             )}
             <Text style={styles.submitBtnText}>
               {isSaving
-                ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...')
-                : (language === 'th'
-                    ? `บันทึกและกลับไปแผนงานวันนี้ (ไม่สมบูรณ์ ${incompleteDropsCount} จุด)`
-                    : `Save & Back to Today Visits (${incompleteDropsCount} Incomplete)`)}
+                ? (language === 'th' ? 'กำลังส่งรายงาน...' : 'Submitting...')
+                : (isRevision
+                    ? (language === 'th' ? `ยืนยันส่งรายงานแก้ไข (#${revisionCount || 1}) 🚀` : `Resubmit Revised Report (#${revisionCount || 1}) 🚀`)
+                    : (language === 'th' ? 'ยืนยันส่งรายงานให้ Admin 🚀' : 'Confirm Submit to Admin 🚀'))}
             </Text>
           </TouchableOpacity>
-        ) : (
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity
-              style={[styles.submitBtnSecondary, { flex: 1 }, isSaving && { opacity: 0.7 }]}
-              onPress={handleSaveDraftAndReturn}
-              disabled={isSaving}
-              activeOpacity={0.85}
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#1D4ED8" />
-              ) : (
-                <Save size={16} color="#1D4ED8" />
-              )}
-              <Text style={styles.submitBtnSecondaryText}>
-                {isSaving
-                  ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...')
-                  : (language === 'th' ? 'บันทึกแบบร่าง' : 'Save Draft')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.submitBtn, { flex: 1.6, backgroundColor: '#16A34A' }, isSaving && { opacity: 0.7 }]}
-              onPress={handleSubmitToAdmin}
-              disabled={isSaving}
-              activeOpacity={0.9}
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Send size={18} color="#FFFFFF" />
-              )}
-              <Text style={styles.submitBtnText}>
-                {isSaving
-                  ? (language === 'th' ? 'กำลังส่งรายงาน...' : 'Submitting...')
-                  : (isRevision
-                      ? (language === 'th' ? `ส่งรายงานแก้ไข (#${revisionCount || 1})` : `Resubmit (#${revisionCount || 1})`)
-                      : (language === 'th' ? 'ส่งรายงานให้ Admin' : 'Submit to Admin'))}
-              </Text>
-            </TouchableOpacity>
-          </View>
         )}
       </View>
 
@@ -1583,6 +1779,33 @@ const styles = StyleSheet.create({
     color: '#747686',
     letterSpacing: 0.6,
   },
+  kpiSubLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#1D4ED8',
+    marginTop: 2,
+  },
+  distanceSubMetricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  miniMetricBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 0.5,
+  },
+  miniMetricText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#03246B',
+  },
   reportsContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -1784,6 +2007,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#1D4ED8',
+  },
+  incompleteHelperNotice: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 8,
+    fontWeight: '500',
   },
   meetingCard: {
     backgroundColor: '#FFFFFF',

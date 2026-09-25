@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
   public: {
     Tables: {
       appointments: {
@@ -173,6 +178,27 @@ export type Database = {
           },
         ]
       }
+      departments: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       expenses: {
         Row: {
           amount: number
@@ -246,10 +272,12 @@ export type Database = {
       location_logs: {
         Row: {
           accuracy: number | null
+          address: string | null
           altitude: number | null
           appointment_id: string | null
           battery_level: number | null
           created_at: string
+          event_type: string | null
           heading: number | null
           id: string
           is_mock_location: boolean | null
@@ -260,10 +288,12 @@ export type Database = {
         }
         Insert: {
           accuracy?: number | null
+          address?: string | null
           altitude?: number | null
           appointment_id?: string | null
           battery_level?: number | null
           created_at?: string
+          event_type?: string | null
           heading?: number | null
           id?: string
           is_mock_location?: boolean | null
@@ -274,10 +304,12 @@ export type Database = {
         }
         Update: {
           accuracy?: number | null
+          address?: string | null
           altitude?: number | null
           appointment_id?: string | null
           battery_level?: number | null
           created_at?: string
+          event_type?: string | null
           heading?: number | null
           id?: string
           is_mock_location?: boolean | null
@@ -305,13 +337,27 @@ export type Database = {
       }
       profiles: {
         Row: {
+          assigned_vehicle: string | null
+          assigned_vehicle_model: string | null
+          assigned_vehicle_plate: string | null
           avatar_url: string | null
+          battery_level: number | null
           bio: string | null
           created_at: string
+          current_address: string | null
+          current_lat: number | null
+          current_lng: number | null
+          current_speed: number | null
           department: string | null
+          driving_license_expiry: string | null
+          driving_license_no: string | null
+          driving_license_type: string | null
           email: string
           full_name: string
           id: string
+          is_online: boolean | null
+          is_tracking_enabled: boolean
+          last_seen_at: string | null
           nickname: string | null
           phone: string | null
           position: string | null
@@ -320,31 +366,31 @@ export type Database = {
           status: string
           timezone: string | null
           two_factor_enabled: boolean | null
-          is_online: boolean | null
-          last_seen_at: string | null
-          current_lat: number | null
-          current_lng: number | null
-          current_address: string | null
-          current_speed: number | null
-          battery_level: number | null
-          assigned_vehicle: string | null
-          assigned_vehicle_plate: string | null
-          assigned_vehicle_model: string | null
-          driving_license_no: string | null
-          driving_license_type: string | null
-          driving_license_expiry: string | null
-          is_tracking_enabled: boolean
-          user_tracking_enabled: boolean
           updated_at: string
+          user_tracking_enabled: boolean
         }
         Insert: {
+          assigned_vehicle?: string | null
+          assigned_vehicle_model?: string | null
+          assigned_vehicle_plate?: string | null
           avatar_url?: string | null
+          battery_level?: number | null
           bio?: string | null
           created_at?: string
+          current_address?: string | null
+          current_lat?: number | null
+          current_lng?: number | null
+          current_speed?: number | null
           department?: string | null
+          driving_license_expiry?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
           email: string
           full_name: string
           id: string
+          is_online?: boolean | null
+          is_tracking_enabled?: boolean
+          last_seen_at?: string | null
           nickname?: string | null
           phone?: string | null
           position?: string | null
@@ -353,31 +399,31 @@ export type Database = {
           status?: string
           timezone?: string | null
           two_factor_enabled?: boolean | null
-          is_online?: boolean | null
-          last_seen_at?: string | null
-          current_lat?: number | null
-          current_lng?: number | null
-          current_address?: string | null
-          current_speed?: number | null
-          battery_level?: number | null
-          assigned_vehicle?: string | null
-          assigned_vehicle_plate?: string | null
-          assigned_vehicle_model?: string | null
-          driving_license_no?: string | null
-          driving_license_type?: string | null
-          driving_license_expiry?: string | null
-          is_tracking_enabled?: boolean
-          user_tracking_enabled?: boolean
           updated_at?: string
+          user_tracking_enabled?: boolean
         }
         Update: {
+          assigned_vehicle?: string | null
+          assigned_vehicle_model?: string | null
+          assigned_vehicle_plate?: string | null
           avatar_url?: string | null
+          battery_level?: number | null
           bio?: string | null
           created_at?: string
+          current_address?: string | null
+          current_lat?: number | null
+          current_lng?: number | null
+          current_speed?: number | null
           department?: string | null
+          driving_license_expiry?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
           email?: string
           full_name?: string
           id?: string
+          is_online?: boolean | null
+          is_tracking_enabled?: boolean
+          last_seen_at?: string | null
           nickname?: string | null
           phone?: string | null
           position?: string | null
@@ -386,22 +432,8 @@ export type Database = {
           status?: string
           timezone?: string | null
           two_factor_enabled?: boolean | null
-          is_online?: boolean | null
-          last_seen_at?: string | null
-          current_lat?: number | null
-          current_lng?: number | null
-          current_address?: string | null
-          current_speed?: number | null
-          battery_level?: number | null
-          assigned_vehicle?: string | null
-          assigned_vehicle_plate?: string | null
-          assigned_vehicle_model?: string | null
-          driving_license_no?: string | null
-          driving_license_type?: string | null
-          driving_license_expiry?: string | null
-          is_tracking_enabled?: boolean
-          user_tracking_enabled?: boolean
           updated_at?: string
+          user_tracking_enabled?: boolean
         }
         Relationships: []
       }
@@ -411,10 +443,14 @@ export type Database = {
           created_at: string
           current_location: string | null
           department: string | null
+          driving_license_expiry: string | null
+          driving_license_no: string | null
+          driving_license_type: string | null
           emergency_contact: string | null
           id: string
           on_time_percentage: number | null
           on_time_rate: number | null
+          position: string | null
           profile_id: string
           rating: number | null
           safety_score: number | null
@@ -423,16 +459,23 @@ export type Database = {
           total_distance_km: number | null
           total_trips: number | null
           updated_at: string
+          vehicle_model: string | null
+          vehicle_plate: string | null
+          vehicle_type: string | null
         }
         Insert: {
           assigned_vehicle?: string | null
           created_at?: string
           current_location?: string | null
           department?: string | null
+          driving_license_expiry?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
           emergency_contact?: string | null
           id?: string
           on_time_percentage?: number | null
           on_time_rate?: number | null
+          position?: string | null
           profile_id: string
           rating?: number | null
           safety_score?: number | null
@@ -441,16 +484,23 @@ export type Database = {
           total_distance_km?: number | null
           total_trips?: number | null
           updated_at?: string
+          vehicle_model?: string | null
+          vehicle_plate?: string | null
+          vehicle_type?: string | null
         }
         Update: {
           assigned_vehicle?: string | null
           created_at?: string
           current_location?: string | null
           department?: string | null
+          driving_license_expiry?: string | null
+          driving_license_no?: string | null
+          driving_license_type?: string | null
           emergency_contact?: string | null
           id?: string
           on_time_percentage?: number | null
           on_time_rate?: number | null
+          position?: string | null
           profile_id?: string
           rating?: number | null
           safety_score?: number | null
@@ -459,6 +509,9 @@ export type Database = {
           total_distance_km?: number | null
           total_trips?: number | null
           updated_at?: string
+          vehicle_model?: string | null
+          vehicle_plate?: string | null
+          vehicle_type?: string | null
         }
         Relationships: [
           {
@@ -472,46 +525,58 @@ export type Database = {
       }
       system_settings: {
         Row: {
+          api_key: string | null
+          approval_rules: Json | null
           auto_dispatch: boolean | null
           company_name: string | null
           currency: string | null
           excessive_idle_minutes: number | null
           geofence_opacity: number | null
+          gps_config: Json | null
           gps_ping_interval_sec: number | null
           id: string
           map_defaults: Json | null
           max_speed_limit: number | null
           notifications_config: Json | null
+          operating_hours: Json | null
           tenant_id: string | null
           timezone: string | null
           updated_at: string | null
         }
         Insert: {
+          api_key?: string | null
+          approval_rules?: Json | null
           auto_dispatch?: boolean | null
           company_name?: string | null
           currency?: string | null
           excessive_idle_minutes?: number | null
           geofence_opacity?: number | null
+          gps_config?: Json | null
           gps_ping_interval_sec?: number | null
           id?: string
           map_defaults?: Json | null
           max_speed_limit?: number | null
           notifications_config?: Json | null
+          operating_hours?: Json | null
           tenant_id?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
         Update: {
+          api_key?: string | null
+          approval_rules?: Json | null
           auto_dispatch?: boolean | null
           company_name?: string | null
           currency?: string | null
           excessive_idle_minutes?: number | null
           geofence_opacity?: number | null
+          gps_config?: Json | null
           gps_ping_interval_sec?: number | null
           id?: string
           map_defaults?: Json | null
           max_speed_limit?: number | null
           notifications_config?: Json | null
+          operating_hours?: Json | null
           tenant_id?: string | null
           timezone?: string | null
           updated_at?: string | null
@@ -625,7 +690,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      admin_reset_user_password: {
+        Args: { new_password: string; target_user_id: string }
+        Returns: undefined
+      }
+      cleanup_old_location_logs: {
+        Args: { retention_days?: number }
+        Returns: number
+      }
+      is_admin: { Args: never; Returns: boolean }
+      update_specialist_presence: {
+        Args: {
+          p_address?: string
+          p_battery?: number
+          p_is_online: boolean
+          p_lat?: number
+          p_lng?: number
+          p_speed?: number
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
@@ -635,3 +719,126 @@ export type Database = {
     }
   }
 }
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

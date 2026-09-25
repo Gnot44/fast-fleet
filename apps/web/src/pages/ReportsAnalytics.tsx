@@ -71,7 +71,7 @@ export default function ReportsAnalytics() {
       // 1. Fetch Real Marketing Specialists
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, full_name, nickname, avatar_url, department, position, staff(staff_id, territory, total_trips, total_distance_km, safety_score, rating)')
+        .select('id, full_name, nickname, avatar_url, department, position, employee_id, territory')
         .eq('role', 'specialist');
 
       // 2. Fetch Real Trips with both start/end odometer and total_distance_km (GPS / Google Maps)
@@ -258,7 +258,6 @@ export default function ReportsAnalytics() {
   // Derived Specialist Performance Rankings
   const specialistsData: SpecialistRank[] = useMemo(() => {
     return rawProfiles.map((p: any, idx: number) => {
-      const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
       const stats = dbStats.specialistVisitsMap[p.id] || { visits: 0, odoDistance: 0, gpsDistance: 0, distance: 0, expenses: 0 };
 
       return {
@@ -267,13 +266,13 @@ export default function ReportsAnalytics() {
         avatar: p.avatar_url,
         initials: p.full_name?.slice(0, 2) || 'MK',
         department: p.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-        territory: staffObj?.territory || 'Bangkok Central (B2B)',
+        territory: p.territory || 'Bangkok Central (B2B)',
         visits: stats.visits,
         distanceKm: stats.distance,
         odoDistanceKm: stats.odoDistance,
         gpsDistanceKm: stats.gpsDistance,
         onTime: stats.visits > 0 ? 100 : 0,
-        rating: staffObj?.rating ? Number(staffObj.rating) : 5.0,
+        rating: 5.0,
         totalExpenses: stats.expenses,
       };
     });

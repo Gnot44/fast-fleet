@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -38,6 +38,7 @@ import { supabase } from '../lib/supabase';
 import { startLivePresenceTracking } from '../lib/presenceService';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
+import { useTripDraft } from '../lib/TripDraftContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
 
 function parsePhotos(photoField?: any): string[] {
@@ -81,6 +82,7 @@ function parsePhotos(photoField?: any): string[] {
 export default function DashboardScreen({ navigation }: any) {
   const { t, language } = useLanguage();
   const { colors, isDark } = useTheme();
+  const { activeTripDrops } = useTripDraft();
 
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
@@ -120,36 +122,51 @@ export default function DashboardScreen({ navigation }: any) {
     return () => backHandler.remove();
   }, [language, t]);
 
+  const hasCheckedPermissionsRef = useRef(false);
+  const hasLoadedProfileRef = useRef(false);
+  const isFetchingDashboardRef = useRef(false);
+  const lastDashboardFetchTimeRef = useRef<number>(0);
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchDashboardData();
+    await fetchDashboardData(true);
     setRefreshing(false);
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (forceRefreshProfile: boolean = false) => {
+    const now = Date.now();
+    if (isFetchingDashboardRef.current) return;
+    if (!forceRefreshProfile && now - lastDashboardFetchTimeRef.current < 2500) return;
+    lastDashboardFetchTimeRef.current = now;
+    isFetchingDashboardRef.current = true;
     try {
-      setLoadingData(true);
+      if (upcomingTrips.length === 0 && rejectedTrips.length === 0 && pendingActions.length === 0 && recentHistory.length === 0) {
+        setLoadingData(true);
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Fetch Profile
-      const { data: prof } = await (supabase
-        .from('profiles' as any) as any)
-        .select('*, staff(*)')
-        .eq('id', user.id)
-        .single();
+      // 1. Fetch Profile (only on mount or pull-to-refresh)
+      if (!hasLoadedProfileRef.current || forceRefreshProfile) {
+        const { data: prof } = await (supabase
+          .from('profiles' as any) as any)
+          .select('*, staff(*)')
+          .eq('id', user.id)
+          .single();
 
-      const fullName = prof?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด';
-      const initials = fullName
-        ? fullName.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
-        : 'MK';
+        const fullName = prof?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด';
+        const initials = fullName
+          ? fullName.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
+          : 'MK';
 
-      setProfile({
-        name: fullName,
-        role: prof?.position || (prof?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
-        initials,
-        avatar: prof?.avatar_url || null,
-      });
+        setProfile({
+          name: fullName,
+          role: prof?.position || (prof?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
+          initials,
+          avatar: prof?.avatar_url || null,
+        });
+        hasLoadedProfileRef.current = true;
+      }
 
       // 2. Fetch Real Trips for this Specialist
       const { data: tripsData } = await supabase
@@ -179,9 +196,39 @@ export default function DashboardScreen({ navigation }: any) {
           const sortedAppts = [...rawAppts].sort(
             (a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)
           );
-          const visitedCount = sortedAppts.filter((a: any) => !!a.confirmation_status).length;
-          const completedDataCount = sortedAppts.filter((a: any) => !!a.confirmation_status && (a.status === 'completed' || a.status === 'Completed')).length;
-          const totalCount = sortedAppts.length;
+
+          // Merge any active/in-progress drops from TripDraftContext for this trip if present
+          let allApptsForTrip = [...sortedAppts];
+          if (t.status === 'in_progress' && Array.isArray(activeTripDrops) && activeTripDrops.length > 0) {
+            const extraLocalDrops = activeTripDrops.filter(
+              (ad: any) =>
+                (!ad.tripId || ad.tripId === t.id || ad.trip_id === t.id) &&
+                !sortedAppts.some((sa: any) => sa.id === ad.id || sa.id === (ad as any).appointmentId)
+            );
+            if (extraLocalDrops.length > 0) {
+              extraLocalDrops.forEach((ad: any, extraIdx: number) => {
+                allApptsForTrip.push({
+                  id: ad.id,
+                  trip_id: t.id,
+                  sequence_order: sortedAppts.length + extraIdx + 1,
+                  company_name: ad.companyName || ad.name,
+                  customer_name: ad.customerName || ad.recipient || ad.name,
+                  recipient_name: ad.recipient || ad.customerName,
+                  recipient_phone: ad.phone || '',
+                  destination_address: ad.address || '',
+                  destination_lat: ad.latitude,
+                  destination_lng: ad.longitude,
+                  agenda: ad.items || ad.agenda || '',
+                  confirmation_status: !!ad.isConfirmed,
+                  status: ad.status || 'pending',
+                });
+              });
+            }
+          }
+
+          const visitedCount = allApptsForTrip.filter((a: any) => !!a.confirmation_status).length;
+          const completedDataCount = allApptsForTrip.filter((a: any) => !!a.confirmation_status && a.status?.toLowerCase() === 'completed').length;
+          const totalCount = allApptsForTrip.length;
           
           const isFullyVisited = totalCount > 0 && visitedCount === totalCount;
           const isFullyCompleted = totalCount > 0 && completedDataCount === totalCount;
@@ -240,7 +287,7 @@ export default function DashboardScreen({ navigation }: any) {
               latitude: 13.7563,
               longitude: 100.5018,
             },
-            drops: sortedAppts.map((a: any) => {
+            drops: allApptsForTrip.map((a: any) => {
               const apptExps = tripExpenses.filter((e: any) => e.appointment_id === a.id);
               const mappedExps = apptExps.map((e: any) => ({
                 id: e.id,
@@ -256,7 +303,7 @@ export default function DashboardScreen({ navigation }: any) {
               let apptNote = a.meeting_notes || '';
               let apptOdo = a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined;
               let apptAgenda = a.agenda || '';
-              let apptIsComplete = a.status === 'completed' || a.status === 'Completed';
+              let apptIsComplete = a.status?.toLowerCase() === 'completed';
 
               if (a.driver_notes && typeof a.driver_notes === 'string') {
                 try {
@@ -284,11 +331,23 @@ export default function DashboardScreen({ navigation }: any) {
                 } catch (e) {}
               }
 
+              const rawCust = (a.recipient_name || a.customer_name || '').trim();
+              const isDummyCust =
+                !rawCust ||
+                rawCust.toLowerCase() === 'client representative' ||
+                rawCust === 'ลูกค้านัดหมาย' ||
+                rawCust === 'จุดลูกค้า' ||
+                rawCust === 'client visit';
+              const cleanCust = isDummyCust ? '' : rawCust;
+              const displayName = cleanCust || a.destination_address || a.company_name || '';
+
               return {
                 id: a.id,
                 appointmentId: a.id,
-                name: a.company_name,
-                recipient: a.recipient_name || a.customer_name || '',
+                name: displayName,
+                recipient: cleanCust,
+                customerName: cleanCust,
+                companyName: a.company_name || '',
                 phone: a.recipient_phone || '',
                 items: apptAgenda,
                 agenda: apptAgenda,
@@ -296,8 +355,8 @@ export default function DashboardScreen({ navigation }: any) {
                 latitude: a.destination_lat || undefined,
                 longitude: a.destination_lng || undefined,
                 isConfirmed: !!a.confirmation_status,
-                isDataComplete: apptIsComplete,
-                status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
+                isDataComplete: apptIsComplete && a.status?.toLowerCase() !== 'incomplete',
+                status: a.status || (a.confirmation_status ? (apptIsComplete ? 'completed' : 'incomplete') : 'pending'),
                 meetingMinutes: apptNote,
                 note: apptNote,
                 photos: apptPhotos,
@@ -395,40 +454,44 @@ export default function DashboardScreen({ navigation }: any) {
       console.error('Error loading dashboard data:', err);
     } finally {
       setLoadingData(false);
+      isFetchingDashboardRef.current = false;
     }
   };
 
   useEffect(() => {
     const ensurePermissionsAndFetch = async () => {
-      try {
-        const fg = await Location.getForegroundPermissionsAsync();
-        let bgStatus = Location.PermissionStatus.UNDETERMINED;
-        if (Platform.OS === 'android') {
-          try {
-            const bg = await Location.getBackgroundPermissionsAsync();
-            bgStatus = bg.status;
-          } catch (e) {}
-        } else {
-          bgStatus = fg.status;
-        }
+      if (!hasCheckedPermissionsRef.current) {
+        try {
+          const fg = await Location.getForegroundPermissionsAsync();
+          let bgStatus = Location.PermissionStatus.UNDETERMINED;
+          if (Platform.OS === 'android') {
+            try {
+              const bg = await Location.getBackgroundPermissionsAsync();
+              bgStatus = bg.status;
+            } catch (e) {}
+          } else {
+            bgStatus = fg.status;
+          }
 
-        const isPermitted = Platform.OS === 'ios'
-          ? (fg.status === 'granted')
-          : (fg.status === 'granted' && bgStatus === 'granted');
+          const isPermitted = Platform.OS === 'ios'
+            ? (fg.status === 'granted')
+            : (fg.status === 'granted' && bgStatus === 'granted');
 
-        if (!isPermitted) {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'PrivacyConsent' }],
-          });
-          return;
+          if (!isPermitted) {
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'PrivacyConsent' }],
+            });
+            return;
+          }
+          hasCheckedPermissionsRef.current = true;
+        } catch (err) {
+          console.warn('Error checking permissions in Dashboard:', err);
         }
-      } catch (err) {
-        console.warn('Error checking permissions in Dashboard:', err);
       }
 
       startLivePresenceTracking();
-      fetchDashboardData();
+      await fetchDashboardData();
     };
 
     ensurePermissionsAndFetch();
@@ -437,6 +500,11 @@ export default function DashboardScreen({ navigation }: any) {
     });
     return unsubscribe;
   }, [navigation]);
+
+  // Immediately refresh dashboard when activeTripDrops changes
+  useEffect(() => {
+    fetchDashboardData();
+  }, [activeTripDrops.length]);
 
   const handleDeleteUpcoming = (id: string) => {
     Alert.alert(
@@ -538,26 +606,19 @@ export default function DashboardScreen({ navigation }: any) {
     }
 
     if (trip.status === 'In Progress') {
-      if (trip.isFullyVisited || trip.isFullyCompleted) {
-        navigation.navigate('TripSummary', {
-          tripId: trip.id,
-          tripCode: trip.tripCode,
-          tripTitle: trip.route,
-          drops: trip.drops,
-          startLocation: trip.startLocation,
-          startOdometer: trip.startOdometer,
-        });
-      } else {
-        navigation.navigate('ActiveTracker', {
-          tripId: trip.id,
-          tripCode: trip.tripCode,
-          tripTitle: trip.route,
-          dropsCount: trip.dropsCount,
-          drops: trip.drops,
-          startLocation: trip.startLocation,
-          startOdometer: trip.startOdometer,
-        });
-      }
+      navigation.navigate('ActiveTracker', {
+        tripId: trip.id,
+        tripCode: trip.tripCode,
+        tripTitle: trip.route,
+        dropsCount: trip.dropsCount,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        currentOdometer: trip.currentOdometer,
+        fromDashboard: true,
+        timestamp: Date.now(),
+      });
+      return;
     } else {
       navigation.navigate('RoutePreview', {
         tripId: trip.id,
@@ -973,19 +1034,41 @@ export default function DashboardScreen({ navigation }: any) {
                         {language === 'th' ? 'ดูรายละเอียด' : 'View Details'}
                       </Text>
                     </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={[
-                        styles.actionBtnPrimary,
-                        trip.status === 'In Progress' && trip.isFullyCompleted
-                          ? styles.actionBtnPrimaryGreen
-                          : trip.status === 'In Progress' && trip.isFullyVisited
-                          ? styles.actionBtnPrimaryAmber
-                          : styles.actionBtnPrimary,
-                      ]}
-                      onPress={() => {
-                        if (trip.status === 'In Progress') {
-                          if (trip.isFullyVisited || trip.isFullyCompleted) {
+                  ) : trip.status === 'In Progress' ? (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.actionBtnPrimary, { backgroundColor: '#1D4ED8' }]}
+                        onPress={() =>
+                          navigation.navigate('ActiveTracker', {
+                            tripId: trip.id,
+                            tripCode: trip.tripCode,
+                            tripTitle: trip.route,
+                            dropsCount: trip.dropsCount,
+                            drops: trip.drops,
+                            startLocation: trip.startLocation,
+                            startOdometer: trip.startOdometer,
+                            currentOdometer: trip.currentOdometer,
+                            fromDashboard: true,
+                            timestamp: Date.now(),
+                          })
+                        }
+                        activeOpacity={0.85}
+                      >
+                        <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
+                        <Text style={styles.actionBtnPrimaryText}>
+                          {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {(trip.isFullyVisited || trip.isFullyCompleted) && (
+                        <TouchableOpacity
+                          style={[
+                            styles.actionBtnPrimary,
+                            {
+                              backgroundColor: trip.isFullyCompleted ? '#16A34A' : '#D97706',
+                            },
+                          ]}
+                          onPress={() =>
                             navigation.navigate('TripSummary', {
                               tripId: trip.id,
                               tripCode: trip.tripCode,
@@ -993,62 +1076,36 @@ export default function DashboardScreen({ navigation }: any) {
                               drops: trip.drops,
                               startLocation: trip.startLocation,
                               startOdometer: trip.startOdometer,
-                            });
-                          } else {
-                            navigation.navigate('ActiveTracker', {
-                              tripId: trip.id,
-                              tripCode: trip.tripCode,
-                              tripTitle: trip.route,
-                              dropsCount: trip.dropsCount,
-                              drops: trip.drops,
-                              startLocation: trip.startLocation,
-                              startOdometer: trip.startOdometer,
-                            });
+                            })
                           }
-                        } else {
-                          navigation.navigate('RoutePreview', {
-                            tripId: trip.id,
-                            tripCode: trip.tripCode,
-                            tripTitle: trip.route,
-                            scheduledDate: trip.date,
-                            rawDate: trip.rawDate,
-                            drops: trip.drops,
-                            startLocation: trip.startLocation,
-                            startOdometer: trip.startOdometer,
-                          });
-                        }
-                      }}
+                          activeOpacity={0.85}
+                        >
+                          {trip.isFullyCompleted ? (
+                            <>
+                              <Send size={14} color="#FFFFFF" />
+                              <Text style={styles.actionBtnPrimaryText}>
+                                {language === 'th' ? 'ส่งสรุปผล' : 'Submit'}
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <FileText size={14} color="#FFFFFF" />
+                              <Text style={styles.actionBtnPrimaryText}>
+                                {language === 'th' ? 'สรุปผล' : 'Summary'}
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.actionBtnPrimary}
+                      onPress={() => handleTripCardPress(trip)}
                       activeOpacity={0.85}
                     >
-                      {trip.status === 'In Progress' ? (
-                        trip.isFullyCompleted ? (
-                          <>
-                            <Send size={14} color="#FFFFFF" />
-                            <Text style={styles.actionBtnPrimaryText}>
-                              {language === 'th' ? 'ตรวจทาน & ส่งสรุปผล' : 'Review & Submit'}
-                            </Text>
-                          </>
-                        ) : trip.isFullyVisited ? (
-                          <>
-                            <FileText size={14} color="#FFFFFF" />
-                            <Text style={styles.actionBtnPrimaryText}>
-                              {language === 'th' ? 'แก้ไขแบบร่างสรุปผล' : 'Edit Summary Draft'}
-                            </Text>
-                          </>
-                        ) : (
-                          <>
-                            <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
-                            <Text style={styles.actionBtnPrimaryText}>
-                              {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
-                            </Text>
-                          </>
-                        )
-                      ) : (
-                        <>
-                          <Navigation size={14} color="#FFFFFF" />
-                          <Text style={styles.actionBtnPrimaryText}>{t('preview_title')}</Text>
-                        </>
-                      )}
+                      <Navigation size={14} color="#FFFFFF" />
+                      <Text style={styles.actionBtnPrimaryText}>{t('preview_title')}</Text>
                     </TouchableOpacity>
                   )}
 

@@ -20,6 +20,13 @@ import TripSummaryScreen from './src/screens/TripSummaryScreen';
 import TripScheduleScreen from './src/screens/TripScheduleScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 
+import { LogBox } from 'react-native';
+
+LogBox.ignoreLogs([
+  'Non-serializable values were found in the navigation state',
+  "Passing an object as the argument to 'navigate' is deprecated",
+]);
+
 const Stack = createNativeStackNavigator();
 
 export default function App() {

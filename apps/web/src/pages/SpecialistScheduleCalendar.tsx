@@ -138,12 +138,21 @@ export default function SpecialistScheduleCalendar() {
     async function loadData() {
       try {
         setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id;
+        const cachedRole = localStorage.getItem('fastfleet_user_role') || 'admin';
 
         // 1. Fetch Real Specialists
-        const { data: profs } = await supabase
+        let profQuery = supabase
           .from('profiles')
-          .select('id, full_name, nickname, avatar_url, department, position, staff(staff_id, territory, assigned_vehicle, vehicle_plate, vehicle_model)')
+          .select('id, full_name, nickname, avatar_url, department, position, employee_id, territory, assigned_vehicle, assigned_vehicle_plate, assigned_vehicle_model, vehicle_type')
           .eq('role', 'specialist');
+
+        if (cachedRole === 'specialist' && currentUserId) {
+          profQuery = profQuery.eq('id', currentUserId);
+        }
+
+        const { data: profs } = await profQuery;
 
         const colors = [
           'border-blue-500 bg-blue-50 text-blue-700',
@@ -155,40 +164,29 @@ export default function SpecialistScheduleCalendar() {
         let mappedSpecs: any[] = [];
         if (profs && profs.length > 0) {
           mappedSpecs = profs.map((p: any, idx: number) => {
-            const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
             return {
               id: p.id,
               name: p.full_name || 'kosit goonlaboot',
               nickname: p.nickname || p.full_name?.split(' ')[0] || 'kosit',
-              employeeId: staffObj?.staff_id || 'AITS10002772',
+              employeeId: p.employee_id || 'AITS10002772',
               department: p.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-              territory: staffObj?.territory || 'Bangkok Central (B2B)',
-              assignedVehicle: staffObj?.vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
+              territory: p.territory || 'Bangkok Central (B2B)',
+              assignedVehicle: p.assigned_vehicle_plate || p.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
               avatar: p.avatar_url,
               initials: p.full_name?.slice(0, 2).toUpperCase() || 'KG',
               colorBadge: colors[idx % colors.length],
             };
           });
           setSpecialists(mappedSpecs);
+          if (cachedRole === 'specialist' && currentUserId) {
+            setSelectedSpecialistId(currentUserId);
+          }
         } else {
-          setSpecialists([
-            {
-              id: 'spec-kosit',
-              name: 'kosit goonlaboot',
-              nickname: 'kosit',
-              employeeId: 'AITS10002772',
-              department: 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-              territory: 'Bangkok Central & Don Mueang',
-              assignedVehicle: 'Isuzu D-Max (1กข-4452)',
-              avatar: undefined,
-              initials: 'KG',
-              colorBadge: 'border-blue-500 bg-blue-50 text-blue-700',
-            },
-          ]);
+          setSpecialists([]);
         }
 
         // 2. Fetch Trips from Supabase with correct column total_distance_km
-        const { data: trips, error: tripsErr } = await supabase
+        let tripQuery = supabase
           .from('trips')
           .select(`
             id,
@@ -209,13 +207,12 @@ export default function SpecialistScheduleCalendar() {
               nickname,
               avatar_url,
               department,
-              staff (
-                staff_id,
-                territory,
-                assigned_vehicle,
-                vehicle_plate,
-                vehicle_model
-              )
+              employee_id,
+              territory,
+              assigned_vehicle,
+              assigned_vehicle_plate,
+              assigned_vehicle_model,
+              vehicle_type
             ),
             appointments (
               id,
@@ -243,10 +240,15 @@ export default function SpecialistScheduleCalendar() {
               amount,
               receipt_url,
               receipt_image_path,
-              notes
-            )
+              )
           `)
           .order('created_at', { ascending: false });
+
+        if (cachedRole === 'specialist' && currentUserId) {
+          tripQuery = tripQuery.eq('staff_id', currentUserId);
+        }
+
+        const { data: trips, error: tripsErr } = await tripQuery;
 
         if (tripsErr) {
           console.error('Error fetching calendar schedule:', tripsErr);
@@ -256,7 +258,6 @@ export default function SpecialistScheduleCalendar() {
           const mappedTrips: SpecialistTripSchedule[] = trips.map((t: any) => {
             const rawProf = t.profiles;
             const prof = (Array.isArray(rawProf) ? rawProf[0] : rawProf) || {};
-            const staffObj = Array.isArray(prof.staff) ? prof.staff[0] : prof.staff;
             const appts = (t.appointments || []).sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0));
             const exps = t.expenses || [];
 
@@ -273,7 +274,7 @@ export default function SpecialistScheduleCalendar() {
             const dateOnly = typeof rawDate === 'string' ? rawDate.split('T')[0] : '2026-08-24';
             const fullName = prof.full_name || 'kosit goonlaboot';
             const nick = prof.nickname || fullName.split(' ')[0] || 'kosit';
-            const empId = staffObj?.staff_id || 'AITS10002772';
+            const empId = prof.employee_id || 'AITS10002772';
 
             // 1. Resolve Trip Telemetry
             const odoMetrics = resolveTripOdoAndGpsMetrics({
@@ -352,8 +353,8 @@ export default function SpecialistScheduleCalendar() {
               specialistAvatar: prof.avatar_url,
               specialistInitials: fullName.slice(0, 2).toUpperCase(),
               department: prof.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-              territory: staffObj?.territory || 'Bangkok Central (B2B)',
-              assignedVehicle: staffObj?.vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
+              territory: prof.territory || 'Bangkok Central (B2B)',
+              assignedVehicle: prof.assigned_vehicle_plate || prof.assigned_vehicle || 'Isuzu D-Max (1กข-4452)',
               date: dateOnly,
               timeSlot: '09:00 AM',
               status: tripStat,
@@ -372,11 +373,12 @@ export default function SpecialistScheduleCalendar() {
 
           setAllTrips(mappedTrips);
         } else {
-          setAllTrips(getSampleTrips());
+          setAllTrips(cachedRole === 'specialist' ? [] : getSampleTrips());
         }
       } catch (err) {
         console.error('Error fetching calendar schedule:', err);
-        setAllTrips(getSampleTrips());
+        const cachedRole = localStorage.getItem('fastfleet_user_role') || 'admin';
+        setAllTrips(cachedRole === 'specialist' ? [] : getSampleTrips());
       } finally {
         setLoading(false);
       }
@@ -1318,7 +1320,9 @@ export default function SpecialistScheduleCalendar() {
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[18px]">badge</span>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              {language === 'th' ? 'เลือกมุมมองพนักงาน (Specialist Scope):' : 'Select Specialist Scope:'}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th' ? 'ข้อมูลตารางงานของคุณ (Your Schedule):' : 'Your Schedule Scope:')
+                : (language === 'th' ? 'เลือกมุมมองพนักงาน (Specialist Scope):' : 'Select Specialist Scope:')}
             </span>
           </div>
           <span className="text-[11px] text-slate-500 font-medium font-mono tnum">
@@ -1326,60 +1330,85 @@ export default function SpecialistScheduleCalendar() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
-          {/* 'All Specialists' Pill */}
-          <button
-            onClick={() => setSelectedSpecialistId('all')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2 shrink-0 border tactile-btn cursor-pointer ${
-              selectedSpecialistId === 'all'
-                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[16px]">groups</span>
-            <span>{language === 'th' ? `ภาพรวมทั้งทีม (${allTrips.length})` : `All Team (${allTrips.length})`}</span>
-          </button>
+        {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+          <div className="flex items-center gap-3 p-3 bg-blue-50/50 dark:bg-blue-950/30 rounded-2xl border border-blue-100 dark:border-blue-900/50">
+            {specialists[0]?.avatar ? (
+              <img src={specialists[0].avatar} alt={specialists[0].name} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                {specialists[0]?.initials || 'SP'}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
+                  {specialists[0]?.name || 'Specialist'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-full font-black">
+                  {language === 'th' ? 'พนักงานการตลาด' : 'Specialist'}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                {specialists[0]?.employeeId} • {specialists[0]?.department} • {specialists[0]?.assignedVehicle}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
+            {/* 'All Specialists' Pill */}
+            <button
+              onClick={() => setSelectedSpecialistId('all')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all flex items-center gap-2 shrink-0 border tactile-btn cursor-pointer ${
+                selectedSpecialistId === 'all'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">groups</span>
+              <span>{language === 'th' ? `ภาพรวมทั้งทีม (${allTrips.length})` : `All Team (${allTrips.length})`}</span>
+            </button>
 
-          {/* Individual Specialists */}
-          {specialists.map((spec) => {
-            const isSelected = selectedSpecialistId === spec.id;
-            const specTripsCount = allTrips.filter((t) => t.specialistId === spec.id).length;
-            const isCurrentUser = spec.name.toLowerCase().includes(currentUserName.toLowerCase());
+            {/* Individual Specialists */}
+            {specialists.map((spec) => {
+              const isSelected = selectedSpecialistId === spec.id;
+              const specTripsCount = allTrips.filter((t) => t.specialistId === spec.id).length;
+              const isCurrentUser = spec.name.toLowerCase().includes(currentUserName.toLowerCase());
 
-            return (
-              <button
-                key={spec.id}
-                onClick={() => setSelectedSpecialistId(spec.id)}
-                className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2.5 shrink-0 border tactile-btn cursor-pointer ${
-                  isSelected
-                    ? 'soft-tint-blue border-blue-500 ring-2 ring-blue-500/30 text-blue-900 dark:text-blue-200'
-                    : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700/50'
-                }`}
-              >
-                {spec.avatar ? (
-                  <img src={spec.avatar} alt={spec.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-extrabold text-[10px] flex items-center justify-center">
-                    {spec.initials}
+              return (
+                <button
+                  key={spec.id}
+                  onClick={() => setSelectedSpecialistId(spec.id)}
+                  className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2.5 shrink-0 border tactile-btn cursor-pointer ${
+                    isSelected
+                      ? 'soft-tint-blue border-blue-500 ring-2 ring-blue-500/30 text-blue-900 dark:text-blue-200'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                  }`}
+                >
+                  {spec.avatar ? (
+                    <img src={spec.avatar} alt={spec.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-extrabold text-[10px] flex items-center justify-center">
+                      {spec.initials}
+                    </div>
+                  )}
+                  <div className="text-left">
+                    <div className="truncate max-w-[150px] flex items-center gap-1">
+                      <span>{spec.name}</span>
+                      {isCurrentUser && (
+                        <span className="text-[9px] px-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-black">
+                          YOU
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono tnum">
+                      {spec.employeeId} • {specTripsCount} ทริป
+                    </div>
                   </div>
-                )}
-                <div className="text-left">
-                  <div className="truncate max-w-[150px] flex items-center gap-1">
-                    <span>{spec.name}</span>
-                    {isCurrentUser && (
-                      <span className="text-[9px] px-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-black">
-                        YOU
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono tnum">
-                    {spec.employeeId} • {specTripsCount} ทริป
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Date Range & Status Filter Bar */}

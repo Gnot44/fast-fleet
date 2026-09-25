@@ -92,6 +92,13 @@ export const translations = {
     add_location_placeholder: 'สถานที่ / ชั้น / อาคาร',
     add_search_placeholder: 'ค้นหาสถานที่...',
     add_live_gps: 'พิกัดสด',
+    pin_on_map: 'ปักหมุดบนแผนที่',
+    pin_fullscreen: 'เปิดแผนที่เต็มจอ',
+    pin_confirm_location: 'ยืนยันตำแหน่งนี้',
+    pin_move_hint: 'เลื่อนแผนที่เพื่อให้หมุดอยู่ตรงตำแหน่งที่ต้องการ',
+    pin_start_location: 'ปักหมุดจุดเริ่มต้น',
+    pin_client_location: 'ปักหมุดจุดเข้าพบลูกค้า',
+    plan_pin_add_stop: 'ปักหมุดเพิ่มลูกค้า',
 
     // Route Preview
     preview_title: 'เส้นทางเข้าพบ',
@@ -297,6 +304,13 @@ export const translations = {
     add_location_placeholder: 'Address / Floor / Building',
     add_search_placeholder: 'Search location...',
     add_live_gps: 'Live GPS',
+    pin_on_map: 'Pin on Map',
+    pin_fullscreen: 'Full Map',
+    pin_confirm_location: 'Confirm Location',
+    pin_move_hint: 'Move map to place pin on desired location',
+    pin_start_location: 'Pin Starting Location',
+    pin_client_location: 'Pin Client Location',
+    plan_pin_add_stop: 'Pin Client on Map',
 
     // Route Preview
     preview_title: 'Route Preview',

@@ -38,6 +38,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
+import { useTripDraft } from '../lib/TripDraftContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
 
 type ViewMode = 'month' | 'week' | 'day';
@@ -129,6 +130,7 @@ const WEEKDAY_NAMES_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 export default function TripScheduleScreen({ navigation }: any) {
   const { t, language } = useLanguage();
   const { colors, isDark } = useTheme();
+  const { activeTripDrops } = useTripDraft();
 
   // Current calendar view state
   const today = new Date();
@@ -166,11 +168,41 @@ export default function TripScheduleScreen({ navigation }: any) {
           const sortedAppts = [...rawAppts].sort(
             (a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)
           );
-          const visitedCount = sortedAppts.filter((a: any) => !!a.confirmation_status).length;
-          const completedDataCount = sortedAppts.filter(
+
+          // Merge any active/in-progress drops from TripDraftContext for this trip if present
+          let allApptsForTrip = [...sortedAppts];
+          if (t.status === 'in_progress' && Array.isArray(activeTripDrops) && activeTripDrops.length > 0) {
+            const extraLocalDrops = activeTripDrops.filter(
+              (ad: any) =>
+                (!ad.tripId || ad.tripId === t.id || ad.trip_id === t.id) &&
+                !sortedAppts.some((sa: any) => sa.id === ad.id || sa.id === (ad as any).appointmentId)
+            );
+            if (extraLocalDrops.length > 0) {
+              extraLocalDrops.forEach((ad: any, extraIdx: number) => {
+                allApptsForTrip.push({
+                  id: ad.id,
+                  trip_id: t.id,
+                  sequence_order: sortedAppts.length + extraIdx + 1,
+                  company_name: ad.companyName || ad.name,
+                  customer_name: ad.customerName || ad.recipient || ad.name,
+                  recipient_name: ad.recipient || ad.customerName,
+                  recipient_phone: ad.phone || '',
+                  destination_address: ad.address || '',
+                  destination_lat: ad.latitude,
+                  destination_lng: ad.longitude,
+                  agenda: ad.items || ad.agenda || '',
+                  confirmation_status: !!ad.isConfirmed,
+                  status: ad.status || 'pending',
+                });
+              });
+            }
+          }
+
+          const visitedCount = allApptsForTrip.filter((a: any) => !!a.confirmation_status).length;
+          const completedDataCount = allApptsForTrip.filter(
             (a: any) => !!a.confirmation_status && (a.status === 'completed' || a.status === 'Completed')
           ).length;
-          const totalCount = sortedAppts.length;
+          const totalCount = allApptsForTrip.length;
 
           const isFullyVisited = totalCount > 0 && visitedCount === totalCount;
           const isFullyCompleted = totalCount > 0 && completedDataCount === totalCount;
@@ -184,7 +216,7 @@ export default function TripScheduleScreen({ navigation }: any) {
           const isOverdue = isPastDate && !hasDraftOrProgress && t.status !== 'completed' && t.approval_status !== 'approved' && t.approval_status !== 'revision_requested';
           const approvalStatus = (t.approval_status as 'draft' | 'pending' | 'approved' | 'revision_requested') || 'draft';
 
-          const formattedDrops = sortedAppts.map((a: any) => {
+          const formattedDrops = allApptsForTrip.map((a: any) => {
             const apptExps = tripExpenses.filter((e: any) => e.appointment_id === a.id);
             const mappedExps = apptExps.map((e: any) => ({
               id: e.id,
@@ -228,11 +260,23 @@ export default function TripScheduleScreen({ navigation }: any) {
               } catch (e) {}
             }
 
+            const rawCust = (a.recipient_name || a.customer_name || '').trim();
+            const isDummyCust =
+              !rawCust ||
+              rawCust.toLowerCase() === 'client representative' ||
+              rawCust === 'ลูกค้านัดหมาย' ||
+              rawCust === 'จุดลูกค้า' ||
+              rawCust === 'client visit';
+            const cleanCust = isDummyCust ? '' : rawCust;
+            const displayName = cleanCust || a.destination_address || a.company_name || '';
+
             return {
               id: a.id,
               appointmentId: a.id,
-              name: a.company_name,
-              recipient: a.recipient_name || a.customer_name || '',
+              name: displayName,
+              recipient: cleanCust,
+              customerName: cleanCust,
+              companyName: a.company_name || '',
               phone: a.recipient_phone || '',
               items: apptAgenda,
               agenda: apptAgenda,
@@ -467,26 +511,17 @@ export default function TripScheduleScreen({ navigation }: any) {
         managerFeedback: trip.managerFeedback,
       });
     } else if (trip.status === 'In Progress') {
-      if (trip.isFullyVisited || trip.isFullyCompleted) {
-        navigation.navigate('TripSummary', {
-          tripId: trip.id,
-          tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
-          tripTitle: trip.title,
-          drops: trip.drops,
-          startLocation: trip.startLocation,
-          startOdometer: trip.startOdometer,
-        });
-      } else {
-        navigation.navigate('ActiveTracker', {
-          tripId: trip.id,
-          tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
-          tripTitle: trip.title,
-          selectedVehicle: trip.vehicle,
-          drops: trip.drops,
-          startLocation: trip.startLocation,
-          startOdometer: trip.startOdometer,
-        });
-      }
+      navigation.navigate('ActiveTracker', {
+        tripId: trip.id,
+        tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+        tripTitle: trip.title,
+        selectedVehicle: trip.vehicle,
+        drops: trip.drops,
+        startLocation: trip.startLocation,
+        startOdometer: trip.startOdometer,
+        fromDashboard: true,
+        timestamp: Date.now(),
+      });
     } else {
       navigation.navigate('RoutePreview', {
         tripId: trip.id,
@@ -609,9 +644,17 @@ export default function TripScheduleScreen({ navigation }: any) {
     return weekDays;
   };
 
+  const handleGoBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Dashboard');
+    }
+  };
+
   useEffect(() => {
     const onBackPress = () => {
-      navigation.navigate('Dashboard');
+      handleGoBack();
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
@@ -625,10 +668,10 @@ export default function TripScheduleScreen({ navigation }: any) {
         <View style={styles.headerLeft}>
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.surfaceSubtle }]}
-            onPress={() => navigation.navigate('Dashboard')}
+            onPress={handleGoBack}
             activeOpacity={0.8}
           >
-            <ArrowLeft size={18} color={colors.primary} />
+            <ArrowLeft size={20} color={colors.primary} />
           </TouchableOpacity>
           <View>
             <Text style={[styles.headerTitle, { color: colors.text }]}>{t('cal_title')}</Text>
@@ -1002,6 +1045,60 @@ export default function TripScheduleScreen({ navigation }: any) {
                         </View>
                       </View>
 
+                      {/* Revision Requested Feedback Callout Banner */}
+                      {trip.approvalStatus === 'revision_requested' && (
+                        <View style={{
+                          marginHorizontal: 12,
+                          marginTop: 8,
+                          marginBottom: 8,
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: '#FEF2F2',
+                          borderWidth: 1,
+                          borderColor: '#FECACA',
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <AlertTriangle size={14} color="#DC2626" />
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>
+                                {language === 'th'
+                                  ? `⚠️ ส่งกลับแก้ไข (รอบที่ ${trip.revisionCount || 1})`
+                                  : `⚠️ Revision Required (#${trip.revisionCount || 1})`}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => navigation.navigate('TripSummary', {
+                                tripId: trip.id,
+                                tripCode: trip.tripCode,
+                                tripTitle: trip.title,
+                                isRevision: true,
+                                revisionCount: trip.revisionCount,
+                                managerFeedback: trip.managerFeedback,
+                              })}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                backgroundColor: '#DC2626',
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                              }}
+                            >
+                              <Edit3 size={11} color="#FFFFFF" />
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>
+                                {language === 'th' ? 'แก้ไข & ส่งใหม่' : 'Edit & Resubmit'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                          {trip.managerFeedback && (
+                            <Text style={{ fontSize: 11, color: '#991B1B', fontStyle: 'italic', marginTop: 2 }}>
+                              "{trip.managerFeedback}"
+                            </Text>
+                          )}
+                        </View>
+                      )}
+
                       {/* Stops timeline */}
                       {trip.stops?.map((stop: any, sIdx: number) => (
                         <View key={sIdx} style={styles.timelineItemRow}>
@@ -1147,14 +1244,14 @@ export default function TripScheduleScreen({ navigation }: any) {
                             <>
                               <Send size={14} color="#FFFFFF" />
                               <Text style={styles.timelineActionBtnText}>
-                                {language === 'th' ? 'ส่งรายงานให้ Admin' : 'Submit to Admin'}
+                                {language === 'th' ? 'ตรวจทาน & ส่งสรุปผล' : 'Review & Submit'}
                               </Text>
                             </>
                           ) : trip.isFullyVisited ? (
                             <>
                               <FileText size={14} color="#FFFFFF" />
                               <Text style={styles.timelineActionBtnText}>
-                                {language === 'th' ? 'กรอกข้อมูลที่เหลือ' : 'Fill Missing Data'}
+                                {language === 'th' ? 'แก้ไขแบบร่างสรุปผล' : 'Edit Summary Draft'}
                               </Text>
                             </>
                           ) : (
@@ -1494,43 +1591,71 @@ export default function TripScheduleScreen({ navigation }: any) {
                             </Text>
                           </TouchableOpacity>
                         ) : trip.status === 'In Progress' ? (
-                          <TouchableOpacity
-                            style={[
-                              styles.actionBtnPrimary,
-                              {
-                                backgroundColor: trip.isFullyCompleted
-                                  ? '#16A34A'
-                                  : trip.isFullyVisited
-                                  ? '#D97706'
-                                  : '#1D4ED8',
-                              },
-                            ]}
-                            onPress={() => handleTripAction(trip)}
-                            activeOpacity={0.85}
-                          >
-                            {trip.isFullyCompleted ? (
-                              <>
-                                <Send size={14} color="#FFFFFF" />
-                                <Text style={styles.actionBtnPrimaryText}>
-                                  {language === 'th' ? 'ตรวจทาน & ส่งสรุปผล' : 'Review & Submit'}
-                                </Text>
-                              </>
-                            ) : trip.isFullyVisited ? (
-                              <>
-                                <FileText size={14} color="#FFFFFF" />
-                                <Text style={styles.actionBtnPrimaryText}>
-                                  {language === 'th' ? 'แก้ไขแบบร่างสรุปผล' : 'Edit Summary Draft'}
-                                </Text>
-                              </>
-                            ) : (
-                              <>
-                                <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
-                                <Text style={styles.actionBtnPrimaryText}>
-                                  {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
-                                </Text>
-                              </>
+                          <>
+                            <TouchableOpacity
+                              style={[
+                                styles.actionBtnPrimary,
+                                { backgroundColor: '#1D4ED8' },
+                              ]}
+                              onPress={() =>
+                                navigation.navigate('ActiveTracker', {
+                                  tripId: trip.id,
+                                  tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+                                  tripTitle: trip.title,
+                                  selectedVehicle: trip.vehicle,
+                                  drops: trip.drops,
+                                  startLocation: trip.startLocation,
+                                  startOdometer: trip.startOdometer,
+                                  fromDashboard: true,
+                                  timestamp: Date.now(),
+                                })
+                              }
+                              activeOpacity={0.85}
+                            >
+                              <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
+                              <Text style={styles.actionBtnPrimaryText}>
+                                {language === 'th' ? 'เข้าพบต่อ' : 'Continue Visits'}
+                              </Text>
+                            </TouchableOpacity>
+
+                            {(trip.isFullyVisited || trip.isFullyCompleted) && (
+                              <TouchableOpacity
+                                style={[
+                                  styles.actionBtnPrimary,
+                                  {
+                                    backgroundColor: trip.isFullyCompleted ? '#16A34A' : '#D97706',
+                                  },
+                                ]}
+                                onPress={() =>
+                                  navigation.navigate('TripSummary', {
+                                    tripId: trip.id,
+                                    tripCode: trip.tripCode || `TRP-${trip.id.slice(0, 6).toUpperCase()}`,
+                                    tripTitle: trip.title,
+                                    drops: trip.drops,
+                                    startLocation: trip.startLocation,
+                                    startOdometer: trip.startOdometer,
+                                  })
+                                }
+                                activeOpacity={0.85}
+                              >
+                                {trip.isFullyCompleted ? (
+                                  <>
+                                    <Send size={14} color="#FFFFFF" />
+                                    <Text style={styles.actionBtnPrimaryText}>
+                                      {language === 'th' ? 'ส่งสรุปผล' : 'Submit'}
+                                    </Text>
+                                  </>
+                                ) : (
+                                  <>
+                                    <FileText size={14} color="#FFFFFF" />
+                                    <Text style={styles.actionBtnPrimaryText}>
+                                      {language === 'th' ? 'สรุปผล' : 'Summary'}
+                                    </Text>
+                                  </>
+                                )}
+                              </TouchableOpacity>
                             )}
-                          </TouchableOpacity>
+                          </>
                         ) : (
                           <TouchableOpacity
                             style={[styles.actionBtnPrimary, { backgroundColor: '#1D4ED8' }]}
@@ -1594,9 +1719,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',

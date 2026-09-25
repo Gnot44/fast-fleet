@@ -34,7 +34,7 @@ export default function SystemSettings() {
       setActiveTab(tabParam);
       localStorage.setItem('fastfleet_settings_active_tab', tabParam);
     }
-  }, [tabParam]);
+  }, [tabParam, activeTab]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -125,23 +125,39 @@ export default function SystemSettings() {
         setSettingsId(data.id);
         if (data.company_name) setCompanyName(data.company_name);
         if (data.timezone) setTimezone(data.timezone);
-        if (data.operating_hours) setOperatingHours(data.operating_hours);
-        if (data.notifications_config) setNotifications(data.notifications_config);
-        if (data.gps_config) {
-          setGpsSettings({
-            mbSpeedMoving: Number(data.gps_config.mbSpeedMoving) || 4.0,
-            mbDistMoving: Number(data.gps_config.mbDistMoving) || 10.0,
-            mbSpeedStatic: Number(data.gps_config.mbSpeedStatic) || 1.5,
-            mbStaticRadius: Number(data.gps_config.mbStaticRadius) || 15.0,
-            dropIgnoreData: data.gps_config.dropIgnoreData ?? true,
+        if (data.operating_hours && typeof data.operating_hours === 'object' && !Array.isArray(data.operating_hours)) {
+          const oph = data.operating_hours as Record<string, any>;
+          setOperatingHours({
+            start: oph.start || '08:00',
+            end: oph.end || '19:00',
           });
         }
-        if (data.approval_rules) {
+        if (data.notifications_config && typeof data.notifications_config === 'object' && !Array.isArray(data.notifications_config)) {
+          const notif = data.notifications_config as Record<string, any>;
+          setNotifications({
+            tripSubmitted: notif.tripSubmitted ?? true,
+            tripRevision: notif.tripRevision ?? true,
+            dropCheckin: notif.dropCheckin ?? true,
+            lowBattery: notif.lowBattery ?? true,
+          });
+        }
+        if (data.gps_config && typeof data.gps_config === 'object' && !Array.isArray(data.gps_config)) {
+          const gps = data.gps_config as Record<string, any>;
+          setGpsSettings({
+            mbSpeedMoving: Number(gps.mbSpeedMoving) || 4.0,
+            mbDistMoving: Number(gps.mbDistMoving) || 10.0,
+            mbSpeedStatic: Number(gps.mbSpeedStatic) || 1.5,
+            mbStaticRadius: Number(gps.mbStaticRadius) || 15.0,
+            dropIgnoreData: gps.dropIgnoreData ?? true,
+          });
+        }
+        if (data.approval_rules && typeof data.approval_rules === 'object' && !Array.isArray(data.approval_rules)) {
+          const rules = data.approval_rules as Record<string, any>;
           setApprovalRules({
-            requireAllDropsConfirmed: data.approval_rules.requireAllDropsConfirmed ?? true,
-            requireReceiptSlips: data.approval_rules.requireReceiptSlips ?? true,
-            maxExpensePerTrip: Number(data.approval_rules.maxExpensePerTrip) || 3000,
-            requireStartOdometer: data.approval_rules.requireStartOdometer ?? true,
+            requireAllDropsConfirmed: rules.requireAllDropsConfirmed ?? true,
+            requireReceiptSlips: rules.requireReceiptSlips ?? true,
+            maxExpensePerTrip: Number(rules.maxExpensePerTrip) || 3000,
+            requireStartOdometer: rules.requireStartOdometer ?? true,
           });
         }
         if (data.api_key) setApiKey(data.api_key);
@@ -169,10 +185,37 @@ export default function SystemSettings() {
             if (row.id) setSettingsId(row.id);
             if (row.company_name) setCompanyName(row.company_name);
             if (row.timezone) setTimezone(row.timezone);
-            if (row.operating_hours) setOperatingHours(row.operating_hours);
-            if (row.notifications_config) setNotifications(row.notifications_config);
-            if (row.gps_config) setGpsSettings(row.gps_config);
-            if (row.approval_rules) setApprovalRules(row.approval_rules);
+            if (row.operating_hours && typeof row.operating_hours === 'object') {
+              setOperatingHours({
+                start: row.operating_hours.start || '08:00',
+                end: row.operating_hours.end || '19:00',
+              });
+            }
+            if (row.notifications_config && typeof row.notifications_config === 'object') {
+              setNotifications({
+                tripSubmitted: row.notifications_config.tripSubmitted ?? true,
+                tripRevision: row.notifications_config.tripRevision ?? true,
+                dropCheckin: row.notifications_config.dropCheckin ?? true,
+                lowBattery: row.notifications_config.lowBattery ?? true,
+              });
+            }
+            if (row.gps_config && typeof row.gps_config === 'object') {
+              setGpsSettings({
+                mbSpeedMoving: Number(row.gps_config.mbSpeedMoving) || 4.0,
+                mbDistMoving: Number(row.gps_config.mbDistMoving) || 10.0,
+                mbSpeedStatic: Number(row.gps_config.mbSpeedStatic) || 1.5,
+                mbStaticRadius: Number(row.gps_config.mbStaticRadius) || 15.0,
+                dropIgnoreData: row.gps_config.dropIgnoreData ?? true,
+              });
+            }
+            if (row.approval_rules && typeof row.approval_rules === 'object') {
+              setApprovalRules({
+                requireAllDropsConfirmed: row.approval_rules.requireAllDropsConfirmed ?? true,
+                requireReceiptSlips: row.approval_rules.requireReceiptSlips ?? true,
+                maxExpensePerTrip: Number(row.approval_rules.maxExpensePerTrip) || 3000,
+                requireStartOdometer: row.approval_rules.requireStartOdometer ?? true,
+              });
+            }
             if (row.api_key) setApiKey(row.api_key);
             if (row.updated_at) setLastSavedAt(new Date(row.updated_at));
           }

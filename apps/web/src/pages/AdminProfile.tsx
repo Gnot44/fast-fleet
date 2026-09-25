@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useTheme } from '../context/ThemeContext';
+import { supabase } from '../lib/supabase';
 
 export default function AdminProfile() {
   const navigate = useNavigate();
@@ -30,6 +31,46 @@ export default function AdminProfile() {
     avatarUrl: '',
   });
 
+  useEffect(() => {
+    async function loadUserProfile() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (prof) {
+          const role = prof.role === 'specialist' ? 'specialist' : 'admin';
+          setFormData((prev) => ({
+            ...prev,
+            fullName: prof.full_name || prev.fullName,
+            nickname: prof.nickname || prev.nickname,
+            employeeId: prof.employee_id || (role === 'specialist' ? 'AITS10002772' : 'ADM-MKT-01'),
+            email: prof.email || session.user.email || prev.email,
+            phone: prof.phone || prev.phone,
+            department: prof.department || prev.department,
+            position: prof.position || (role === 'specialist' ? 'Field Marketing Specialist' : 'Lead Operations Administrator'),
+            role: role,
+            roleTitle: role === 'specialist' 
+              ? (language === 'th' ? 'พนักงานการตลาดภาคสนาม (Marketing Specialist)' : 'Field Marketing Specialist')
+              : (language === 'th' ? 'ผู้ดูแลระบบสูงสุด (Marketing Operations Lead)' : 'Lead Operations Administrator'),
+            location: language === 'th' ? 'อาคารสำนักงานใหญ่ พระราม 9' : 'Headquarters Tower, Rama 9',
+            territory: prof.territory || prev.territory,
+            vehiclePlate: prof.assigned_vehicle_plate || prof.assigned_vehicle || prev.vehiclePlate,
+            vehicleModel: prof.assigned_vehicle_model || prev.vehicleModel,
+            avatarUrl: prof.avatar_url || '',
+          }));
+        }
+      } catch (err) {
+        console.error('Error loading user profile:', err);
+      }
+    }
+    loadUserProfile();
+  }, [language]);
+
   const isLoading = false;
   const initials = formData.nickname ? formData.nickname.slice(0, 2).toUpperCase() : 'AD';
 
@@ -46,9 +87,21 @@ export default function AdminProfile() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    showToast(t('profile_pwd_updated_toast'));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await supabase.from('profiles').update({
+          full_name: formData.fullName,
+          nickname: formData.nickname,
+          phone: formData.phone,
+        }).eq('id', session.user.id);
+      }
+      showToast(language === 'th' ? 'บันทึกข้อมูลส่วนตัวเรียบร้อยแล้ว' : 'Profile updated successfully');
+    } catch (err) {
+      showToast('Error saving profile');
+    }
   };
 
   const handleUpdatePassword = (e: React.FormEvent) => {

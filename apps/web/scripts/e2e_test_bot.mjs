@@ -200,7 +200,7 @@ async function testBotModule2_TripPlanning(staffUserId) {
 // ==============================================================================
 // BOT MODULE 3: GPS Telemetry & Anti-Drift Engine Simulator
 // ==============================================================================
-async function testBotModule3_GpsAntiDrift(staffUserId, tripId) {
+async function testBotModule3_GpsAntiDrift(staffUserId, _tripId) {
   console.log(`\n${colors.bright}${colors.cyan}══════════════════════════════════════════════════════════════${colors.reset}`);
   console.log(`${colors.bright}${colors.cyan}🤖 BOT MODULE 3: GPS Telemetry & Anti-Drift Engine Simulator${colors.reset}`);
   console.log(`${colors.bright}${colors.cyan}══════════════════════════════════════════════════════════════${colors.reset}`);
@@ -379,7 +379,7 @@ async function testBotModule5_RevisionAndApproval(staffUserId, tripId) {
 // ==============================================================================
 // BOT MODULE 6: Reports & KPI Analytics Engine Validation
 // ==============================================================================
-async function testBotModule6_ReportsAnalytics(staffUserId) {
+async function testBotModule6_ReportsAnalytics(_staffUserId) {
   console.log(`\n${colors.bright}${colors.cyan}══════════════════════════════════════════════════════════════${colors.reset}`);
   console.log(`${colors.bright}${colors.cyan}🤖 BOT MODULE 6: Reports & KPI Analytics Engine Validation${colors.reset}`);
   console.log(`${colors.bright}${colors.cyan}══════════════════════════════════════════════════════════════${colors.reset}`);

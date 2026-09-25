@@ -16,7 +16,8 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { GOOGLE_MAPS_TILE_URL } from '../lib/mapConfig';
 import {
   ArrowLeft,
   MoveUp,
@@ -33,7 +34,6 @@ import {
   Search,
   X,
   Crosshair,
-  Building,
   RotateCw,
   CheckCircle2,
 } from 'lucide-react-native';
@@ -51,6 +51,73 @@ import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { useTripDraft, StopItem } from '../lib/TripDraftContext';
 
+// Helper to accurately identify completed / visited drops strictly based on drop record data
+export const isDropCompleted = (drop: any) => {
+  if (!drop) return false;
+  return (
+    !!drop.isConfirmed ||
+    drop.status === 'completed' ||
+    drop.status === 'Completed' ||
+    !!drop.isVisited
+  );
+};
+
+// Helper to ensure completed drops stay locked in historical sequence at the top
+export const sanitizeDropsOrder = (rawList: StopItem[]): StopItem[] => {
+  if (!Array.isArray(rawList) || rawList.length === 0) return [];
+  const completed = rawList.filter((d) => isDropCompleted(d));
+  const uncompleted = rawList.filter((d) => !isDropCompleted(d));
+  return [...completed, ...uncompleted];
+};
+
+// Generate valid v4 UUID for newly added drops
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Helper to resolve drop title and subtitle according to user preference:
+// 1. If customer name was provided, show customer name as title and address as subtitle
+// 2. If customer name was not provided, show address as title (and do not repeat address in subtitle)
+export const getDropDisplayInfo = (drop: any, language: string = 'th') => {
+  const rawCustomer = (
+    drop?.recipient ||
+    drop?.customerName ||
+    drop?.customer_name ||
+    drop?.recipient_name ||
+    ''
+  ).trim();
+
+  const isDummyCustomer =
+    !rawCustomer ||
+    rawCustomer.toLowerCase() === 'client representative' ||
+    rawCustomer === 'ลูกค้านัดหมาย' ||
+    rawCustomer === 'จุดลูกค้า' ||
+    rawCustomer === 'Client Visit' ||
+    rawCustomer.toLowerCase() === 'client stop';
+
+  const hasCustomerName = !isDummyCustomer;
+  const rawAddress = (drop?.address || drop?.destination_address || '').trim();
+  const rawFallback = (drop?.name || '').trim();
+
+  const title = hasCustomerName
+    ? rawCustomer
+    : (rawAddress || rawFallback || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop'));
+
+  // If title is customer name, subtitle should be the address.
+  // If title is already the address, subtitle should NOT duplicate the address.
+  const subtitle = hasCustomerName ? rawAddress : '';
+
+  return {
+    title,
+    subtitle,
+    hasCustomerName,
+  };
+};
+
 export default function EditTripItineraryScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
@@ -58,23 +125,37 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   const currentDropIndex = typeof params.currentDropIndex === 'number' ? params.currentDropIndex : 0;
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
 
+  const tripIdRef = useRef<string | null>(params.tripId || null);
+  useEffect(() => {
+    if (params.tripId) {
+      tripIdRef.current = params.tripId;
+    }
+  }, [params.tripId]);
+
   const {
     activeTripDrops,
     setActiveTripDrops,
-    addActiveTripDrop,
-    updateActiveTripDrop,
-    removeActiveTripDrop,
   } = useTripDraft();
 
-  const drops = activeTripDrops;
-  const setDrops = setActiveTripDrops;
+  const deletedDropIdsRef = useRef<string[]>([]);
+
+  // Local draft state for staging edits until 'Apply' is tapped
+  const [drops, setDrops] = useState<StopItem[]>(() => {
+    if (Array.isArray(params.drops) && params.drops.length > 0) {
+      return sanitizeDropsOrder(params.drops);
+    }
+    if (activeTripDrops.length > 0) {
+      return sanitizeDropsOrder(activeTripDrops);
+    }
+    return [];
+  });
 
   const [optimizing, setOptimizing] = useState(false);
 
   // AI Re-Optimize Modal State
   const [showOptimizeModal, setShowOptimizeModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [originType, setOriginType] = useState<'currentGps' | 'manualPin' | 'originalStart'>('currentGps');
+  const [originType, setOriginType] = useState<'currentGps' | 'manualPin'>('currentGps');
   
   // Live GPS State
   const [currentGpsLocation, setCurrentGpsLocation] = useState<{
@@ -99,12 +180,50 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   const mapRef = useRef<MapView | null>(null);
   const searchTimeoutRef = useRef<any>(null);
   const isSelectingRef = useRef<boolean>(false);
+  const manualGeocodeTimerRef = useRef<any>(null);
+  const [modalScrollEnabled, setModalScrollEnabled] = useState(true);
 
-  // Initialize or Fallback load drops on mount
+  // Sync on mount
   useEffect(() => {
-    if (Array.isArray(params.drops) && params.drops.length > 0 && activeTripDrops.length === 0) {
-      setActiveTripDrops(params.drops);
-    } else if (activeTripDrops.length === 0 && params.tripId) {
+    if (Array.isArray(params.drops) && params.drops.length > 0) {
+      const sanitized = sanitizeDropsOrder(params.drops);
+      setDrops(sanitized);
+    }
+  }, []);
+
+  // Handle added or updated drop returned from AddNewDrop
+  const lastProcessedTimeRef = useRef<number>(0);
+  useEffect(() => {
+    const timestamp = route.params?.timestamp || 0;
+    if (Array.isArray(route.params?.drops) && route.params.drops.length > 0 && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const sanitized = sanitizeDropsOrder(route.params.drops);
+      setDrops(sanitized);
+      return;
+    }
+    if (route.params?.addedDrop && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const newDrop = route.params.addedDrop;
+      setDrops((prev) => {
+        const existingIdx = prev.findIndex((d) => d.id === newDrop.id);
+        if (existingIdx !== -1) {
+          return prev.map((d, i) => (i === existingIdx ? { ...d, ...newDrop } : d));
+        }
+        return [...prev, newDrop];
+      });
+    }
+    if (route.params?.updatedDrop && typeof route.params?.editIndex === 'number' && timestamp > lastProcessedTimeRef.current) {
+      lastProcessedTimeRef.current = timestamp;
+      const { updatedDrop, editIndex } = route.params;
+      setDrops((prev) => {
+        return prev.map((d, i) => (i === editIndex ? { ...d, ...updatedDrop } : d));
+      });
+    }
+  }, [route.params?.drops, route.params?.addedDrop, route.params?.updatedDrop, route.params?.editIndex, route.params?.timestamp]);
+
+  // Fallback load drops on mount if empty
+  useEffect(() => {
+    if (drops.length === 0 && params.tripId) {
       async function loadDbAppointments() {
         try {
           const { data: appts } = await supabase
@@ -114,19 +233,33 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
             .order('sequence_order', { ascending: true });
 
           if (appts && appts.length > 0) {
-            const mapped: StopItem[] = appts.map((a: any) => ({
-              id: a.id,
-              appointmentId: a.id,
-              name: a.company_name,
-              recipient: a.recipient_name || a.customer_name || '',
-              phone: a.recipient_phone || '',
-              items: a.agenda || '',
-              address: a.destination_address || '',
-              latitude: a.destination_lat || undefined,
-              longitude: a.destination_lng || undefined,
-              isConfirmed: !!a.confirmation_status || a.status === 'completed',
-            }));
-            setActiveTripDrops(mapped);
+            const mapped: StopItem[] = appts.map((a: any) => {
+              const rawCust = (a.recipient_name || a.customer_name || '').trim();
+              const isDummy =
+                !rawCust ||
+                rawCust.toLowerCase() === 'client representative' ||
+                rawCust === 'ลูกค้านัดหมาย' ||
+                rawCust === 'จุดลูกค้า' ||
+                rawCust === 'Client Visit';
+              const cleanRecipient = isDummy ? '' : rawCust;
+              const displayName = cleanRecipient || a.destination_address || a.company_name || '';
+
+              return {
+                id: a.id,
+                appointmentId: a.id,
+                name: displayName,
+                recipient: cleanRecipient,
+                customerName: cleanRecipient,
+                companyName: a.company_name || '',
+                phone: a.recipient_phone || '',
+                items: a.agenda || '',
+                address: a.destination_address || '',
+                latitude: a.destination_lat || undefined,
+                longitude: a.destination_lng || undefined,
+                isConfirmed: !!a.confirmation_status || a.status === 'completed',
+              };
+            });
+            setDrops(mapped);
           }
         } catch (e) {
           console.warn('Error loading fallback appointments:', e);
@@ -136,12 +269,16 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
     }
   }, [params.tripId]);
 
-  // Manual Reordering
+  // Manual Reordering (Only allowed for uncompleted stops among themselves)
   const handleMoveUp = (index: number) => {
     if (index <= 0) return;
-    const prevItem = drops[index - 1];
-    if (prevItem?.isConfirmed || drops[index]?.isConfirmed) {
-      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายสลับกับจุดที่ปิดงานเรียบร้อยแล้วได้');
+    if (isDropCompleted(drops[index]) || isDropCompleted(drops[index - 1])) {
+      Alert.alert(
+        language === 'th' ? 'ไม่สามารถสลับจุดที่เสร็จสิ้นแล้ว' : 'Cannot Reorder Visited Stops',
+        language === 'th'
+          ? 'จุดที่เข้าพบเสร็จสิ้นแล้วจะถูกล็อคตามประวัติจริง ไม่สามารถย้ายหรือสลับตำแหน่งได้'
+          : 'Visited stops are locked to preserve actual trip history.'
+      );
       return;
     }
     const newDrops = [...drops];
@@ -152,13 +289,14 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
   };
 
   const handleMoveDown = (index: number) => {
-    if (index >= drops.length - 1 || drops[index]?.isConfirmed) {
-      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายจุดที่ปิดงานแล้วได้');
-      return;
-    }
-    const nextItem = drops[index + 1];
-    if (nextItem?.isConfirmed) {
-      Alert.alert('ไม่สามารถย้ายได้', 'ไม่สามารถย้ายสลับกับจุดที่ปิดงานเรียบร้อยแล้วได้');
+    if (index >= drops.length - 1) return;
+    if (isDropCompleted(drops[index]) || isDropCompleted(drops[index + 1])) {
+      Alert.alert(
+        language === 'th' ? 'ไม่สามารถสลับจุดที่เสร็จสิ้นแล้ว' : 'Cannot Reorder Visited Stops',
+        language === 'th'
+          ? 'จุดที่เข้าพบเสร็จสิ้นแล้วจะถูกล็อคตามประวัติจริง ไม่สามารถย้ายหรือสลับตำแหน่งได้'
+          : 'Visited stops are locked to preserve actual trip history.'
+      );
       return;
     }
     const newDrops = [...drops];
@@ -173,6 +311,12 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
     navigation.navigate('AddNewDrop', {
       returnScreen: 'EditTripItinerary',
       isEditing: false,
+      drop: null,
+      editIndex: null,
+      tripId: tripIdRef.current || params.tripId,
+      currentDrops: drops,
+      currentCount: drops.length,
+      timestamp: Date.now(),
     });
   };
 
@@ -183,26 +327,38 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
       isEditing: true,
       editIndex: index,
       returnScreen: 'EditTripItinerary',
+      tripId: tripIdRef.current || params.tripId,
+      currentDrops: drops,
+      currentCount: drops.length,
+      timestamp: Date.now(),
     });
   };
 
-  // Remove / Skip Stop
+  // Remove / Skip Stop — persists to context + database immediately
   const handleRemove = (index: number) => {
-    if (index < currentDropIndex) {
-      Alert.alert('ไม่สามารถลบได้', 'ลูกค้ารายนี้ได้รับการเข้าพบและบันทึกผลเรียบร้อยแล้ว');
-      return;
-    }
-
-    Alert.alert('ยกเลิก / ข้ามการเข้าพบลูกค้ารายนี้', `คุณต้องการลบ "${drops[index]?.name}" ออกจากแผนใช่หรือไม่?`, [
-      { text: 'ยกเลิก', style: 'cancel' },
-      {
-        text: 'ลบลูกค้านัดหมาย',
-        style: 'destructive',
-        onPress: () => {
-          setDrops(drops.filter((_, i) => i !== index));
+    const dropToRemove = drops[index];
+    const { title: dropName } = getDropDisplayInfo(dropToRemove, language);
+    Alert.alert(
+      language === 'th' ? 'ยกเลิก / ลบลูกค้านัดหมาย' : 'Remove Client Visit',
+      language === 'th'
+        ? `คุณต้องการลบ "${dropName}" ออกจากแผนใช่หรือไม่?`
+        : `Do you want to remove "${dropName}" from the plan?`,
+      [
+        { text: language === 'th' ? 'ยกเลิก' : 'Cancel', style: 'cancel' },
+        {
+          text: language === 'th' ? 'ลบลูกค้านัดหมาย' : 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const dropId = dropToRemove?.id || (dropToRemove as any)?.appointmentId;
+            if (dropId && !String(dropId).startsWith('drop_')) {
+              deletedDropIdsRef.current.push(dropId);
+            }
+            const updatedDrops = drops.filter((_, i) => i !== index);
+            setDrops(updatedDrops);
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   // Fetch Live GPS
@@ -233,7 +389,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
   // Open Re-Optimize Modal
   const handleOpenReOptimize = () => {
-    const uncompleted = drops.filter((d) => !d.isConfirmed);
+    const uncompleted = drops.filter((d) => !isDropCompleted(d));
 
     if (uncompleted.length <= 1) {
       Alert.alert(
@@ -322,25 +478,61 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
     }
   };
 
-  // Manual Pin: Tap on Map
+  // Manual Pin: Tap on Map (re-center map smoothly to tapped coordinate)
   const handleMapPress = async (e: any) => {
     Keyboard.dismiss();
     setPredictions([]);
-    const coord = e.nativeEvent.coordinate;
+    const coord = e.nativeEvent?.coordinate;
+    if (!coord) return;
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: coord.latitude,
+        longitude: coord.longitude,
+        latitudeDelta: 0.008,
+        longitudeDelta: 0.008,
+      },
+      300
+    );
+
     setManualPinLocation((prev) => ({
       ...prev,
       latitude: coord.latitude,
       longitude: coord.longitude,
-      address: 'กำลังระบุที่อยู่...',
+      address: language === 'th' ? 'กำลังระบุที่อยู่...' : 'Resolving address...',
     }));
 
-    const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
-    setManualPinLocation({
-      latitude: coord.latitude,
-      longitude: coord.longitude,
-      name: geocode.name,
-      address: geocode.address,
-    });
+    if (manualGeocodeTimerRef.current) clearTimeout(manualGeocodeTimerRef.current);
+    manualGeocodeTimerRef.current = setTimeout(async () => {
+      const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
+      setManualPinLocation({
+        latitude: coord.latitude,
+        longitude: coord.longitude,
+        name: geocode.name,
+        address: geocode.address,
+      });
+    }, 350);
+  };
+
+  // Manual Pin: Dragging/Panning Map Complete (sync center coordinate under pin)
+  const handleManualMapRegionChangeComplete = (region: any) => {
+    if (!region?.latitude || !region?.longitude) return;
+    setManualPinLocation((prev) => ({
+      ...prev,
+      latitude: region.latitude,
+      longitude: region.longitude,
+    }));
+
+    if (manualGeocodeTimerRef.current) clearTimeout(manualGeocodeTimerRef.current);
+    manualGeocodeTimerRef.current = setTimeout(async () => {
+      const geocode = await reverseGeocodeGoogle(region.latitude, region.longitude);
+      setManualPinLocation({
+        latitude: region.latitude,
+        longitude: region.longitude,
+        name: geocode.name,
+        address: geocode.address,
+      });
+    }, 400);
   };
 
   // Manual Pin: Snap to GPS
@@ -367,8 +559,8 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
   // Execute AI Re-Optimization
   const handleExecuteOptimization = async () => {
-    const completed = drops.filter((d) => !!d.isConfirmed);
-    const remaining = drops.filter((d) => !d.isConfirmed);
+    const completed = drops.filter((d) => isDropCompleted(d));
+    const remaining = drops.filter((d) => !isDropCompleted(d));
 
     if (remaining.length <= 1) {
       Alert.alert(
@@ -407,18 +599,12 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
         longitude: loc?.longitude || startLocation.longitude || 100.5018,
       };
       originLabel = loc?.name || (language === 'th' ? 'ตำแหน่ง GPS สดปัจจุบัน' : 'Current Live GPS');
-    } else if (originType === 'manualPin') {
+    } else {
       originCoord = {
         latitude: manualPinLocation.latitude,
         longitude: manualPinLocation.longitude,
       };
       originLabel = manualPinLocation.name || (language === 'th' ? 'จุดปักหมุด Manual' : 'Manual Pin');
-    } else {
-      originCoord = {
-        latitude: startLocation.latitude || 13.7563,
-        longitude: startLocation.longitude || 100.5018,
-      };
-      originLabel = startLocation.name || (language === 'th' ? 'จุดเริ่มต้นเดิมของทริป' : 'Trip Start Location');
     }
 
     setTimeout(() => {
@@ -430,137 +616,160 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
       setOptimizing(false);
       setShowOptimizeModal(false);
 
-      const firstClientName = reorderedRemaining[0]?.name || (language === 'th' ? 'จุดแรก' : '1st Stop');
+      const firstClientName = reorderedRemaining[0]
+        ? getDropDisplayInfo(reorderedRemaining[0], language).title
+        : (language === 'th' ? 'จุดแรก' : '1st Stop');
       Alert.alert(
         language === 'th' ? '✨ AI จัดลำดับใหม่สำเร็จ' : '✨ AI Optimization Completed',
         language === 'th'
-          ? `จัดลำดับลูกค้านัดหมายที่เหลือ ${remaining.length} รายการให้สั้นที่สุด โดยคำนวณเริ่มจาก:\n"${originLabel}"\n\nจุดแรกที่แนะนำ: ${firstClientName}`
-          : `Optimized sequence for ${remaining.length} remaining stops starting from:\n"${originLabel}"\n\nRecommended first stop: ${firstClientName}`
+          ? `จัดลำดับเฉพาะจุดที่ยังไม่เข้าพบ (${remaining.length} รายการ) ให้สั้นที่สุด โดยคงจุดที่ปิดงานแล้ว (${completed.length} จุด) ไว้ตามเดิม\n\nคำนวณเริ่มจาก: "${originLabel}"\n\nจุดถัดไปที่แนะนำ: ${firstClientName}`
+          : `Optimized sequence for ${remaining.length} pending stops (keeping ${completed.length} completed stops untouched) starting from:\n"${originLabel}"\n\nRecommended next stop: ${firstClientName}`
       );
     }, 450);
   };
 
-  // Apply Changes & Go Back to Tracker
+  // Apply Changes & Go Back to Tracker (Instant Optimistic UI + Single-Shot RPC)
   const handleApplyChanges = async () => {
     if (isSaving) return;
     setIsSaving(true);
-    const tripId = params.tripId;
+    const tripId = tripIdRef.current || params.tripId;
+
+    // Immediately assign real UUIDs to any newly added drops
+    const finalDrops: StopItem[] = drops.map((d) => {
+      const isNew = !d.id || String(d.id).startsWith('drop_');
+      const realId = isNew ? generateUUID() : d.id;
+      return {
+        ...d,
+        id: realId,
+        appointmentId: realId,
+        ...(tripId ? { tripId, trip_id: tripId } : {}),
+      };
+    });
+
+    // 1. Instant local and Context commit
+    setDrops(finalDrops);
+    setActiveTripDrops(finalDrops);
+
+    if (route.params?.onUpdateDrops) {
+      route.params.onUpdateDrops(finalDrops);
+    }
+
+    initialDropsJsonRef.current = JSON.stringify(
+      finalDrops.map((d) => ({ id: d.id, name: d.name, address: d.address, lat: d.latitude, lng: d.longitude }))
+    );
+
+    // 2. Fast, zero-lag navigation back to ActiveTracker
+    navigation.navigate('ActiveTracker', {
+      drops: finalDrops,
+      tripId: tripId,
+      fromEditItinerary: true,
+      timestamp: Date.now(),
+    });
+
+    // 3. Single-Shot RPC Sync to Supabase in parallel
+    const deletedIds = deletedDropIdsRef.current.length > 0 ? [...deletedDropIdsRef.current] : null;
+    deletedDropIdsRef.current = [];
+
+    const staffId = params.staffId || '42284d55-3997-4add-9226-dd9cf2f085df';
+    const updatePayloads = finalDrops.map((item, idx) => {
+      const seq = idx + 1;
+      const rawCust = (item.customerName || item.recipient || '').trim();
+      const isDummy =
+        !rawCust ||
+        rawCust.toLowerCase() === 'client representative' ||
+        rawCust === 'ลูกค้านัดหมาย' ||
+        rawCust === 'จุดลูกค้า' ||
+        rawCust === 'Client Visit';
+      const cleanCust = isDummy ? '' : rawCust;
+      const cleanCompanyName = item.companyName || item.name || cleanCust || item.address || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop');
+      const cleanCustomerName = cleanCust || item.customerName || item.name || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit');
+
+      return {
+        id: item.id,
+        trip_id: tripId,
+        staff_id: staffId,
+        type: 'appointment',
+        sequence_order: seq,
+        company_name: cleanCompanyName,
+        customer_name: cleanCustomerName,
+        recipient_name: cleanCust || cleanCustomerName,
+        recipient_phone: item.phone || '',
+        destination_address: item.address || cleanCompanyName,
+        destination_lat: item.latitude || 13.7563,
+        destination_lng: item.longitude || 100.5018,
+        agenda: item.items || 'เข้าพบและนำเสนอสินค้า',
+        status: item.status || (item.isConfirmed ? (item.isDataComplete ? 'completed' : 'incomplete') : 'pending'),
+        confirmation_status: !!item.isConfirmed,
+      };
+    });
 
     try {
       if (tripId) {
-        // Fetch existing appointments in Supabase
-        const { data: existingAppts } = await supabase
-          .from('appointments')
-          .select('id')
-          .eq('trip_id', tripId);
+        const { error: rpcErr } = await (supabase.rpc as any)('sync_trip_itinerary', {
+          p_trip_id: tripId,
+          p_deleted_ids: deletedIds,
+          p_updates: updatePayloads,
+        });
 
-        const currentIds = (existingAppts || []).map((a: any) => a.id);
-        const keptIds = drops.map((d) => d.id).filter(Boolean);
-        const toDeleteIds = currentIds.filter((id: string) => !keptIds.includes(id));
-
-        // 1. Delete removed appointments
-        if (toDeleteIds.length > 0) {
-          await supabase
-            .from('appointments')
-            .delete()
-            .in('id', toDeleteIds);
-        }
-
-        // Get staff_id from trip or current user
-        const { data: { user } } = await supabase.auth.getUser();
-        const { data: tripRow } = await supabase.from('trips').select('staff_id').eq('id', tripId).single();
-        const staffId = tripRow?.staff_id || user?.id || '42284d55-3997-4add-9226-dd9cf2f085df';
-
-        // 2. Update sequence_order for remaining / newly added drops
-        for (let idx = 0; idx < drops.length; idx++) {
-          const d = drops[idx];
-          const seq = idx + 1;
-
-          if (d.id && currentIds.includes(d.id)) {
-            await (supabase.from('appointments' as any) as any)
-              .update({
-                sequence_order: seq,
-                company_name: d.name,
-                customer_name: d.recipient || d.name,
-                recipient_name: d.recipient || d.name,
-                recipient_phone: d.phone || '',
-                destination_address: d.address,
-                destination_lat: d.latitude,
-                destination_lng: d.longitude,
-                agenda: d.items || 'เข้าพบและนำเสนอสินค้า',
-              })
-              .eq('id', d.id);
-          } else {
-            const { data: insertedAppt, error: insertErr } = await (supabase.from('appointments' as any) as any)
-              .insert({
-                trip_id: tripId,
-                staff_id: staffId,
-                type: 'appointment',
-                sequence_order: seq,
-                company_name: d.name,
-                customer_name: d.recipient || d.name,
-                recipient_name: d.recipient || d.name,
-                recipient_phone: d.phone || '',
-                destination_address: d.address,
-                destination_lat: d.latitude || 13.7563,
-                destination_lng: d.longitude || 100.5018,
-                agenda: d.items || 'เข้าพบและนำเสนอสินค้า',
-                status: 'pending',
-                confirmation_status: false,
-              })
-              .select('id')
-              .single();
-
-            if (insertErr) {
-              console.error('Error inserting new appointment to Supabase:', insertErr);
-            }
-            if (insertedAppt?.id) {
-              d.id = insertedAppt.id;
-              (d as any).appointmentId = insertedAppt.id;
-            }
+        if (rpcErr) {
+          console.warn('[EditTripItinerary] RPC note, falling back to direct batch:', rpcErr);
+          if (deletedIds && deletedIds.length > 0) {
+            await supabase.from('appointments').delete().in('id', deletedIds);
           }
+          await (supabase.from('appointments' as any) as any)
+            .upsert(updatePayloads, { onConflict: 'id' });
         }
       }
-    } catch (err) {
-      console.error('Error syncing reordered itinerary to Supabase:', err);
+    } catch (err: any) {
+      console.error('Error syncing itinerary to Supabase in background:', err);
     } finally {
       setIsSaving(false);
     }
-
-    if (route.params?.onUpdateDrops) {
-      route.params.onUpdateDrops(drops);
-    }
-
-    Alert.alert(
-      language === 'th' ? 'อัปเดตแผนการเดินทางสำเร็จ' : 'Itinerary Updated',
-      language === 'th'
-        ? 'ระบบได้ปรับเปลี่ยนลำดับการเข้าพบลูกค้าและซิงค์ข้อมูลกับ Live Map เรียบร้อยแล้ว'
-        : 'The client visit sequence has been updated and synchronized with the Live Map.',
-      [
-        {
-          text: language === 'th' ? 'กลับไปหน้าติดตามการเดินทาง' : 'Back to Tracker',
-          onPress: () => {
-            navigation.navigate('ActiveTracker', {
-              drops,
-              tripId: route.params?.tripId,
-            });
-          },
-        },
-      ]
-    );
   };
+
+  const initialDropsJsonRef = useRef<string>(
+    JSON.stringify(drops.map((d) => ({ id: d.id, name: d.name, address: d.address, lat: d.latitude, lng: d.longitude })))
+  );
 
   const handleEditItineraryGoBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('ActiveTracker');
+    const currentJson = JSON.stringify(
+      drops.map((d) => ({ id: d.id, name: d.name, address: d.address, lat: d.latitude, lng: d.longitude }))
+    );
+    const hasUnsavedChanges = initialDropsJsonRef.current && currentJson !== initialDropsJsonRef.current;
+
+    if (hasUnsavedChanges) {
+      Alert.alert(
+        language === 'th' ? 'ละทิ้งการแก้ไขลำดับทริป?' : 'Discard Itinerary Edits?',
+        language === 'th'
+          ? 'คุณมีการปรับเปลี่ยนลำดับหรือจุดส่งที่ยังไม่ได้กด "บันทึกการจัดเส้นทาง" หากย้อนกลับ ข้อมูลที่แก้ไขจะไม่ถูกบันทึก'
+          : 'You have unsaved changes to your itinerary. Are you sure you want to discard them?',
+        [
+          { text: language === 'th' ? 'แก้ไขต่อ' : 'Keep Editing', style: 'cancel' },
+          {
+            text: language === 'th' ? 'ละทิ้งการแก้ไข' : 'Discard Changes',
+            style: 'destructive',
+            onPress: () => {
+              navigation.navigate(params.returnScreen || 'ActiveTracker', {
+                tripId: tripIdRef.current || params.tripId,
+              });
+            },
+          },
+        ]
+      );
+      return;
     }
+
+    navigation.navigate(params.returnScreen || 'ActiveTracker', {
+      tripId: tripIdRef.current || params.tripId,
+    });
   };
+
+  const handleGoBackRef = useRef(handleEditItineraryGoBack);
+  handleGoBackRef.current = handleEditItineraryGoBack;
 
   useEffect(() => {
     const onBackPress = () => {
-      handleEditItineraryGoBack();
+      handleGoBackRef.current();
       return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
@@ -634,10 +843,16 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
           </Text>
 
           <View style={styles.dropsList}>
-            {drops.map((drop, index) => {
-              const isCompleted = index < currentDropIndex;
-              const isCurrent = index === currentDropIndex;
-              const isPending = index > currentDropIndex;
+            {(() => {
+              const firstUncompletedIndex = drops.findIndex((d) => !isDropCompleted(d));
+
+              return drops.map((drop, index) => {
+                const isCompleted = isDropCompleted(drop);
+                const isCurrent = !isCompleted && index === firstUncompletedIndex;
+                const isPending = !isCompleted && index !== firstUncompletedIndex;
+                const canMoveUp = !isCompleted && index > 0 && !isDropCompleted(drops[index - 1]);
+                const canMoveDown = !isCompleted && index < drops.length - 1 && !isDropCompleted(drops[index + 1]);
+                const canDelete = true;
 
               return (
                 <View
@@ -666,91 +881,119 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
 
                   {/* Drop Info */}
                   <View style={[styles.dropDetails, { flex: 1 }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text
-                        style={[
-                          styles.dropName,
-                          { flex: 1 },
-                          isCompleted && { color: '#166534' },
-                          isCurrent && { color: '#1D4ED8', fontWeight: '800' },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        #{index + 1} {drop.name}
-                      </Text>
-                      {isCurrent && (
-                        <View style={styles.activePill}>
-                          <Text style={styles.activePillText}>📍 {t('tracker_status_going')}</Text>
-                        </View>
-                      )}
-                      {isCompleted && (
-                        <View style={styles.donePill}>
-                          <Text style={styles.donePillText}>✓ {t('tracker_status_done')}</Text>
-                        </View>
-                      )}
-                    </View>
+                    {(() => {
+                      const { title, subtitle } = getDropDisplayInfo(drop, language);
+                      return (
+                        <>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text
+                              style={[
+                                styles.dropName,
+                                { flex: 1 },
+                                isCompleted && { color: '#166534' },
+                                isCurrent && { color: '#1D4ED8', fontWeight: '800' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              #{index + 1} {title}
+                            </Text>
+                            {isCurrent && (
+                              <View style={styles.activePill}>
+                                <Text style={styles.activePillText}>📍 {t('tracker_status_going')}</Text>
+                              </View>
+                            )}
+                            {isCompleted && (
+                              <View style={styles.donePill}>
+                                <Text style={styles.donePillText}>✓ {t('tracker_status_done')}</Text>
+                              </View>
+                            )}
+                          </View>
 
-                    <Text style={styles.dropAddress} numberOfLines={1}>
-                      {drop.address}
-                    </Text>
+                          {subtitle ? (
+                            <Text style={styles.dropAddress} numberOfLines={1}>
+                              {subtitle}
+                            </Text>
+                          ) : null}
 
-                    {drop.items && (
-                      <View style={styles.itemsRow}>
-                        <Package size={12} color="#64748B" />
-                        <Text style={styles.itemsText}>{drop.items}</Text>
-                      </View>
-                    )}
+                          {drop.items && (
+                            <View style={styles.itemsRow}>
+                              <Package size={12} color="#64748B" />
+                              <Text style={styles.itemsText}>{drop.items}</Text>
+                            </View>
+                          )}
+                        </>
+                      );
+                    })()}
                   </View>
 
                   {/* Reorder Up/Down & Action Icons (Edit & Delete) */}
-                  {!isCompleted && (
-                    <View style={styles.reorderActionsCol}>
-                      <View style={{ flexDirection: 'row', gap: 4 }}>
-                        <TouchableOpacity
-                          disabled={index <= currentDropIndex}
-                          onPress={() => handleMoveUp(index)}
-                          style={[
-                            styles.reorderBtn,
-                            index <= currentDropIndex && { opacity: 0.25 },
-                          ]}
-                        >
-                          <MoveUp size={14} color="#03246B" />
-                        </TouchableOpacity>
+                  <View style={styles.reorderActionsCol}>
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      <TouchableOpacity
+                        disabled={!canMoveUp}
+                        onPress={() => handleMoveUp(index)}
+                        style={[
+                          styles.reorderBtn,
+                          !canMoveUp && { opacity: 0.2 },
+                        ]}
+                      >
+                        <MoveUp size={14} color={canMoveUp ? '#03246B' : '#94A3B8'} />
+                      </TouchableOpacity>
 
-                        <TouchableOpacity
-                          disabled={index >= drops.length - 1}
-                          onPress={() => handleMoveDown(index)}
-                          style={[
-                            styles.reorderBtn,
-                            index >= drops.length - 1 && { opacity: 0.25 },
-                          ]}
-                        >
-                          <MoveDown size={14} color="#03246B" />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <TouchableOpacity
-                          style={styles.editBtn}
-                          onPress={() => handleEditDrop(drop, index)}
-                          activeOpacity={0.7}
-                        >
-                          <Edit3 size={15} color="#1D4ED8" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={styles.deleteBtn}
-                          onPress={() => handleRemove(index)}
-                          activeOpacity={0.7}
-                        >
-                          <Trash2 size={15} color="#EF4444" />
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity
+                        disabled={!canMoveDown}
+                        onPress={() => handleMoveDown(index)}
+                        style={[
+                          styles.reorderBtn,
+                          !canMoveDown && { opacity: 0.2 },
+                        ]}
+                      >
+                        <MoveDown size={14} color={canMoveDown ? '#03246B' : '#94A3B8'} />
+                      </TouchableOpacity>
                     </View>
-                  )}
+
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <TouchableOpacity
+                        style={styles.editBtn}
+                        onPress={() => handleEditDrop(drop, index)}
+                        activeOpacity={0.7}
+                      >
+                        <Edit3 size={15} color="#1D4ED8" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.deleteBtn, !canDelete && { opacity: 0.2 }]}
+                        onPress={() => handleRemove(index)}
+                        disabled={!canDelete}
+                        activeOpacity={0.7}
+                      >
+                        <Trash2 size={15} color={canDelete ? '#EF4444' : '#94A3B8'} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               );
-            })}
+            });
+          })()}
+
+            {/* Add Next Stop Card CTA at the bottom of the list */}
+            <TouchableOpacity
+              style={styles.addDropBottomCard}
+              onPress={handleAddNewDrop}
+              activeOpacity={0.85}
+            >
+              <View style={styles.addDropBottomIconCircle}>
+                <Plus size={18} color="#1D4ED8" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.addDropBottomTitle}>
+                  {language === 'th' ? `+ เพิ่มจุดนัดหมายที่ #${drops.length + 1}` : `+ Add Client Stop #${drops.length + 1}`}
+                </Text>
+                <Text style={styles.addDropBottomSub}>
+                  {language === 'th' ? 'ค้นหาหรือปักหมุดลูกค้าเพิ่มเติมในแผนการเดินทางนี้' : 'Search or pin an additional client stop to this itinerary'}
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -810,7 +1053,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                 </TouchableOpacity>
               </View>
 
-              {/* Mode Selection Tabs (3 Options) */}
+              {/* Mode Selection Tabs (2 Options: Live GPS & Manual Pin) */}
               <View style={styles.tabSelectorRow}>
                 {/* 1. Live GPS */}
                 <TouchableOpacity
@@ -857,29 +1100,6 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                     {t('edit_opt_manual')}
                   </Text>
                 </TouchableOpacity>
-
-                {/* 3. Original Trip Start */}
-                <TouchableOpacity
-                  style={[
-                    styles.tabOptionBtn,
-                    originType === 'originalStart' && styles.tabOptionBtnActive,
-                  ]}
-                  onPress={() => setOriginType('originalStart')}
-                  activeOpacity={0.8}
-                >
-                  <Building
-                    size={15}
-                    color={originType === 'originalStart' ? '#1D4ED8' : '#64748B'}
-                  />
-                  <Text
-                    style={[
-                      styles.tabOptionText,
-                      originType === 'originalStart' && styles.tabOptionTextActive,
-                    ]}
-                  >
-                    {t('edit_opt_original')}
-                  </Text>
-                </TouchableOpacity>
               </View>
 
               {/* Tab Content Body */}
@@ -888,6 +1108,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                 contentContainerStyle={styles.modalBodyScrollInner}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                scrollEnabled={modalScrollEnabled}
               >
                 {/* ----------------- MODE 1: LIVE GPS ----------------- */}
                 {originType === 'currentGps' && (
@@ -946,7 +1167,12 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                 {originType === 'manualPin' && (
                   <View style={styles.manualPinSection}>
                     {/* Embedded Map */}
-                    <View style={styles.mapContainer}>
+                    <View
+                      style={styles.mapContainer}
+                      onTouchStart={() => setModalScrollEnabled(false)}
+                      onTouchEnd={() => setModalScrollEnabled(true)}
+                      onTouchCancel={() => setModalScrollEnabled(true)}
+                    >
                       {Platform.OS === 'web' ? (
                         <View style={styles.webMapFallback}>
                           <MapPin size={32} color="#1D4ED8" />
@@ -960,43 +1186,46 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                           ref={mapRef}
                           style={styles.map}
                           provider={PROVIDER_GOOGLE}
+                          mapType="standard"
                           showsUserLocation={true}
-                          region={{
+                          initialRegion={{
                             latitude: manualPinLocation.latitude,
                             longitude: manualPinLocation.longitude,
                             latitudeDelta: 0.015,
                             longitudeDelta: 0.015,
                           }}
+                          onRegionChangeComplete={handleManualMapRegionChangeComplete}
                           onPress={handleMapPress}
                         >
-                          <Marker
-                            coordinate={{
-                              latitude: manualPinLocation.latitude,
-                              longitude: manualPinLocation.longitude,
-                            }}
-                            title={manualPinLocation.name}
-                            description={manualPinLocation.address}
-                            draggable
-                            onDragEnd={async (e) => {
-                              const coord = e.nativeEvent.coordinate;
-                              setManualPinLocation((prev) => ({
-                                ...prev,
-                                latitude: coord.latitude,
-                                longitude: coord.longitude,
-                                address: language === 'th' ? 'กำลังระบุที่อยู่...' : 'Resolving address...',
-                              }));
-                              const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
-                              setManualPinLocation({
-                                latitude: coord.latitude,
-                                longitude: coord.longitude,
-                                name: geocode.name,
-                                address: geocode.address,
-                              });
-                            }}
-                            pinColor="#1D4ED8"
+                          <UrlTile
+                            urlTemplate={GOOGLE_MAPS_TILE_URL}
+                            maximumZ={19}
+                            flipY={false}
+                            zIndex={-1}
                           />
                         </MapView>
                       )}
+
+                      {/* Center Pin Overlay (Exact same as AddNewDropScreen, always 100% visible, never glitches) */}
+                      <View style={styles.inlineCenterPinAnchor} pointerEvents="none">
+                        <View style={[styles.inlinePinBubble, { backgroundColor: '#1D4ED8' }]}>
+                          <Text style={styles.inlinePinBubbleText} numberOfLines={1}>
+                            {manualPinLocation.name.trim() || manualPinLocation.address.split(',')[0] || (language === 'th' ? 'จุดเริ่มต้น' : 'Origin')}
+                          </Text>
+                        </View>
+                        <View style={[styles.inlinePinArrow, { borderTopColor: '#1D4ED8' }]} />
+                        <View style={styles.inlinePinIconWrap}>
+                          <MapPin size={32} color="#1D4ED8" fill="#1D4ED8" />
+                        </View>
+                        <View style={[styles.inlineGroundDot, { backgroundColor: '#1D4ED8' }]} />
+                      </View>
+
+                      {/* Drag to Pin Instruction Hint Badge */}
+                      <View style={styles.inlineMapHintBadge} pointerEvents="none">
+                        <Text style={styles.inlineMapHintText}>
+                          {language === 'th' ? 'เลื่อนแผนที่หรือแตะเพื่อปักหมุด' : 'Drag map or tap to pin'}
+                        </Text>
+                      </View>
 
                       {/* Google Places Search Bar overlay */}
                       <View style={styles.searchSectionWrapper}>
@@ -1084,35 +1313,6 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                   </View>
                 )}
 
-                {/* ----------------- MODE 3: ORIGINAL START ----------------- */}
-                {originType === 'originalStart' && (
-                  <View style={styles.originCard}>
-                    <View style={styles.originInfoBox}>
-                      <View style={[styles.originIconCircle, { backgroundColor: '#F1F5F9' }]}>
-                        <Building size={22} color="#03246B" />
-                      </View>
-                      <View style={{ flex: 1, gap: 4 }}>
-                        <Text style={styles.originNameText}>
-                          {startLocation.name || t('preview_origin')}
-                        </Text>
-                        <Text style={styles.originAddressText} numberOfLines={2}>
-                          {startLocation.address}
-                        </Text>
-                        {startLocation.latitude && (
-                          <Text style={styles.originCoordText}>
-                            Lat: {startLocation.latitude.toFixed(5)}, Lng: {startLocation.longitude.toFixed(5)}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-
-                    <View style={styles.infoHintBox}>
-                      <Text style={styles.infoHintText}>
-                        💡 {t('edit_original_hint')}
-                      </Text>
-                    </View>
-                  </View>
-                )}
               </ScrollView>
 
               {/* Modal Footer CTA Buttons */}
@@ -1261,6 +1461,36 @@ const styles = StyleSheet.create({
   },
   dropsList: {
     gap: 10,
+  },
+  addDropBottomCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#93C5FD',
+    marginTop: 6,
+  },
+  addDropBottomIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addDropBottomTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  addDropBottomSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
   },
   dropCard: {
     flexDirection: 'row',
@@ -1606,12 +1836,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 220,
     borderRadius: 20,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
     backgroundColor: '#E0E3E6',
     position: 'relative',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
+    borderRadius: 20,
   },
   webMapFallback: {
     flex: 1,
@@ -1753,5 +1984,81 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  inlineCenterPinAnchor: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -75,
+    marginTop: -52,
+    width: 150,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 15,
+  },
+  inlinePinBubble: {
+    backgroundColor: '#1D4ED8',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    maxWidth: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  inlinePinBubbleText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  inlinePinArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#1D4ED8',
+    alignSelf: 'center',
+    marginBottom: -2,
+  },
+  inlinePinIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  inlineGroundDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#1D4ED8',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    marginTop: -2,
+  },
+  inlineMapHintBadge: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    backgroundColor: 'rgba(3, 36, 107, 0.88)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    zIndex: 10,
+  },
+  inlineMapHintText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

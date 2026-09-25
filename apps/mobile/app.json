@@ -9,7 +9,10 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["location", "fetch"],
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ],
         "NSCameraUsageDescription": "แอปพลิเคชันต้องการเข้าถึงกล้องถ่ายรูปเพื่อถ่ายภาพยืนยันการเข้าพบลูกค้าและสลิปค่าใช้จ่าย",
         "NSPhotoLibraryUsageDescription": "แอปพลิเคชันต้องการเข้าถึงคลังรูปภาพเพื่อแนบภาพยืนยันการเข้าพบและสลิปค่าใช้จ่าย",
         "NSLocationWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งเพื่อบันทึกพิกัดขณะปฏิบัติงานและยืนยันการเข้าพบลูกค้า",
@@ -38,6 +41,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION"
       ],
+      "package": "com.gnot44.fastfleet",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
@@ -49,6 +53,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY",
+          "iosGoogleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
+        }
+      ],
       "expo-sqlite",
       "@react-native-community/datetimepicker",
       [
@@ -67,7 +78,8 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
-      ]
+      ],
+      "expo-status-bar"
     ]
   }
 }

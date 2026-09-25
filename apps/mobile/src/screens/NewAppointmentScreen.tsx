@@ -16,7 +16,8 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { GOOGLE_MAPS_TILE_URL } from '../lib/mapConfig';
 import {
   ArrowLeft,
   Navigation,
@@ -42,7 +43,9 @@ import {
   Lock,
   Zap,
   Phone,
+  Maximize2,
 } from 'lucide-react-native';
+import LocationPickerModal from '../components/LocationPickerModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import {
@@ -55,6 +58,7 @@ import {
   Coordinates,
   OptimizedStopDetail,
   DEFAULT_BANGKOK_LOCATION,
+  getDistanceMeters,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTripDraft, StopItem } from '../lib/TripDraftContext';
@@ -74,6 +78,7 @@ const TIME_SLOTS = [
 export default function NewAppointmentScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
+  const params = route?.params || {};
   
   const {
     draft,
@@ -87,6 +92,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     removeStop,
     setStops,
     resetDraft,
+    setEditingTripId,
     loadExistingTripDraft,
   } = useTripDraft();
 
@@ -101,14 +107,75 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
 
   const [fetchingGps, setFetchingGps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Search & Map for Start Location
+  const [showStartPickerModal, setShowStartPickerModal] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   const [startSearchQuery, setStartSearchQuery] = useState('');
   const [startPredictions, setStartPredictions] = useState<PlacePrediction[]>([]);
   const [searchingStart, setSearchingStart] = useState(false);
   const startMapRef = useRef<MapView | null>(null);
   const startSearchTimeout = useRef<any>(null);
   const isSelectingStartRef = useRef<boolean>(false);
+  const startGeocodeTimer = useRef<any>(null);
+  const isInteractingMapRef = useRef(false);
+  const isUserDraggingMapRef = useRef(false);
+
+  // Sync camera when startLocationCoord changes programmatically (GPS, Search, or Modal)
+  useEffect(() => {
+    if (startLocationCoord.latitude && startLocationCoord.longitude && !isInteractingMapRef.current && !isUserDraggingMapRef.current) {
+      startMapRef.current?.animateToRegion(
+        {
+          latitude: startLocationCoord.latitude,
+          longitude: startLocationCoord.longitude,
+          latitudeDelta: 0.006,
+          longitudeDelta: 0.006,
+        },
+        400
+      );
+    }
+  }, [startLocationCoord.latitude, startLocationCoord.longitude]);
+
+  const handleStartMapRegionChange = () => {
+    if (isUserDraggingMapRef.current) {
+      isInteractingMapRef.current = true;
+    }
+  };
+
+  const handleStartMapRegionChangeComplete = (region: any) => {
+    // CRITICAL: Ignore region changes fired by initial mount, layout changes,
+    // or when returning back to this screen from AddNewDropScreen!
+    if (!isUserDraggingMapRef.current) {
+      return;
+    }
+    isUserDraggingMapRef.current = false;
+    isInteractingMapRef.current = false;
+
+    if (!region?.latitude || !region?.longitude) return;
+
+    // Check if the user moved the map significantly (> 25 meters)
+    const dist = getDistanceMeters(
+      { latitude: startLocationCoord.latitude, longitude: startLocationCoord.longitude },
+      { latitude: region.latitude, longitude: region.longitude }
+    );
+    if (dist < 25) return;
+
+    setStartLocationCoord((prev) => ({
+      ...prev,
+      latitude: region.latitude,
+      longitude: region.longitude,
+    }));
+    setIsStartSubmitted(false);
+
+    if (startGeocodeTimer.current) clearTimeout(startGeocodeTimer.current);
+    startGeocodeTimer.current = setTimeout(async () => {
+      const geocode = await reverseGeocodeGoogle(region.latitude, region.longitude);
+      setStartLocationCoord({
+        latitude: region.latitude,
+        longitude: region.longitude,
+        name: geocode.name,
+        address: geocode.address,
+      });
+    }, 400);
+  };
 
   // Date & Time Picker Modal State
   const [showDateTimePicker, setShowDateTimePicker] = useState(false);
@@ -119,7 +186,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
   // Optimized Route State & Modal
   const [showOptimizeModal, setShowOptimizeModal] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
-  const [optimizedRoadPolyline, setOptimizedRoadPolyline] = useState<Coordinates[]>([]);
+
   const [optimizedStopsOrder, setOptimizedStopsOrder] = useState<StopItem[]>([]);
   const [optimizedStopDetails, setOptimizedStopDetails] = useState<OptimizedStopDetail[]>([]);
   const [optimizedStats, setOptimizedStats] = useState({
@@ -288,6 +355,8 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
   // Select place from Start autocomplete dropdown
   const handleSelectStartPrediction = async (prediction: PlacePrediction) => {
     isSelectingStartRef.current = true;
+    isUserDraggingMapRef.current = false;
+    isInteractingMapRef.current = false;
     if (startSearchTimeout.current) {
       clearTimeout(startSearchTimeout.current);
     }
@@ -296,6 +365,28 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     setStartPredictions([]);
     setSearchingStart(false);
     setStartSearchQuery(prediction.main_text);
+
+    // If prediction already contains coordinates (from OpenStreetMap engine)
+    if (prediction.latitude && prediction.longitude) {
+      setStartLocationCoord({
+        latitude: prediction.latitude,
+        longitude: prediction.longitude,
+        name: prediction.main_text,
+        address: prediction.description,
+      });
+      setIsStartSubmitted(true);
+
+      startMapRef.current?.animateToRegion(
+        {
+          latitude: prediction.latitude,
+          longitude: prediction.longitude,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
+        },
+        500
+      );
+      return;
+    }
 
     setSearchingStart(true);
     const details = await fetchPlaceDetails(prediction.place_id);
@@ -309,7 +400,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
         name: details.name,
         address: details.formattedAddress || prediction.description,
       });
-      setIsStartSubmitted(false);
+      setIsStartSubmitted(true);
 
       startMapRef.current?.animateToRegion(
         {
@@ -326,14 +417,26 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
         name: prediction.main_text,
         address: prediction.description,
       }));
-      setIsStartSubmitted(false);
+      setIsStartSubmitted(true);
     }
   };
 
   const handleStartMapPress = async (e: any) => {
     Keyboard.dismiss();
     setStartPredictions([]);
-    const coord = e.nativeEvent.coordinate;
+    const coord = e.nativeEvent?.coordinate;
+    if (!coord) return;
+
+    startMapRef.current?.animateToRegion(
+      {
+        latitude: coord.latitude,
+        longitude: coord.longitude,
+        latitudeDelta: 0.008,
+        longitudeDelta: 0.008,
+      },
+      300
+    );
+
     const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
     setStartLocationCoord({
       latitude: coord.latitude,
@@ -342,6 +445,34 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
       address: geocode.address,
     });
     setIsStartSubmitted(false);
+  };
+
+  const handleConfirmStartPicker = (loc: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    address: string;
+  }) => {
+    isInteractingMapRef.current = false;
+    isUserDraggingMapRef.current = false;
+    setStartLocationCoord({
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      name: loc.name,
+      address: loc.address,
+    });
+    setIsStartSubmitted(true);
+    setTimeout(() => {
+      startMapRef.current?.animateToRegion(
+        {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          latitudeDelta: 0.006,
+          longitudeDelta: 0.006,
+        },
+        400
+      );
+    }, 300);
   };
 
   // Submit & Confirm Start Location
@@ -445,14 +576,14 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     };
 
     // Calculate AI optimal sequence from origin to all stops
-    const result = await optimizeAndFetchRoadDirections(origin, stops);
+    const result = await optimizeAndFetchRoadDirections(origin, stops, true);
 
     // Reordered stops array
     const reorderedStops = result.orderedIndices.map((idx) => stops[idx]);
 
     setOptimizedStopsOrder(reorderedStops);
     setOptimizedStopDetails(result.stopDetails);
-    setOptimizedRoadPolyline(result.coordinates);
+
     setOptimizedStats({
       distanceText: result.distanceKm,
       durationText: result.durationText,
@@ -527,7 +658,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
         return;
       }
 
-      const existingTripId = route?.params?.tripId;
+      const existingTripId = route?.params?.tripId || draft.editingTripId;
       const finalTripTitle = tripName.trim() || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
       const startOdoNum = parseInt(odometer.trim(), 10) || null;
       const now = new Date();
@@ -537,15 +668,13 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
       let tripCode = `TRP-${Date.now().toString().slice(-6)}`;
 
       if (existingTripId) {
-        // 1. Update existing trip in trips table
+        // 1. Update existing trip in trips table (save draft state)
         await supabase
           .from('trips')
           .update({
             title: finalTripTitle,
             trip_date: todayStr,
-            status: 'in_progress',
             start_odometer: startOdoNum,
-            started_at: new Date().toISOString(),
             start_location: {
               name: startLocationCoord.name,
               address: startLocationCoord.address,
@@ -599,7 +728,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                 .eq('id', stop.appointmentId);
             }
           } else {
-            await supabase.from('appointments').insert({
+            const { data: newAppt } = await supabase.from('appointments').insert({
               type: 'appointment',
               trip_id: existingTripId,
               staff_id: user.id,
@@ -614,18 +743,15 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
               agenda: stop.items || '',
               status: 'pending',
               confirmation_status: false,
-            });
+            }).select().single();
+            if (newAppt) {
+              stop.appointmentId = newAppt.id;
+              stop.id = newAppt.id;
+            }
           }
         }
       } else {
-        // Mark any previous unfinished in_progress trips as completed for this staff
-        await supabase
-          .from('trips')
-          .update({ status: 'completed' })
-          .eq('staff_id', user.id)
-          .eq('status', 'in_progress');
-
-        // Create brand new in_progress trip in Supabase
+        // Create brand new draft trip in Supabase
         const { data: createdTrip, error: tripErr } = await supabase
           .from('trips')
           .insert({
@@ -634,10 +760,9 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
             staff_id: user.id,
             title: finalTripTitle,
             trip_date: todayStr,
-            status: 'in_progress',
+            status: 'draft',
             approval_status: 'draft',
             start_odometer: startOdoNum,
-            started_at: new Date().toISOString(),
             start_location: {
               name: startLocationCoord.name,
               address: startLocationCoord.address,
@@ -649,7 +774,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           .single();
 
         if (tripErr || !createdTrip) {
-          throw tripErr || new Error('Failed to start trip in database');
+          throw tripErr || new Error('Failed to create trip in database');
         }
 
         activeTripId = createdTrip.id;
@@ -672,33 +797,46 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           confirmation_status: false,
         }));
 
-        await supabase.from('appointments').insert(apptInserts);
+        const { data: insertedAppts } = await supabase
+          .from('appointments')
+          .insert(apptInserts)
+          .select();
+
+        if (insertedAppts && insertedAppts.length > 0) {
+          const updatedStops = stops.map((stop, idx) => ({
+            ...stop,
+            appointmentId: insertedAppts[idx]?.id || stop.appointmentId,
+            id: insertedAppts[idx]?.id || stop.id,
+          }));
+          setStops(updatedStops);
+        }
       }
 
-      // Clear draft on successful launch
-      await resetDraft();
-
+      setEditingTripId(activeTripId);
       setIsSaving(false);
 
-      // Launch ActiveTracker directly so driver starts driving!
-      navigation.replace('ActiveTracker', {
+      // Navigate to RoutePreview so user can inspect road routes, distances, and edit if needed!
+      navigation.navigate('RoutePreview', {
         tripId: activeTripId,
         tripCode: tripCode,
         tripTitle: finalTripTitle,
+        scheduledDate: 'Now',
         dropsCount: stops.length,
         drops: stops,
         startLocation: {
           ...startLocationCoord,
           isGpsConfirmed: true,
         },
+        isGpsConfirmed: true,
         startOdometer: odometer.trim(),
+        returnScreen: 'NewAppointment',
       });
     } catch (err: any) {
       setIsSaving(false);
-      console.error('Start trip error:', err);
+      console.error('Save & preview trip error:', err);
       Alert.alert(
-        language === 'th' ? 'เริ่มต้นเดินทางไม่สำเร็จ' : 'Start Trip Failed',
-        err.message || 'Error creating trip in database'
+        language === 'th' ? 'เตรียมเส้นทางไม่สำเร็จ' : 'Preview Route Failed',
+        err.message || 'Error saving trip draft in database'
       );
     }
   };
@@ -972,6 +1110,10 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
   };
 
   const handleNewApptGoBack = () => {
+    if (params.returnScreen && params.returnScreen !== 'NewAppointment') {
+      navigation.navigate(params.returnScreen);
+      return;
+    }
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
@@ -986,7 +1128,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => backHandler.remove();
-  }, []);
+  }, [params.returnScreen]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1054,6 +1196,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           contentContainerStyle={styles.scrollInner}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={scrollEnabled}
         >
           {/* ========================================================================= */}
           {/* 1. Start Location Card with Live Map, Search & Submit Button (For Both Modes) */}
@@ -1101,7 +1244,20 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
             </View>
 
             {/* Interactive Map with Google Places Search Bar */}
-            <View style={styles.startMapContainer}>
+            <View
+              style={styles.startMapContainer}
+              onTouchStart={() => {
+                isUserDraggingMapRef.current = true;
+                setScrollEnabled(false);
+              }}
+              onTouchEnd={() => {
+                setScrollEnabled(true);
+              }}
+              onTouchCancel={() => {
+                setScrollEnabled(true);
+                isUserDraggingMapRef.current = false;
+              }}
+            >
               {Platform.OS === 'web' ? (
                 <View style={styles.webMapFallback}>
                   <MapPin size={32} color="#10B981" />
@@ -1111,45 +1267,53 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
               ) : (
                 <MapView
                   ref={startMapRef}
-                  style={StyleSheet.absoluteFillObject}
+                  style={[StyleSheet.absoluteFill, { borderRadius: 20 }]}
                   provider={PROVIDER_GOOGLE}
+                  mapType="standard"
                   showsUserLocation={true}
-                  region={{
+                  initialRegion={{
                     latitude: startLocationCoord.latitude,
                     longitude: startLocationCoord.longitude,
-                    latitudeDelta: 0.008,
-                    longitudeDelta: 0.008,
+                    latitudeDelta: 0.006,
+                    longitudeDelta: 0.006,
                   }}
+                  onPanDrag={() => {
+                    isUserDraggingMapRef.current = true;
+                    isInteractingMapRef.current = true;
+                  }}
+                  onRegionChange={handleStartMapRegionChange}
+                  onRegionChangeComplete={handleStartMapRegionChangeComplete}
                   onPress={handleStartMapPress}
                 >
-                  <Marker
-                    coordinate={{
-                      latitude: startLocationCoord.latitude,
-                      longitude: startLocationCoord.longitude,
-                    }}
-                    title={startLocationCoord.name}
-                    description={startLocationCoord.address}
-                    draggable
-                    onDragEnd={async (e) => {
-                      const coord = e.nativeEvent.coordinate;
-                      setStartLocationCoord((prev) => ({
-                        ...prev,
-                        latitude: coord.latitude,
-                        longitude: coord.longitude,
-                        address: language === 'th' ? 'กำลังระบุที่อยู่...' : 'Resolving address...',
-                      }));
-                      const geocode = await reverseGeocodeGoogle(coord.latitude, coord.longitude);
-                      setStartLocationCoord({
-                        latitude: coord.latitude,
-                        longitude: coord.longitude,
-                        name: geocode.name,
-                        address: geocode.address,
-                      });
-                    }}
-                    pinColor="#10B981"
+                  <UrlTile
+                    urlTemplate={GOOGLE_MAPS_TILE_URL}
+                    maximumZ={19}
+                    flipY={false}
+                    zIndex={-1}
                   />
                 </MapView>
               )}
+
+              {/* Center Pin Overlay (Always 100% visible on screen, never disappears) */}
+              <View style={styles.inlineCenterPinAnchor} pointerEvents="none">
+                <View style={styles.inlinePinBubble}>
+                  <Text style={styles.inlinePinBubbleText} numberOfLines={1}>
+                    {startLocationCoord.name || (language === 'th' ? 'จุดเริ่มต้น' : 'Start Point')}
+                  </Text>
+                </View>
+                <View style={styles.inlinePinArrow} />
+                <View style={styles.inlinePinIconWrap}>
+                  <MapPin size={32} color="#10B981" fill="#10B981" />
+                </View>
+                <View style={styles.inlineGroundDot} />
+              </View>
+
+              {/* Drag to Pin Instruction Hint Badge */}
+              <View style={styles.inlineMapHintBadge} pointerEvents="none">
+                <Text style={styles.inlineMapHintText}>
+                  {language === 'th' ? 'เลื่อนแผนที่หรือแตะเพื่อปักหมุด' : 'Drag map or tap to pin'}
+                </Text>
+              </View>
 
               {/* Search Bar inside Start Map */}
               <View style={styles.startSearchWrapper}>
@@ -1202,6 +1366,18 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                   </View>
                 )}
               </View>
+
+              {/* Floating Full-Screen Pin Button for Start Location */}
+              <TouchableOpacity
+                style={styles.expandStartMapBtn}
+                onPress={() => setShowStartPickerModal(true)}
+                activeOpacity={0.85}
+              >
+                <Maximize2 size={13} color="#10B981" />
+                <Text style={styles.expandStartMapBtnText}>
+                  {t('pin_on_map') || 'ปักหมุดบนแผนที่'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Confirm Location Button */}
@@ -1386,13 +1562,15 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                           </View>
                         )}
                       </View>
-                      <Text style={styles.stopAddress} numberOfLines={1}>
-                        {stop.address}
-                      </Text>
+                      {stop.address && stop.address !== stop.name && (
+                        <Text style={styles.stopAddress} numberOfLines={1}>
+                          {stop.address}
+                        </Text>
+                      )}
                       {(stop.recipient || stop.phone || stop.items) && (
                         <View style={{ gap: 3, marginTop: 4 }}>
                           <View style={styles.stopContactRow}>
-                            {stop.recipient && (
+                            {stop.recipient && stop.recipient !== stop.name && (
                               <Text style={styles.stopRecipientText} numberOfLines={1}>
                                 👤 {stop.recipient}
                               </Text>
@@ -1523,13 +1701,13 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
               ) : !isStartSubmitted ? (
                 <Lock size={18} color="#FFFFFF" />
               ) : (
-                <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
+                <Navigation size={18} color="#FFFFFF" />
               )}
               <Text style={styles.primaryActionText}>
                 {isSaving
-                  ? (language === 'th' ? 'กำลังเริ่มการเดินทาง...' : 'Starting Route...')
+                  ? (language === 'th' ? 'กำลังเตรียมข้อมูลเส้นทาง...' : 'Preparing Route...')
                   : isStartSubmitted
-                  ? t('btn_start_trip')
+                  ? (language === 'th' ? 'ตรวจสอบเส้นทาง (Preview Route)' : 'Preview Route')
                   : (language === 'th' ? 'กดยืนยันจุดเริ่มต้นก่อน' : 'Confirm Start First')}
               </Text>
             </TouchableOpacity>
@@ -1758,8 +1936,9 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                   </View>
                 ) : (
                   <MapView
-                    style={StyleSheet.absoluteFillObject}
+                    style={[StyleSheet.absoluteFill, { borderRadius: 20 }]}
                     provider={PROVIDER_GOOGLE}
+                    mapType="standard"
                     region={{
                       latitude: startLocationCoord.latitude,
                       longitude: startLocationCoord.longitude,
@@ -1767,15 +1946,29 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                       longitudeDelta: 0.12,
                     }}
                   >
+                    <UrlTile
+                      urlTemplate={GOOGLE_MAPS_TILE_URL}
+                      maximumZ={19}
+                      flipY={false}
+                      zIndex={-1}
+                    />
                     {/* Origin Marker */}
                     <Marker
                       coordinate={{
                         latitude: startLocationCoord.latitude,
                         longitude: startLocationCoord.longitude,
                       }}
-                      title="1. Start: จุดเริ่มต้น"
-                      pinColor="#10B981"
-                    />
+                      title="จุดเริ่มต้น (Start)"
+                      zIndex={9999}
+                    >
+                      <View style={styles.customStartMarker}>
+                        <View style={styles.customStartBubble}>
+                          <MapPin size={14} color="#FFFFFF" />
+                          <Text style={styles.customMarkerText}>จุดเริ่มต้น</Text>
+                        </View>
+                        <View style={styles.customStartArrow} />
+                      </View>
+                    </Marker>
 
                     {/* Drop Stop Markers in AI Optimal Order */}
                     {(optimizedStopsOrder.length > 0 ? optimizedStopsOrder : stops).map((drop, idx) => (
@@ -1785,20 +1978,25 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                           latitude: drop.latitude || 13.7225 + idx * 0.02,
                           longitude: drop.longitude || 100.5283 + idx * 0.03,
                         }}
-                        title={`${idx + 2}. ${drop.name}`}
+                        title={`จุดที่ ${idx + 1}: ${drop.name}`}
                         description={drop.address}
-                        pinColor={idx === 0 ? '#10B981' : '#1D4ED8'}
-                      />
+                        zIndex={9990 - idx}
+                      >
+                        <View style={styles.customStartMarker}>
+                          <View style={[styles.customStartBubble, { backgroundColor: '#1D4ED8' }]}>
+                            <View style={styles.markerIndexBadge}>
+                              <Text style={styles.markerIndexText}>{idx + 1}</Text>
+                            </View>
+                            <Text style={styles.customMarkerText} numberOfLines={1}>
+                              {drop.name ? drop.name.substring(0, 10) : `จุดที่ ${idx + 1}`}
+                            </Text>
+                          </View>
+                          <View style={[styles.customStartArrow, { borderTopColor: '#1D4ED8' }]} />
+                        </View>
+                      </Marker>
                     ))}
 
-                    {/* Real Road Polyline */}
-                    {optimizedRoadPolyline.length > 0 && (
-                      <Polyline
-                        coordinates={optimizedRoadPolyline}
-                        strokeColor="#1D4ED8"
-                        strokeWidth={5}
-                      />
-                    )}
+
                   </MapView>
                 )}
 
@@ -1918,6 +2116,21 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Location Picker Modal for Start Location */}
+      <LocationPickerModal
+        visible={showStartPickerModal}
+        onClose={() => setShowStartPickerModal(false)}
+        onConfirm={handleConfirmStartPicker}
+        initialLocation={{
+          latitude: startLocationCoord.latitude,
+          longitude: startLocationCoord.longitude,
+          name: startLocationCoord.name,
+          address: startLocationCoord.address,
+        }}
+        title={language === 'th' ? 'ปักหมุดจุดเริ่มต้น' : 'Pin Starting Location'}
+        pinColor="#10B981"
+      />
     </SafeAreaView>
   );
 }
@@ -2087,7 +2300,7 @@ const styles = StyleSheet.create({
   },
   startMapContainer: {
     width: '100%',
-    height: 180,
+    height: 230,
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#E2E8F0',
@@ -2474,6 +2687,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#795900',
   },
+  expandStartMapBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 25,
+  },
+  expandStartMapBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -2698,7 +2936,7 @@ const styles = StyleSheet.create({
     height: 240,
     backgroundColor: '#E2E8F0',
     position: 'relative',
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
   },
   modalWebMap: {
     flex: 1,
@@ -2958,5 +3196,138 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 280,
     lineHeight: 18,
+  },
+  customStartMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  customStartBubble: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  customMarkerText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 11,
+  },
+  customStartArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#10B981',
+    alignSelf: 'center',
+    marginTop: -1,
+    marginBottom: -3,
+  },
+  inlineCenterPinAnchor: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -75,
+    marginTop: -52,
+    width: 150,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 15,
+  },
+  inlinePinBubble: {
+    backgroundColor: '#03246B',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    maxWidth: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  inlinePinBubbleText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  inlinePinArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#03246B',
+    alignSelf: 'center',
+    marginBottom: -2,
+  },
+  inlinePinIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  inlineGroundDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    marginTop: -2,
+  },
+  inlineMapHintBadge: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    backgroundColor: 'rgba(3, 36, 107, 0.88)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  inlineMapHintText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  markerIndexBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerIndexText: {
+    color: '#1D4ED8',
+    fontWeight: '900',
+    fontSize: 10,
   },
 });

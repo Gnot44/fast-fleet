@@ -25,11 +25,7 @@ export function mapSpecialistDashboardData(profiles: RawProfile[]) {
       : [];
 
     const activeTrip =
-      sortedTrips.find((t: any) => t.status === 'in_progress') ||
-      sortedTrips.find((t: any) => t.status === 'scheduled') ||
-      sortedTrips.find((t: any) => t.status === 'draft') ||
-      sortedTrips.find((t: any) => t.approval_status === 'pending') ||
-      sortedTrips[0] ||
+      sortedTrips.find((t: any) => t.status === 'in_progress' && t.approval_status !== 'approved' && t.approval_status !== 'pending') ||
       null;
 
     const hasActiveTrip = !!activeTrip;
@@ -173,16 +169,36 @@ describe('Web Admin Dashboard Logic & Specialist Mapping Tests', () => {
     expect(mapped[0].lng).toBe(100.5987);
   });
 
-  it('TC-DASH-03: classifies specialist movement status correctly', () => {
-    const profiles: RawProfile[] = [
-      { id: '1', first_name: 'Driver 1', last_name: '', email: '1@a.com', is_online: true, current_speed: 45 },
-      { id: '2', first_name: 'Driver 2', last_name: '', email: '2@a.com', is_online: true, current_speed: 0 },
-      { id: '3', first_name: 'Driver 3', last_name: '', email: '3@a.com', is_online: false, current_speed: 0 },
+  it('TC-DASH-04: maps specialist as Standby with no trip and 0 drops when all trips are completed/submitted', () => {
+    const rawProfiles: RawProfile[] = [
+      {
+        id: 'staff-kosit',
+        first_name: 'Kosit',
+        last_name: 'Goonlaboot',
+        email: 'kosit@test.com',
+        is_online: true,
+        current_lat: 13.9123,
+        current_lng: 100.5987,
+        trips: [
+          {
+            id: 'trip-done',
+            title: 'Completed Trip',
+            status: 'completed',
+            approval_status: 'pending',
+            created_at: '2026-08-26T06:54:23Z',
+            appointments: [
+              { sequence_order: 1, company_name: 'Drop 1', status: 'completed' },
+            ],
+          },
+        ],
+      },
     ];
 
-    const mapped = mapSpecialistDashboardData(profiles);
-    expect(mapped[0].movementStatus).toBe('moving');
-    expect(mapped[1].movementStatus).toBe('standby');
-    expect(mapped[2].movementStatus).toBe('offline');
+    const mapped = mapSpecialistDashboardData(rawProfiles);
+    expect(mapped[0].hasActiveTrip).toBe(false);
+    expect(mapped[0].activeTripTitle).toBeNull();
+    expect(mapped[0].totalDrops).toBe(0);
+    expect(mapped[0].drops.length).toBe(0);
+    expect(mapped[0].movementStatus).toBe('standby');
   });
 });

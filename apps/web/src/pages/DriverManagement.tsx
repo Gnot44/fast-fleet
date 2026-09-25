@@ -56,6 +56,17 @@ const departmentPresets = [
   'ฝ่ายการตลาดและบริหารงานภาคสนาม',
 ];
 
+const avatarPresets = [
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200',
+  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&q=80&w=200',
+];
+
 export default function DriverManagement() {
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,15 +113,6 @@ export default function DriverManagement() {
 
   const [specialists, setSpecialists] = useState<MarketingSpecialistUser[]>([]);
 
-  // Avatar Presets for quick click
-  const avatarPresets = [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200',
-  ];
-
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
@@ -128,23 +130,22 @@ export default function DriverManagement() {
       try {
         const { data: profs, error } = await supabase
           .from('profiles')
-          .select('id, full_name, nickname, email, phone, role, position, department, status, avatar_url, assigned_vehicle, is_tracking_enabled, created_at, staff(staff_id, territory, vehicle_plate, vehicle_model, vehicle_type, driving_license_no, driving_license_type, driving_license_expiry)')
+          .select('id, full_name, nickname, email, phone, role, position, department, status, avatar_url, assigned_vehicle, assigned_vehicle_plate, assigned_vehicle_model, vehicle_type, driving_license_no, driving_license_type, driving_license_expiry, employee_id, territory, is_tracking_enabled, created_at')
           .eq('role', 'specialist')
           .order('created_at', { ascending: false });
 
         if (!error && profs && profs.length > 0) {
           const mapped: MarketingSpecialistUser[] = profs.map((p: any) => {
-            const staffObj = Array.isArray(p.staff) && p.staff.length > 0 ? p.staff[0] : (p.staff || {});
-            const vPlate = staffObj?.vehicle_plate || p.assigned_vehicle?.split('(')[1]?.replace(')', '') || '1กข-4452 กทม.';
-            const vModel = staffObj?.vehicle_model || p.assigned_vehicle?.split('(')[0]?.trim() || 'Isuzu D-Max SpaceCab';
-            const vType = staffObj?.vehicle_type || 'Pickup Truck';
-            const dlNo = staffObj?.driving_license_no || 'DL-AITS10002772';
-            const dlType = staffObj?.driving_license_type || drivingLicenseTypes[0];
-            const dlExp = staffObj?.driving_license_expiry || '2028-12-31';
+            const vPlate = p.assigned_vehicle_plate || p.assigned_vehicle?.split('(')[1]?.replace(')', '') || '1กข-4452 กทม.';
+            const vModel = p.assigned_vehicle_model || p.assigned_vehicle?.split('(')[0]?.trim() || 'Isuzu D-Max SpaceCab';
+            const vType = p.vehicle_type || 'Pickup Truck';
+            const dlNo = p.driving_license_no || 'DL-AITS10002772';
+            const dlType = p.driving_license_type || drivingLicenseTypes[0];
+            const dlExp = p.driving_license_expiry || '2028-12-31';
 
             return {
               id: p.id,
-              employeeId: staffObj?.staff_id || `AITS-${p.id.slice(0, 6).toUpperCase()}`,
+              employeeId: p.employee_id || `AITS-${p.id.slice(0, 6).toUpperCase()}`,
               fullName: p.full_name || 'Marketing Specialist',
               nickname: p.nickname || p.full_name?.split(' ')[0] || 'Specialist',
               phoneNumber: p.phone || '081-234-5678',
@@ -152,9 +153,9 @@ export default function DriverManagement() {
               password: '•••••••• (เข้ารหัสปลอดภัย)',
               profilePhotoUrl: p.avatar_url || avatarPresets[0],
               initials: p.full_name?.slice(0, 2) || 'MK',
-              position: p.position || staffObj?.position || 'Field Marketing Specialist',
+              position: p.position || 'Field Marketing Specialist',
               department: p.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-              territory: staffObj?.territory || 'Bangkok Central (B2B)',
+              territory: p.territory || 'Bangkok Central (B2B)',
               isActive: p.status !== 'suspended' && p.status !== 'inactive',
               isTrackingEnabled: p.is_tracking_enabled !== false,
               notes: '',
@@ -359,7 +360,9 @@ export default function DriverManagement() {
         try {
           await supabase.from('departments').insert({ name: customDeptInput.trim() });
           setCustomDepartments((prev) => [...new Set([...prev, customDeptInput.trim()])]);
-        } catch (_) {}
+        } catch {
+          // ignore duplicate department
+        }
       }
 
       const fullVehicleStr = `${formData.assignedVehicleModel || 'Isuzu D-Max'} (${formData.assignedVehiclePlate || '1กข-4452 กทม.'})`;
@@ -391,30 +394,17 @@ export default function DriverManagement() {
             position: formData.position,
             department: finalDept,
             status: formData.isActive ? 'active' : 'suspended',
+            territory: formData.territory,
             assigned_vehicle: fullVehicleStr,
             assigned_vehicle_plate: formData.assignedVehiclePlate,
             assigned_vehicle_model: formData.assignedVehicleModel,
+            vehicle_type: formData.assignedVehicleType,
             driving_license_no: formData.drivingLicenseNo,
             driving_license_type: formData.drivingLicenseType,
             driving_license_expiry: formData.drivingLicenseExpiry,
             is_tracking_enabled: formData.isTrackingEnabled !== false,
           })
           .eq('id', editingSpecialist.id);
-
-        await supabase
-          .from('staff')
-          .update({
-            territory: formData.territory,
-            position: formData.position,
-            assigned_vehicle: fullVehicleStr,
-            vehicle_plate: formData.assignedVehiclePlate,
-            vehicle_model: formData.assignedVehicleModel,
-            vehicle_type: formData.assignedVehicleType,
-            driving_license_no: formData.drivingLicenseNo,
-            driving_license_type: formData.drivingLicenseType,
-            driving_license_expiry: formData.drivingLicenseExpiry,
-          })
-          .eq('profile_id', editingSpecialist.id);
 
         showToast(`✓ อัปเดตข้อมูลของ ${formData.fullName} เรียบร้อยแล้ว`);
         setIsAddModalOpen(false);
@@ -451,28 +441,17 @@ export default function DriverManagement() {
             role: 'specialist',
             status: formData.isActive ? 'active' : 'suspended',
             department: finalDept,
+            employee_id: formData.employeeId || 'AITS10002772',
+            territory: formData.territory || 'Bangkok Central (B2B)',
             assigned_vehicle: fullVehicleStr,
             assigned_vehicle_plate: formData.assignedVehiclePlate,
             assigned_vehicle_model: formData.assignedVehicleModel,
+            vehicle_type: formData.assignedVehicleType,
             driving_license_no: formData.drivingLicenseNo,
             driving_license_type: formData.drivingLicenseType,
             driving_license_expiry: formData.drivingLicenseExpiry,
             is_tracking_enabled: formData.isTrackingEnabled !== false,
             user_tracking_enabled: true,
-          });
-
-          await supabase.from('staff').insert({
-            profile_id: signUpRes.data.user.id,
-            staff_id: formData.employeeId || 'AITS10002772',
-            territory: formData.territory || 'Bangkok Central (B2B)',
-            position: formData.position || 'Field Marketing Specialist',
-            assigned_vehicle: fullVehicleStr,
-            vehicle_plate: formData.assignedVehiclePlate,
-            vehicle_model: formData.assignedVehicleModel,
-            vehicle_type: formData.assignedVehicleType,
-            driving_license_no: formData.drivingLicenseNo,
-            driving_license_type: formData.drivingLicenseType,
-            driving_license_expiry: formData.drivingLicenseExpiry,
           });
         }
 

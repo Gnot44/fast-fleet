@@ -12,7 +12,8 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { GOOGLE_MAPS_TILE_URL } from '../lib/mapConfig';
 import * as Battery from 'expo-battery';
 import {
   ArrowLeft,
@@ -40,15 +41,32 @@ import {
   Plus,
 } from 'lucide-react-native';
 import {
-  fetchRoadDirections,
   getLiveDeviceLocation,
-  Coordinates,
   LEG_COLORS,
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { useTripDraft } from '../lib/TripDraftContext';
+
+function parsePhotos(photoField?: any): string[] {
+  if (!photoField) return [];
+  if (Array.isArray(photoField)) {
+    return photoField.map((p) => (typeof p === 'string' ? p : p?.uri || '')).filter(Boolean);
+  }
+  if (typeof photoField === 'string') {
+    try {
+      const parsed = JSON.parse(photoField);
+      if (Array.isArray(parsed)) {
+        return parsed.map((p) => (typeof p === 'string' ? p : p?.uri || '')).filter(Boolean);
+      }
+      return [photoField];
+    } catch {
+      return [photoField];
+    }
+  }
+  return [];
+}
 
 const defaultInitialDrops: any[] = [];
 
@@ -70,33 +88,256 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
 
   const { activeTripDrops, setActiveTripDrops } = useTripDraft();
 
-  // Exact drops array passed from previous screens
-  const [drops, setDrops] = useState<any[]>(
-    Array.isArray(params.drops) && params.drops.length > 0
-      ? params.drops
-      : (activeTripDrops.length > 0 ? activeTripDrops : [])
-  );
+  // Exact drops array passed from previous screens - prioritize activeTripDrops if available and non-empty
+  const [drops, setDrops] = useState<any[]>(() => {
+    if (Array.isArray(activeTripDrops) && activeTripDrops.length > 0) {
+      if (Array.isArray(params.drops) && params.drops.length > activeTripDrops.length) {
+        return params.drops;
+      }
+      return activeTripDrops;
+    }
+    return Array.isArray(params.drops) && params.drops.length > 0 ? params.drops : [];
+  });
+
+  // =====================================================================
+  // Unified data sync: single function to load trip + appointments from DB
+  // Uses merge strategy to preserve local state (photos, expenses, drafts)
+  // =====================================================================
+  const isSyncingRef = useRef(false);
+  const lastSyncTimeRef = useRef<number>(0);
+  const [tripStartTime, setTripStartTime] = useState<string | null>(params.startTime || params.startedAt || null);
+
+  const syncFromDatabase = async (force: boolean = false) => {
+    const currentTripId = tripId || route.params?.tripId;
+    const now = Date.now();
+    if (!currentTripId || isSyncingRef.current) return;
+    if (!force && now - lastSyncTimeRef.current < 2500) return;
+    lastSyncTimeRef.current = now;
+    isSyncingRef.current = true;
+
+    try {
+      // 1. Fetch trip metadata (start odo, status, etc.)
+      const { data: tripRow } = await supabase
+        .from('trips')
+        .select('status, approval_status, title, start_location, start_odometer, current_odometer, created_at, started_at')
+        .eq('id', currentTripId)
+        .single();
+
+      if (tripRow) {
+        if (tripRow.started_at) setTripStartTime(tripRow.started_at);
+        else if (tripRow.created_at && !tripStartTime) setTripStartTime(tripRow.created_at);
+        if (tripRow.start_odometer) setTripStartOdometer(tripRow.start_odometer.toString());
+        if (tripRow.current_odometer) setDbCurrentOdometer(Number(tripRow.current_odometer));
+
+        // Auto-redirect if trip is already submitted
+        if (tripRow.approval_status === 'pending' || tripRow.approval_status === 'approved') {
+          navigation.replace('TripSummary', {
+            tripId: currentTripId,
+            tripCode: params.tripCode,
+            tripTitle: tripRow.title || tripTitle,
+            drops: drops,
+            startLocation: tripRow.start_location || startLocation,
+            startOdometer: tripRow.start_odometer?.toString() || startOdometer || tripStartOdometer,
+            isPendingReview: tripRow.approval_status === 'pending',
+            isApproved: tripRow.approval_status === 'approved',
+          });
+          return;
+        }
+      }
+
+      // 2. Fetch appointments with expenses in a single query
+      const { data: appts, error } = await supabase
+        .from('appointments')
+        .select('*, expenses(*)')
+        .eq('trip_id', currentTripId)
+        .order('sequence_order', { ascending: true });
+
+      if (error || !appts || appts.length === 0) return;
+
+      const reverseCatMap: Record<string, string> = {
+        toll: '\u0e04\u0e48\u0e32\u0e17\u0e32\u0e07\u0e14\u0e48\u0e27\u0e19',
+        parking: '\u0e04\u0e48\u0e32\u0e17\u0e35\u0e48\u0e08\u0e2d\u0e14\u0e23\u0e16',
+        fuel: '\u0e04\u0e48\u0e32\u0e19\u0e49\u0e33\u0e21\u0e31\u0e19',
+        entertainment: '\u0e04\u0e48\u0e32\u0e2d\u0e32\u0e2b\u0e32\u0e23 / \u0e40\u0e25\u0e35\u0e49\u0e22\u0e07\u0e23\u0e31\u0e1a\u0e23\u0e2d\u0e07',
+        other: '\u0e2d\u0e37\u0e48\u0e19\u0e46',
+      };
+
+      // 3. Merge DB data with existing local state (preserves local photos, expenses, drafts)
+      const existing = Array.isArray(drops) && drops.length > 0 ? drops : (Array.isArray(activeTripDrops) ? activeTripDrops : []);
+
+      const mappedDrops = appts.map((a: any) => {
+        const localD = existing.find((d: any) => d.id === a.id || d.appointmentId === a.id);
+
+        const tripExpenses = a.expenses || [];
+        const mappedExps = tripExpenses.map((e: any) => ({
+          id: e.id,
+          category: reverseCatMap[e.category] || e.category,
+          amount: String(e.amount),
+          receiptUri: e.receipt_url || e.receipt_image_path,
+          receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
+          note: e.notes || '',
+        }));
+
+        let apptPhotos = parsePhotos(a.client_photo_url);
+        let apptExpsFinal = mappedExps.length > 0 ? mappedExps : (localD?.expenses || []);
+        let apptNote = a.meeting_notes || '';
+        let apptOdo = a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined;
+        let apptAgenda = a.agenda || '';
+        let apptIsComplete = a.status === 'completed' || a.status === 'Completed';
+
+        // Parse draft data from driver_notes
+        if (a.driver_notes && typeof a.driver_notes === 'string') {
+          try {
+            const draftData = JSON.parse(a.driver_notes);
+            if (draftData && (draftData.hasDraft || draftData.draftNote || draftData.draftOdometer || draftData.draftPhotos)) {
+              if (Array.isArray(draftData.draftPhotos) && draftData.draftPhotos.length > 0) {
+                apptPhotos = parsePhotos(draftData.draftPhotos);
+              }
+              if (Array.isArray(draftData.draftExpenses) && draftData.draftExpenses.length > 0) {
+                apptExpsFinal = draftData.draftExpenses;
+              }
+              if (draftData.draftNote) apptNote = draftData.draftNote;
+              if (draftData.draftOdometer) apptOdo = String(draftData.draftOdometer);
+              if (draftData.draftAgenda) apptAgenda = draftData.draftAgenda;
+              if (draftData.draftIsComplete !== undefined) apptIsComplete = !!draftData.draftIsComplete;
+            }
+          } catch (e) {}
+        }
+
+        const rawCust = (a.recipient_name || a.customer_name || localD?.recipient || '').trim();
+        const isDummyCust =
+          !rawCust ||
+          rawCust.toLowerCase() === 'client representative' ||
+          rawCust === '\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32\u0e19\u0e31\u0e14\u0e2b\u0e21\u0e32\u0e22' ||
+          rawCust === '\u0e08\u0e38\u0e14\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32' ||
+          rawCust === 'Client Visit';
+        const cleanCust = isDummyCust ? '' : rawCust;
+        const displayName = cleanCust || a.destination_address || a.company_name || '';
+
+        return {
+          id: a.id,
+          appointmentId: a.id,
+          name: displayName,
+          recipient: cleanCust,
+          customerName: cleanCust,
+          companyName: a.company_name || localD?.companyName || '',
+          phone: a.recipient_phone || localD?.phone || '',
+          items: apptAgenda || localD?.items || '',
+          agenda: apptAgenda || localD?.agenda || '',
+          address: a.destination_address || localD?.address || '',
+          latitude: a.destination_lat || localD?.latitude || undefined,
+          longitude: a.destination_lng || localD?.longitude || undefined,
+          isConfirmed: a.confirmation_status !== null && a.confirmation_status !== undefined
+            ? !!a.confirmation_status
+            : !!localD?.isConfirmed,
+          isDataComplete: a.status
+            ? (a.status.toLowerCase() === 'completed' && apptIsComplete)
+            : (localD?.isDataComplete !== undefined ? !!localD.isDataComplete : false),
+          status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
+          meetingMinutes: apptNote || localD?.meetingMinutes || '',
+          note: apptNote || localD?.note || '',
+          photos: apptPhotos.length > 0 ? apptPhotos : (localD?.photos || []),
+          expenses: apptExpsFinal,
+          odometer: apptOdo || localD?.odometer,
+          odometer_reading:
+            a.odometer_reading !== null && a.odometer_reading !== undefined
+              ? a.odometer_reading
+              : localD?.odometer_reading,
+        };
+      });
+
+      // Safeguard: only keep local-only drops that belong to this trip and are temporary
+      const localOnly = existing.filter(
+        (d: any) =>
+          String(d.id).startsWith('drop_') &&
+          (!d.tripId || d.tripId === currentTripId || d.trip_id === currentTripId) &&
+          !appts.some((a: any) => a.id === d.id || a.id === d.appointmentId)
+      );
+      const finalMerged = localOnly.length > 0 ? [...mappedDrops, ...localOnly] : mappedDrops;
+
+      // Only update state and context if there's an actual change in drops
+      const hasChanges =
+        finalMerged.length !== existing.length ||
+        finalMerged.some((d, idx) => {
+          const ex = existing[idx];
+          return (
+            !ex ||
+            ex.id !== d.id ||
+            ex.status !== d.status ||
+            ex.isConfirmed !== d.isConfirmed ||
+            ex.isDataComplete !== d.isDataComplete ||
+            ex.odometer !== d.odometer ||
+            ex.name !== d.name ||
+            ex.address !== d.address
+          );
+        });
+
+      if (hasChanges) {
+        setDrops(finalMerged);
+        setActiveTripDrops(finalMerged);
+      }
+    } catch (err) {
+      console.warn('Error in syncFromDatabase:', err);
+    } finally {
+      isSyncingRef.current = false;
+    }
+  };
+
+  // Mount & sync when screen gains focus (throttled to avoid redundant queries)
+  useEffect(() => {
+    syncFromDatabase(false);
+    const unsubscribe = navigation.addListener('focus', () => {
+      syncFromDatabase(false);
+    });
+    return unsubscribe;
+  }, [navigation, tripId, route?.params?.tripId]);
+
+  // Handle tripId change when switching or starting a new trip
+  const prevTripIdRef = useRef<string | null>(tripId || null);
+  useEffect(() => {
+    const currentTripId = route?.params?.tripId || tripId;
+    if (currentTripId && currentTripId !== prevTripIdRef.current) {
+      prevTripIdRef.current = currentTripId;
+      if (Array.isArray(route?.params?.drops)) {
+        setDrops(route.params.drops);
+        setActiveTripDrops(route.params.drops);
+      }
+      syncFromDatabase(true);
+    }
+  }, [route?.params?.tripId, tripId]);
 
   // Sync initial drops to Context on mount if not already populated
   useEffect(() => {
-    if (Array.isArray(params.drops) && params.drops.length > 0 && activeTripDrops.length === 0) {
+    if (Array.isArray(params.drops) && params.drops.length > 0) {
       setActiveTripDrops(params.drops);
     }
   }, [params.drops]);
 
-  // Sync drops when returning from EditTripItinerary or when activeTripDrops changes
+  // Sync drops when navigation provides updated drops (e.g. from EditTripItinerary, RoutePreview, or Dashboard)
   useEffect(() => {
-    if (activeTripDrops.length > 0) {
-      setDrops(activeTripDrops);
+    if (Array.isArray(route?.params?.drops)) {
+      const incoming = route.params.drops;
+      if (route?.params?.fromDashboard) {
+        setDrops(incoming);
+        setActiveTripDrops(incoming);
+        syncFromDatabase(true);
+      } else {
+        setDrops((prev) => {
+          if (Array.isArray(prev) && prev.length > incoming.length && !route?.params?.fromEditItinerary) {
+            return prev;
+          }
+          setActiveTripDrops(incoming);
+          return incoming;
+        });
+        if (route?.params?.fromEditItinerary) {
+          lastSyncTimeRef.current = Date.now();
+        }
+      }
     }
-  }, [activeTripDrops]);
-
-  useEffect(() => {
-    if (Array.isArray(route?.params?.drops) && route.params.drops.length > 0) {
-      setDrops(route.params.drops);
-      setActiveTripDrops(route.params.drops);
+    if (route.params?.startOdometer) {
+      setTripStartOdometer(String(route.params.startOdometer));
     }
-  }, [route?.params?.drops]);
+  }, [route.params?.drops, route.params?.startOdometer, route.params?.fromDashboard, route.params?.fromEditItinerary]);
 
   const [currentDropIndex, setCurrentDropIndex] = useState<number>(
     typeof params.dropIndex === 'number' ? params.dropIndex : 0
@@ -163,10 +404,6 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     address: startLocation.address || (language === 'th' ? 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร' : 'Sukhumvit Rd, Khlong Toei, Bangkok'),
   });
 
-  const [roadPolyline, setRoadPolyline] = useState<Coordinates[]>([]);
-  const [legDistance, setLegDistance] = useState('3.8 km');
-  const [legDuration, setLegDuration] = useState(language === 'th' ? '14 นาที' : '14 mins');
-  const [loadingRoad, setLoadingRoad] = useState(false);
 
   const mapRef = useRef<MapView | null>(null);
 
@@ -199,154 +436,8 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     initGps();
   }, [language]);
 
-  // Fallback: Fetch appointments from Supabase if drops array is empty but tripId exists
-  useEffect(() => {
-    async function fetchTripDropsFallback() {
-      if (drops.length === 0 && tripId) {
-        try {
-          const { data: appts } = await supabase
-            .from('appointments')
-            .select('*')
-            .eq('trip_id', tripId)
-            .order('sequence_order', { ascending: true });
 
-          const { data: dbExpenses } = await supabase
-            .from('expenses')
-            .select('*')
-            .eq('trip_id', tripId);
 
-          const reverseCatMap: Record<string, string> = {
-            'toll': 'ค่าทางด่วน',
-            'parking': 'ค่าที่จอดรถ',
-            'fuel': 'ค่าน้ำมัน',
-            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
-            'other': 'อื่นๆ',
-          };
-
-          if (appts && appts.length > 0) {
-            const mapped = appts.map((a: any) => {
-              const apptExps = (dbExpenses || []).filter((e: any) => e.appointment_id === a.id);
-              const mappedExps = apptExps.map((e: any) => ({
-                id: e.id,
-                category: reverseCatMap[e.category] || e.category,
-                amount: String(e.amount),
-                receiptUri: e.receipt_url || e.receipt_image_path,
-                receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
-                note: e.notes || '',
-              }));
-
-              return {
-                id: a.id,
-                appointmentId: a.id,
-                name: a.company_name,
-                recipient: a.recipient_name || a.customer_name || '',
-                phone: a.recipient_phone || '',
-                items: a.agenda || '',
-                address: a.destination_address || '',
-                latitude: a.destination_lat || undefined,
-                longitude: a.destination_lng || undefined,
-                isConfirmed: !!a.confirmation_status,
-                isDataComplete: a.status === 'completed' || a.status === 'Completed',
-                status: a.status || (a.confirmation_status ? 'incomplete' : 'pending'),
-                meetingMinutes: a.meeting_notes || '',
-                photos: a.client_photo_url ? [a.client_photo_url] : [],
-                expenses: mappedExps,
-                odometer: a.odometer_reading !== null && a.odometer_reading !== undefined ? String(a.odometer_reading) : undefined,
-                odometer_reading: a.odometer_reading,
-              };
-            });
-            setDrops(mapped);
-            setActiveTripDrops(mapped);
-          }
-        } catch (err) {
-          console.warn('Error fetching fallback drops in ActiveTracker:', err);
-        }
-      }
-    }
-    fetchTripDropsFallback();
-  }, [tripId, drops.length]);
-
-  // Auto-redirect if trip is already submitted for approval or approved, and sync odometer from database
-  useEffect(() => {
-    async function checkTripStatus() {
-      if (!tripId) return;
-      try {
-        const { data: t } = await supabase
-          .from('trips')
-          .select('status, approval_status, title, start_location, start_odometer, current_odometer')
-          .eq('id', tripId)
-          .single();
-
-        if (t?.start_odometer) {
-          setTripStartOdometer(t.start_odometer.toString());
-        }
-
-        if (t?.current_odometer) {
-          setDbCurrentOdometer(Number(t.current_odometer));
-        }
-
-        // Always sync appointments from DB to guarantee odometer readings and confirmation states are fresh
-        const { data: dbAppts } = await supabase
-          .from('appointments')
-          .select('id, sequence_order, confirmation_status, status, odometer_reading, meeting_notes, client_photo_url')
-          .eq('trip_id', tripId)
-          .order('sequence_order', { ascending: true });
-
-        if (dbAppts && dbAppts.length > 0) {
-          setDrops((prevDrops) => {
-            if (!prevDrops || prevDrops.length === 0) {
-              return prevDrops;
-            }
-            return prevDrops.map((d: any) => {
-              const dbA = dbAppts.find((a: any) => a.id === d.id || a.id === d.appointmentId);
-              if (dbA) {
-                return {
-                  ...d,
-                  isConfirmed: dbA.confirmation_status ? true : d.isConfirmed,
-                  status: dbA.status || d.status,
-                  odometer:
-                    dbA.odometer_reading !== null && dbA.odometer_reading !== undefined
-                      ? String(dbA.odometer_reading)
-                      : d.odometer,
-                  odometer_reading:
-                    dbA.odometer_reading !== null && dbA.odometer_reading !== undefined
-                      ? dbA.odometer_reading
-                      : d.odometer_reading,
-                };
-              }
-              return d;
-            });
-          });
-        }
-
-        if (t?.approval_status === 'pending' || t?.approval_status === 'approved') {
-          navigation.replace('TripSummary', {
-            tripId: tripId,
-            tripCode: params.tripCode,
-            tripTitle: t.title || tripTitle,
-            drops: drops,
-            startLocation: t.start_location || startLocation,
-            startOdometer: t.start_odometer?.toString() || startOdometer || tripStartOdometer,
-            isPendingReview: t.approval_status === 'pending',
-            isApproved: t.approval_status === 'approved',
-          });
-        }
-      } catch (err) {
-        console.warn('Error checking trip status in ActiveTracker:', err);
-      }
-    }
-    checkTripStatus();
-  }, [tripId]);
-
-  // 2. Sync route params when arriving from DropReporting or EditTripItinerary
-  useEffect(() => {
-    if (Array.isArray(route.params?.drops) && route.params.drops.length > 0) {
-      setDrops(route.params.drops);
-    }
-    if (route.params?.startOdometer) {
-      setTripStartOdometer(String(route.params.startOdometer));
-    }
-  }, [route.params?.drops, route.params?.startOdometer]);
 
   // Update active drop selection when drops array changes or route params specify a target
   useEffect(() => {
@@ -410,35 +501,50 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     return null;
   }, [activeDrop?.odometer, activeDrop?.odometer_reading]);
 
-  // 3. Fetch Road Connection between Driver and Next Sequential Destination
+  // Straight-line distance & estimated duration (Haversine, no API call)
+  const { legDistance, legDuration } = useMemo(() => {
+    if (!activeDrop || isAllCompleted) return { legDistance: '', legDuration: '' };
+    const lat1 = driverLocation.latitude;
+    const lon1 = driverLocation.longitude;
+    const lat2 = activeDrop.latitude || 13.7469;
+    const lon2 = activeDrop.longitude || 100.5349;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371; // Earth radius km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distKm = R * c;
+    const distStr = distKm < 1 ? `${Math.round(distKm * 1000)} m` : `${distKm.toFixed(1)} km`;
+    // Rough estimate: avg 40 km/h in city
+    const estMins = Math.max(1, Math.round((distKm / 40) * 60));
+    const durStr = language === 'th' ? `${estMins} นาที` : `${estMins} mins`;
+    return { legDistance: distStr, legDuration: durStr };
+  }, [driverLocation.latitude, driverLocation.longitude, activeDrop?.latitude, activeDrop?.longitude, isAllCompleted, language]);
+
+  // 3. Fit map to driver + destination markers (no route fetching)
   useEffect(() => {
     if (isAllCompleted || !activeDrop) return;
 
-    async function loadLegPolyline() {
-      setLoadingRoad(true);
-      const origin: Coordinates = {
-        latitude: driverLocation.latitude,
-        longitude: driverLocation.longitude,
-      };
-      const dest: Coordinates = {
-        latitude: activeDrop.latitude || 13.7469,
-        longitude: activeDrop.longitude || 100.5349,
-      };
+    const origin = {
+      latitude: driverLocation.latitude,
+      longitude: driverLocation.longitude,
+    };
+    const dest = {
+      latitude: activeDrop.latitude || 13.7469,
+      longitude: activeDrop.longitude || 100.5349,
+    };
 
-      const res = await fetchRoadDirections(origin, dest);
-      setRoadPolyline(res.coordinates);
-      setLegDistance(res.distanceKm);
-      setLegDuration(res.durationText);
-      setLoadingRoad(false);
-
+    // Small delay to let MapView mount before fitting
+    const timer = setTimeout(() => {
       mapRef.current?.fitToCoordinates([origin, dest], {
         edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
         animated: true,
       });
-    }
+    }, 300);
 
-    loadLegPolyline();
-  }, [currentDropIndex, driverLocation.latitude, activeDrop?.latitude, isAllCompleted, drops]);
+    return () => clearTimeout(timer);
+  }, [currentDropIndex, activeDrop?.latitude, activeDrop?.longitude, isAllCompleted]);
 
   // Open External Google Maps for Navigation
   const handleOpenNavigation = () => {
@@ -559,21 +665,40 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
     if (route.params?.addedDrop && timestamp > lastProcessedTimeRef.current) {
       lastProcessedTimeRef.current = timestamp;
       const newDrop = route.params.addedDrop;
-      setDrops((prev) => [...prev, newDrop]);
+      setDrops((prev) => {
+        const exists = prev.some((d) => d.id === newDrop.id);
+        return exists ? prev.map((d) => (d.id === newDrop.id ? newDrop : d)) : [...prev, newDrop];
+      });
+      syncFromDatabase(true);
     }
     if (route.params?.updatedDrop && typeof route.params?.editIndex === 'number' && timestamp > lastProcessedTimeRef.current) {
       lastProcessedTimeRef.current = timestamp;
       const { updatedDrop, editIndex } = route.params;
       setDrops((prev) => prev.map((d, i) => (i === editIndex ? { ...d, ...updatedDrop } : d)));
+      syncFromDatabase(true);
     }
   }, [route.params?.addedDrop, route.params?.updatedDrop, route.params?.editIndex, route.params?.timestamp]);
 
   const handleOpenEditItinerary = () => {
+    setActiveTripDrops(drops);
     navigation.navigate('EditTripItinerary', {
       tripId,
       drops,
       currentDropIndex: nextSequentialDropIndex !== -1 ? nextSequentialDropIndex : 0,
       startLocation,
+    });
+  };
+
+  const handleAddNewDrop = () => {
+    navigation.navigate('AddNewDrop', {
+      returnScreen: 'ActiveTracker',
+      isEditing: false,
+      drop: null,
+      editIndex: null,
+      tripId: tripId || route.params?.tripId,
+      currentDrops: drops,
+      currentCount: drops.length,
+      timestamp: Date.now(),
     });
   };
 
@@ -583,6 +708,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       isEditing: true,
       editIndex: idx,
       returnScreen: 'ActiveTracker',
+      tripId,
       timestamp: Date.now(),
     });
   };
@@ -597,6 +723,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       startLocation,
       startOdometer: startOdometer || tripStartOdometer,
       drops,
+      startTime: tripStartTime || params.startTime || params.startedAt || new Date().toISOString(),
     });
   };
 
@@ -659,7 +786,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             activeOpacity={0.8}
             accessibilityLabel="Back to Dashboard"
           >
-            <ArrowLeft size={18} color="#03246B" />
+            <ArrowLeft size={20} color="#03246B" />
           </TouchableOpacity>
 
           <View style={styles.routeHeaderPill}>
@@ -680,7 +807,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => navigation.navigate('Dashboard')}
+              onPress={handleBackToDashboard}
               activeOpacity={0.8}
               accessibilityLabel="Home"
             >
@@ -862,16 +989,26 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                 </View>
               )}
 
-              {/* Already Completed Drop Banner */}
+              {/* Already Completed Drop Banner - Tap to view/edit report */}
               {isTargetDone && (
-                <View style={styles.completedBanner}>
-                  <CheckCircle2 size={15} color="#166534" />
+                <TouchableOpacity
+                  style={styles.completedBanner}
+                  onPress={() => handleOpenReportForDrop(currentDropIndex)}
+                  activeOpacity={0.85}
+                >
+                  <CheckCircle2 size={16} color="#166534" />
                   <Text style={styles.completedBannerText} numberOfLines={1}>
                     {language === 'th'
                       ? `✓ จุดนี้เข้าพบเสร็จสิ้นแล้ว (#${currentDropIndex + 1})`
                       : `✓ Visited (#${currentDropIndex + 1})`}
                   </Text>
-                </View>
+                  <View style={styles.bannerEditPill}>
+                    <Edit3 size={11} color="#166534" />
+                    <Text style={styles.bannerEditPillText}>
+                      {language === 'th' ? 'แก้ไขบันทึก' : 'Edit Report'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               )}
 
               {/* Origin Live Position */}
@@ -903,7 +1040,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
               <View style={styles.previewRow}>
                 <View style={[styles.previewDot, { backgroundColor: targetThemeColor, borderColor: targetLightBg }]} />
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Text style={[styles.previewLabel, { color: targetThemeColor }]}>
                         {isTargetDone
@@ -929,19 +1066,23 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                         </View>
                       )}
                       <TouchableOpacity
-                        style={[styles.quickEditDropBtn, { backgroundColor: targetLightBg, borderColor: isTargetDone ? '#86EFAC' : '#BFDBFE' }]}
-                        onPress={() => handleEditDrop(activeDrop, currentDropIndex)}
+                        style={[styles.quickEditDropBtn, { backgroundColor: isTargetDone ? '#DCFCE7' : targetLightBg, borderColor: isTargetDone ? '#86EFAC' : '#BFDBFE' }]}
+                        onPress={() => isTargetDone ? handleOpenReportForDrop(currentDropIndex) : handleEditDrop(activeDrop, currentDropIndex)}
                         activeOpacity={0.7}
                       >
-                        <Edit3 size={11} color={targetThemeColor} />
-                        <Text style={[styles.quickEditDropText, { color: targetThemeColor }]}>{t('btn_edit')}</Text>
+                        <Edit3 size={11} color={isTargetDone ? '#166534' : targetThemeColor} />
+                        <Text style={[styles.quickEditDropText, { color: isTargetDone ? '#166534' : targetThemeColor }]}>
+                          {language === 'th' ? 'แก้ไข' : 'Edit'}
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                   <Text style={styles.previewName} numberOfLines={1}>{activeDrop?.name}</Text>
-                  <Text style={styles.previewAddress} numberOfLines={1}>{activeDrop?.address}</Text>
+                  {activeDrop?.address && activeDrop?.address !== activeDrop?.name ? (
+                    <Text style={styles.previewAddress} numberOfLines={1}>{activeDrop?.address}</Text>
+                  ) : null}
 
-                  {/* Action Row: Google Maps External Navigation & Drop Odometer (if entered) */}
+                  {/* Action Row: Google Maps External Navigation & Drop Odometer */}
                   <View style={styles.previewActionRow}>
                     <TouchableOpacity
                       style={styles.googleMapsNavBtn}
@@ -1022,6 +1163,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
               ref={mapRef}
               style={styles.map}
               provider={PROVIDER_GOOGLE}
+              mapType="standard"
               showsUserLocation={true}
               initialRegion={{
                 latitude: driverLocation.latitude,
@@ -1030,6 +1172,12 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                 longitudeDelta: 0.08,
               }}
             >
+              <UrlTile
+                urlTemplate={GOOGLE_MAPS_TILE_URL}
+                maximumZ={19}
+                flipY={false}
+                zIndex={-1}
+              />
               {/* Driver Live Marker */}
               <Marker
                 coordinate={{
@@ -1038,8 +1186,16 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                 }}
                 title={t('tracker_current_loc')}
                 description={driverLocation.address}
-                pinColor="#10B981"
-              />
+                zIndex={9999}
+              >
+                <View style={styles.customTrackerMarker}>
+                  <View style={styles.customDriverBubble}>
+                    <Navigation size={14} color="#FFFFFF" />
+                    <Text style={styles.customMarkerText}>ตำแหน่งของคุณ</Text>
+                  </View>
+                  <View style={styles.customDriverArrow} />
+                </View>
+              </Marker>
 
               {/* Destination Drop Marker */}
               {!isAllCompleted && (
@@ -1050,18 +1206,23 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                   }}
                   title={`${t('preview_client')} #${currentDropIndex + 1}: ${activeDrop?.name}`}
                   description={activeDrop?.address}
-                  pinColor={activeLegColor}
-                />
+                  zIndex={9998}
+                >
+                  <View style={styles.customTrackerMarker}>
+                    <View style={[styles.customDriverBubble, { backgroundColor: activeLegColor }]}>
+                      <View style={styles.markerIndexBadge}>
+                        <Text style={[styles.markerIndexText, { color: activeLegColor }]}>{currentDropIndex + 1}</Text>
+                      </View>
+                      <Text style={styles.customMarkerText} numberOfLines={1}>
+                        {activeDrop?.name ? activeDrop.name.substring(0, 12) : `จุดที่ ${currentDropIndex + 1}`}
+                      </Text>
+                    </View>
+                    <View style={[styles.customDriverArrow, { borderTopColor: activeLegColor }]} />
+                  </View>
+                </Marker>
               )}
 
-              {/* Road Polyline from Driver to Destination */}
-              {roadPolyline.length > 0 && (
-                <Polyline
-                  coordinates={roadPolyline}
-                  strokeColor={activeLegColor}
-                  strokeWidth={6}
-                />
-              )}
+
             </MapView>
           )}
 
@@ -1080,29 +1241,16 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
       {/* ========================================================================= */}
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
         {isAllCompleted ? (
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity
-              style={[styles.primaryActionButton, { flex: 1, backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#93C5FD' }]}
-              onPress={handleOpenEditItinerary}
-              activeOpacity={0.85}
-            >
-              <Plus size={16} color="#1D4ED8" />
-              <Text style={[styles.primaryActionText, { color: '#1D4ED8' }]}>
-                {language === 'th' ? '+ เพิ่มจุดเข้าพบ' : '+ Add Stop'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.primaryActionButton, { flex: 1.3, backgroundColor: '#16A34A' }]}
-              onPress={handleFinishTrip}
-              activeOpacity={0.9}
-            >
-              <Flag size={17} color="#FFFFFF" />
-              <Text style={styles.primaryActionText}>
-                {language === 'th' ? 'สรุปผลทริป 🏁' : 'Go to Summary 🏁'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.primaryActionButton, { backgroundColor: '#16A34A' }]}
+            onPress={handleFinishTrip}
+            activeOpacity={0.9}
+          >
+            <Flag size={17} color="#FFFFFF" />
+            <Text style={styles.primaryActionText}>
+              {language === 'th' ? 'สรุปผลทริป 🏁' : 'Go to Summary 🏁'}
+            </Text>
+          </TouchableOpacity>
         ) : isCurrentTargetDone ? (
           /* 1. Viewing an already completed drop */
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -1184,9 +1332,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1461,9 +1609,10 @@ const styles = StyleSheet.create({
   completedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
     backgroundColor: '#F0FDF4',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#86EFAC',
     borderRadius: 14,
     paddingHorizontal: 12,
@@ -1474,6 +1623,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#166534',
     flex: 1,
+  },
+  bannerEditPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  bannerEditPillText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  editReportActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    shadowColor: '#166534',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  editReportActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
   },
   previewRow: {
     flexDirection: 'row',
@@ -1709,7 +1895,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 240,
     borderRadius: 24,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
     backgroundColor: '#E0E3E6',
     position: 'relative',
     shadowColor: '#000',
@@ -1719,7 +1905,8 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
+    borderRadius: 24,
   },
   webMapFallback: {
     flex: 1,
@@ -1932,5 +2119,54 @@ const styles = StyleSheet.create({
     color: '#1D4ED8',
     fontWeight: '600',
     marginTop: 2,
+  },
+  customTrackerMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customDriverBubble: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  customMarkerText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 11,
+  },
+  customDriverArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#10B981',
+    alignSelf: 'center',
+    marginTop: -1,
+  },
+  markerIndexBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerIndexText: {
+    fontWeight: '900',
+    fontSize: 10,
   },
 });

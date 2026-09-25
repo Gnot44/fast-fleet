@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { GOOGLE_MAPS_TILE_URL } from '../lib/mapConfig';
 import {
   ArrowLeft,
   Play,
@@ -23,7 +24,6 @@ import {
   Share2,
   Layers,
   ChevronRight,
-  Edit3,
   Gauge,
   Radio,
   RefreshCw,
@@ -45,9 +45,11 @@ import {
 } from '../lib/mapServices';
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { useTripDraft } from '../lib/TripDraftContext';
 
 export default function RoutePreviewScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
+  const { resetDraft, setActiveTripDrops } = useTripDraft();
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
   const tripTitle = params.tripTitle || 'Bangkok Central Express Route';
@@ -158,7 +160,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
         longitude: startLocation.longitude || 100.5018,
       };
 
-      const res = await optimizeAndFetchRoadDirections(origin, drops);
+      const res = await optimizeAndFetchRoadDirections(origin, drops, false);
       setRouteLegs(res.legs);
       setDistanceText(res.distanceKm);
       setDurationText(res.durationText);
@@ -211,38 +213,24 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
     }
   };
 
-  const lastProcessedTimeRef = useRef<number>(0);
 
-  // Handle added or updated drops returned from AddNewDrop
-  useEffect(() => {
-    const timestamp = route.params?.timestamp || 0;
-    if (route.params?.addedDrop && timestamp > lastProcessedTimeRef.current) {
-      lastProcessedTimeRef.current = timestamp;
-      const newDrop = route.params.addedDrop;
-      setDrops((prev: any[]) => [...prev, newDrop]);
-    }
-    if (route.params?.updatedDrop && typeof route.params?.editIndex === 'number' && timestamp > lastProcessedTimeRef.current) {
-      lastProcessedTimeRef.current = timestamp;
-      const { updatedDrop, editIndex } = route.params;
-      setDrops((prev: any[]) => prev.map((d, i) => (i === editIndex ? { ...d, ...updatedDrop } : d)));
-    }
-  }, [route.params?.addedDrop, route.params?.updatedDrop, route.params?.editIndex, route.params?.timestamp]);
-
-  const handleEditDrop = (drop: any, index: number) => {
-    navigation.navigate('AddNewDrop', {
-      drop,
-      isEditing: true,
-      editIndex: index,
-      returnScreen: 'RoutePreview',
-      timestamp: Date.now(),
-    });
-  };
 
   const proceedStartTrip = async (todayKey: string) => {
     setIsStarting(true);
     try {
       // If trip exists in DB, update date to today and status to in_progress
       if (tripId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // Mark any previous unfinished in_progress trips as completed for this staff
+          await supabase
+            .from('trips')
+            .update({ status: 'completed' })
+            .eq('staff_id', user.id)
+            .eq('status', 'in_progress')
+            .neq('id', tripId);
+        }
+
         const { error } = await supabase
           .from('trips')
           .update({
@@ -253,6 +241,16 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
           })
           .eq('id', tripId);
         if (error) console.warn('Error activating trip:', error);
+      }
+
+      // Reset trip draft now that user has officially started trip
+      try {
+        await resetDraft();
+      } catch (e) {}
+
+      // Explicitly set activeTripDrops to the current trip's drops
+      if (Array.isArray(drops)) {
+        setActiveTripDrops(drops);
       }
 
       // Both GPS & Odo confirmed -> Launch Tracker!
@@ -352,6 +350,10 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
   };
 
   const handlePreviewGoBack = () => {
+    if (params.returnScreen === 'NewAppointment' && navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
     if (params.returnScreen) {
       navigation.navigate(params.returnScreen);
       return;
@@ -413,6 +415,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
             <MapView
               style={styles.map}
               provider={PROVIDER_GOOGLE}
+              mapType="standard"
               region={{
                 latitude: startLocation.latitude || 13.735,
                 longitude: startLocation.longitude || 100.54,
@@ -420,16 +423,30 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                 longitudeDelta: 0.12,
               }}
             >
+              <UrlTile
+                urlTemplate={GOOGLE_MAPS_TILE_URL}
+                maximumZ={19}
+                flipY={false}
+                zIndex={-1}
+              />
               {/* Origin Start Marker (Point 1) */}
               <Marker
                 coordinate={{
                   latitude: startLocation.latitude || 13.7563,
                   longitude: startLocation.longitude || 100.5018,
                 }}
-                title="1. Start: จุดเริ่มต้น"
+                title="จุดเริ่มต้น (Start)"
                 description={startLocation.address}
-                pinColor="#10B981"
-              />
+                zIndex={9999}
+              >
+                <View style={styles.customRouteMarker}>
+                  <View style={styles.customStartBubble}>
+                    <MapPin size={14} color="#FFFFFF" />
+                    <Text style={styles.customMarkerText}>จุดเริ่มต้น</Text>
+                  </View>
+                  <View style={styles.customStartArrow} />
+                </View>
+              </Marker>
 
               {/* Waypoint Destination Markers with Distinct Colors */}
               {drops.map((drop: any, index: number) => {
@@ -441,10 +458,22 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                       latitude: drop.latitude || 13.7225 + index * 0.02,
                       longitude: drop.longitude || 100.5283 + index * 0.03,
                     }}
-                    title={`${index + 2}. ${drop.name}`}
+                    title={`จุดที่ ${index + 1}: ${drop.name}`}
                     description={drop.address}
-                    pinColor={markerColor}
-                  />
+                    zIndex={9990 - index}
+                  >
+                    <View style={styles.customRouteMarker}>
+                      <View style={[styles.customStartBubble, { backgroundColor: markerColor }]}>
+                        <View style={styles.markerIndexBadge}>
+                          <Text style={[styles.markerIndexText, { color: markerColor }]}>{index + 1}</Text>
+                        </View>
+                        <Text style={styles.customMarkerText} numberOfLines={1}>
+                          {drop.name ? drop.name.substring(0, 10) : `จุดที่ ${index + 1}`}
+                        </Text>
+                      </View>
+                      <View style={[styles.customStartArrow, { borderTopColor: markerColor }]} />
+                    </View>
+                  </Marker>
                 );
               })}
 
@@ -640,18 +669,6 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
         <View style={styles.timelineCard}>
           <View style={styles.timelineCardHeaderRow}>
             <Text style={styles.timelineTitle}>{t('preview_sequence')}</Text>
-            {tripId && !isOverdue && (
-              <TouchableOpacity
-                style={styles.editPlanQuickBtn}
-                onPress={() => navigation.navigate('NewAppointment', { tripId })}
-                activeOpacity={0.8}
-              >
-                <Edit3 size={13} color="#1D4ED8" />
-                <Text style={styles.editPlanQuickBtnText}>
-                  {language === 'th' ? 'แก้ไขแผนงาน / จุดส่ง' : 'Edit Plan'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
 
           <View style={styles.stopsTimeline}>
@@ -715,16 +732,6 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                             {routeLegs[index]?.distanceText || ''}
                           </Text>
                         </View>
-                        {!isOverdue && (
-                          <TouchableOpacity
-                            style={styles.editDropBtn}
-                            onPress={() => handleEditDrop(drop, index)}
-                            activeOpacity={0.7}
-                          >
-                            <Edit3 size={11} color="#1D4ED8" />
-                            <Text style={styles.editDropBtnText}>{t('btn_edit')}</Text>
-                          </TouchableOpacity>
-                        )}
                       </View>
                     </View>
                     <Text style={styles.stopNameText}>{drop.name}</Text>
@@ -766,7 +773,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
         {isOverdue ? (
           <TouchableOpacity
             style={styles.closeOverdueButton}
-            onPress={() => navigation.goBack()}
+            onPress={handlePreviewGoBack}
             activeOpacity={0.85}
           >
             <Text style={styles.closeOverdueButtonText}>
@@ -847,7 +854,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 260,
     borderRadius: 28,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
     backgroundColor: '#E0E3E6',
     position: 'relative',
     shadowColor: '#000',
@@ -857,7 +864,8 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
+    borderRadius: 28,
   },
   webMapFallback: {
     flex: 1,
@@ -1362,5 +1370,54 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  customRouteMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customStartBubble: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  customMarkerText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 11,
+  },
+  customStartArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#10B981',
+    alignSelf: 'center',
+    marginTop: -1,
+  },
+  markerIndexBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerIndexText: {
+    fontWeight: '900',
+    fontSize: 10,
   },
 });

@@ -99,6 +99,9 @@ const state: AntiDriftState = {
 
 let presenceInterval: any = null;
 let positionWatcherSub: Location.LocationSubscription | null = null;
+let isTrackingActive = false;
+let isStartingTracking = false;
+let lastTrackingAllowedResult: { allowed: boolean; timestamp: number } | null = null;
 
 /**
  * 3-State Anti-Drift Evaluator
@@ -375,7 +378,11 @@ export async function sendLocationPing(isOnline: boolean = true) {
  * - If Admin enforced (is_tracking_enabled !== false) -> returns true
  * - If Admin not enforced (is_tracking_enabled === false) -> respects user_tracking_enabled (default true)
  */
-export async function isTrackingAllowed(): Promise<boolean> {
+export async function isTrackingAllowed(forceRefresh: boolean = false): Promise<boolean> {
+  const now = Date.now();
+  if (!forceRefresh && lastTrackingAllowedResult && now - lastTrackingAllowedResult.timestamp < 30000) {
+    return lastTrackingAllowedResult.allowed;
+  }
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return false;
@@ -385,10 +392,13 @@ export async function isTrackingAllowed(): Promise<boolean> {
       .eq('id', user.id)
       .single();
 
-    if (!prof) return true;
-    const isEnforced = prof.is_tracking_enabled !== false;
-    if (isEnforced) return true;
-    return prof.user_tracking_enabled !== false;
+    let allowed = true;
+    if (prof) {
+      const isEnforced = prof.is_tracking_enabled !== false;
+      allowed = isEnforced ? true : prof.user_tracking_enabled !== false;
+    }
+    lastTrackingAllowedResult = { allowed, timestamp: now };
+    return allowed;
   } catch (err) {
     console.warn('[LocationService] isTrackingAllowed check error:', err);
     return true;
@@ -400,12 +410,20 @@ export async function isTrackingAllowed(): Promise<boolean> {
  * Keeps sending GPS location until user explicitly logs out or disables tracking
  */
 export async function startLivePresenceTracking() {
+  // Idempotency: skip if already active or in the middle of starting
+  if (isTrackingActive || isStartingTracking) {
+    return;
+  }
+  isStartingTracking = true;
+
   try {
     // 0. Check if tracking is permitted by policy / specialist choice
     const allowed = await isTrackingAllowed();
     if (!allowed) {
-      console.log('[LocationService] 🛑 Tracking is currently disabled by specialist settings.');
-      await stopLivePresenceTracking();
+      if (isTrackingActive) {
+        console.log('[LocationService] 🛑 Tracking was active but is now disabled by specialist settings.');
+        await stopLivePresenceTracking(true);
+      }
       return;
     }
 
@@ -446,8 +464,6 @@ export async function startLivePresenceTracking() {
         console.log('[BackgroundLocation] 🚀 Native Background Location task registered & started');
       }
     } catch (startUpdatesErr: any) {
-      // In Expo Go on iOS, startLocationUpdatesAsync is not supported by Expo Go's App Store client.
-      // We log gracefully and fall back to the live position watcher + interval without crashing.
       console.log('[BackgroundLocation] ℹ️ Running via Expo Client Watcher Mode (Live telemetry active)');
     }
 
@@ -471,6 +487,8 @@ export async function startLivePresenceTracking() {
       }
     }
 
+    isTrackingActive = true;
+
     // 5. Send immediate ping
     await sendLocationPing(true);
 
@@ -484,14 +502,20 @@ export async function startLivePresenceTracking() {
     }, ANTI_DRIFT_CONFIG.HEARTBEAT_MS);
   } catch (err) {
     console.error('[LocationService] Error starting tracking service:', err);
+  } finally {
+    isStartingTracking = false;
   }
 }
 
 /**
  * Stop Background Location Service and mark specialist as Offline in Live Map
- * Triggered ONLY when specialist explicitly logs out
+ * Triggered ONLY when specialist explicitly logs out or stops tracking
  */
-export async function stopLivePresenceTracking() {
+export async function stopLivePresenceTracking(forceOfflinePing: boolean = false) {
+  const wasActive = isTrackingActive || presenceInterval !== null || positionWatcherSub !== null;
+  isTrackingActive = false;
+  isStartingTracking = false;
+
   try {
     // 1. Clear foreground interval
     if (presenceInterval) {
@@ -518,7 +542,9 @@ export async function stopLivePresenceTracking() {
   } catch (err) {
     console.warn('[BackgroundLocation] Error stopping background task:', err);
   } finally {
-    // 4. Send explicit offline status to Supabase
-    await sendLocationPing(false);
+    // 4. Send explicit offline status to Supabase ONLY if tracking was running or forced
+    if (wasActive || forceOfflinePing) {
+      await sendLocationPing(false);
+    }
   }
 }

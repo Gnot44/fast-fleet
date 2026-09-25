@@ -17,8 +17,6 @@ CREATE TABLE IF NOT EXISTS public.departments (
 );
 
 ALTER TABLE public.departments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read access to departments" ON public.departments FOR SELECT USING (true);
-CREATE POLICY "Allow all access to departments" ON public.departments FOR ALL USING (true);
 
 -- 3. System Profiles Table (Linked with Supabase Auth Users)
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -41,14 +39,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     current_lat DOUBLE PRECISION,
     current_lng DOUBLE PRECISION,
     current_address TEXT,
-    current_speed DOUBLE PRECISION DEFAULT 0.0,
-    battery_level INTEGER DEFAULT 100,
+    current_speed REAL DEFAULT 0.0,
+    battery_level REAL DEFAULT 100.0,
     assigned_vehicle TEXT,
     assigned_vehicle_plate TEXT,
     assigned_vehicle_model TEXT,
     driving_license_no TEXT,
     driving_license_type TEXT,
-    driving_license_expiry DATE,
+    driving_license_expiry TEXT,
     is_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     user_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -214,7 +212,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
     auto_dispatch BOOLEAN DEFAULT TRUE,
     geofence_opacity NUMERIC(3, 2) DEFAULT 0.35,
     map_defaults JSONB DEFAULT '{"lat": 13.7563, "lng": 100.5018, "zoom": 12}'::JSONB,
-    tenant_id TEXT DEFAULT 'FASTFLEET_DEFAULT',
+    tenant_id UUID,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -336,6 +334,10 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Departments Policies
+CREATE POLICY "Allow public read access to departments" ON public.departments FOR SELECT USING (true);
+CREATE POLICY "Allow admin write access to departments" ON public.departments FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 -- Profiles Policies
 CREATE POLICY "Admins can view and manage all profiles" ON public.profiles

@@ -2,6 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useLanguage, LanguageTogglePill } from '../context/LanguageContext';
 import { ThemeTogglePill } from '../context/ThemeContext';
+import { supabase } from '../lib/supabase';
 
 const getInitialRole = (): 'admin' | 'specialist' => {
   const cached = localStorage.getItem('fastfleet_user_role');
@@ -23,24 +24,139 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [userRole] = useState<'admin' | 'specialist'>(getInitialRole);
-  const [userProfile] = useState(getInitialProfile);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [userRole, setUserRole] = useState<'admin' | 'specialist'>(getInitialRole);
+  const [userProfile, setUserProfile] = useState(getInitialProfile);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const location = useLocation();
 
-  const navItems = [
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Sign out error:', err);
+    } finally {
+      localStorage.removeItem('fastfleet_user_role');
+      localStorage.removeItem('fastfleet_user_name');
+      localStorage.removeItem('fastfleet_user_nick');
+      localStorage.removeItem('fastfleet_user_avatar');
+      navigate('/admin/login', { replace: true });
+    }
+  };
+
+  // Auth Guard: verify session and keep role/profile synced with DB
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) {
+          if (isMounted) {
+            navigate('/admin/login', { replace: true });
+          }
+          return;
+        }
+
+        if (isMounted) {
+          setCurrentUserId(session.user.id);
+          // Authoritative profile check from Supabase DB
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, full_name, nickname, role, avatar_url')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          if (prof) {
+            const verifiedRole = prof.role === 'specialist' ? 'specialist' : 'admin';
+            setUserRole(verifiedRole);
+            setUserProfile({
+              name: prof.full_name || 'Administrator',
+              nickname: prof.nickname || (verifiedRole === 'specialist' ? 'Specialist' : 'Admin'),
+              avatar: prof.avatar_url || undefined,
+              initials: (prof.nickname || prof.full_name || 'AD').slice(0, 2).toUpperCase(),
+            });
+            localStorage.setItem('fastfleet_user_role', verifiedRole);
+            if (prof.full_name) localStorage.setItem('fastfleet_user_name', prof.full_name);
+            if (prof.nickname) localStorage.setItem('fastfleet_user_nick', prof.nickname);
+            if (prof.avatar_url) localStorage.setItem('fastfleet_user_avatar', prof.avatar_url);
+          }
+          setIsCheckingAuth(false);
+        }
+      } catch (err) {
+        console.error('Auth verification error:', err);
+        if (isMounted) {
+          navigate('/admin/login', { replace: true });
+        }
+      }
+    };
+
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || (!session && event !== 'INITIAL_SESSION')) {
+        localStorage.removeItem('fastfleet_user_role');
+        localStorage.removeItem('fastfleet_user_name');
+        localStorage.removeItem('fastfleet_user_nick');
+        localStorage.removeItem('fastfleet_user_avatar');
+        navigate('/admin/login', { replace: true });
+      } else if (session) {
+        setCurrentUserId(session.user.id);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
+
+  // Route Protection: prevent specialist from accessing admin-only pages
+  useEffect(() => {
+    if (!isCheckingAuth && userRole === 'specialist') {
+      const adminOnlyPaths = ['/admin/drivers', '/admin/reports', '/admin/settings'];
+      if (adminOnlyPaths.some(p => location.pathname.startsWith(p))) {
+        navigate('/admin/dashboard', { replace: true });
+      }
+    }
+  }, [isCheckingAuth, userRole, location.pathname, navigate]);
+
+  const allNavItems = [
     { icon: 'dashboard', label: t('nav_dashboard'), path: '/admin/dashboard' },
     { icon: 'route', label: t('nav_playback'), path: '/admin/playback' },
     { icon: 'calendar_month', label: t('nav_schedule'), path: '/admin/schedule' },
-    { icon: 'task_alt', label: t('nav_history'), path: '/admin/history' },
-    { icon: 'groups', label: t('nav_drivers'), path: '/admin/drivers' },
-    { icon: 'monitoring', label: t('nav_reports'), path: '/admin/reports' },
-    { icon: 'settings', label: t('nav_settings'), path: '/admin/settings' },
+    { 
+      icon: 'task_alt', 
+      label: userRole === 'specialist' ? (language === 'th' ? 'ประวัติและรายงาน' : 'Trip History') : t('nav_history'), 
+      path: '/admin/history' 
+    },
+    { icon: 'groups', label: t('nav_drivers'), path: '/admin/drivers', adminOnly: true },
+    { icon: 'monitoring', label: t('nav_reports'), path: '/admin/reports', adminOnly: true },
+    { icon: 'settings', label: t('nav_settings'), path: '/admin/settings', adminOnly: true },
   ];
+
+  const navItems = allNavItems.filter((item) => !(userRole === 'specialist' && item.adminOnly));
 
   // Close mobile drawer on route navigation
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-slate-950">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-md ring-1 ring-white/20 animate-pulse">
+            FM
+          </div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+            <span>Verifying authenticated session...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-body-md antialiased h-screen overflow-hidden flex selection:bg-primary/20 selection:text-primary">
@@ -127,34 +243,51 @@ export default function AdminLayout() {
 
         {/* User Profile Footer in Sidebar */}
         <div
-          className={`p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 flex items-center gap-3 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors cursor-pointer ${
+          className={`p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between transition-colors ${
             isSidebarCollapsed && !isMobileMenuOpen ? 'justify-center p-2' : ''
           }`}
-          onClick={() => navigate('/admin/profile')}
         >
-          {userProfile.avatar ? (
-            <img
-              alt={userProfile.name}
-              src={userProfile.avatar}
-              className="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 flex items-center justify-center border border-blue-200 dark:border-blue-800 shrink-0 font-bold text-xs">
-              {userProfile.initials}
-            </div>
-          )}
+          <div
+            className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+            onClick={() => navigate('/admin/profile')}
+            title="View Profile"
+          >
+            {userProfile.avatar ? (
+              <img
+                alt={userProfile.name}
+                src={userProfile.avatar}
+                className="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 flex items-center justify-center border border-blue-200 dark:border-blue-800 shrink-0 font-bold text-xs">
+                {userProfile.initials}
+              </div>
+            )}
+            {(!isSidebarCollapsed || isMobileMenuOpen) && (
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
+                  {userProfile.name}
+                </span>
+                <span className="text-[10px] font-semibold flex items-center gap-1 text-slate-500 dark:text-slate-400 truncate">
+                  <span className={`w-1.5 h-1.5 rounded-full ${userRole === 'specialist' ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
+                  {userRole === 'specialist'
+                    ? (language === 'th' ? 'พนักงานการตลาด' : 'Specialist')
+                    : t('role_admin')}
+                </span>
+              </div>
+            )}
+          </div>
           {(!isSidebarCollapsed || isMobileMenuOpen) && (
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
-                {userProfile.name}
-              </span>
-              <span className="text-[10px] font-semibold flex items-center gap-1 text-slate-500 dark:text-slate-400 truncate">
-                <span className={`w-1.5 h-1.5 rounded-full ${userRole === 'specialist' ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
-                {userRole === 'specialist'
-                  ? (language === 'th' ? 'พนักงานการตลาด' : 'Specialist')
-                  : t('role_admin')}
-              </span>
-            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSignOut();
+              }}
+              title={language === 'th' ? 'ออกจากระบบ' : 'Sign Out'}
+              className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all tactile-btn cursor-pointer shrink-0"
+            >
+              <span className="material-symbols-outlined text-[18px]">logout</span>
+            </button>
           )}
         </div>
       </nav>
@@ -252,12 +385,21 @@ export default function AdminLayout() {
                 {userProfile.initials}
               </div>
             )}
+
+            {/* Top Sign Out Button */}
+            <button
+              onClick={handleSignOut}
+              className="text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-1.5 transition-all cursor-pointer tactile-btn"
+              title={language === 'th' ? 'ออกจากระบบ (Sign Out)' : 'Sign Out'}
+            >
+              <span className="material-symbols-outlined text-[18px]">logout</span>
+            </button>
           </div>
         </header>
 
         {/* Page Content Canvas */}
         <main className="flex-1 min-w-0 mt-16 mb-7 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6 bg-white dark:bg-slate-950 pb-16">
-          <Outlet />
+          <Outlet context={{ userRole, userProfile, currentUserId }} />
         </main>
 
         {/* Footer Component */}

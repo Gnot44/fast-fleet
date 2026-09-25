@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -151,7 +151,11 @@ export default function Dashboard() {
 
   const fetchLiveSpecialists = async () => {
     try {
-      const { data: profiles, error } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+      const cachedRole = localStorage.getItem('fastfleet_user_role') || 'admin';
+
+      let query = supabase
         .from('profiles')
         .select(`
           id,
@@ -167,12 +171,12 @@ export default function Dashboard() {
           current_address,
           current_speed,
           battery_level,
-          staff (
-            staff_id,
-            territory,
-            assigned_vehicle,
-            vehicle_plate
-          ),
+          employee_id,
+          territory,
+          assigned_vehicle,
+          assigned_vehicle_plate,
+          assigned_vehicle_model,
+          vehicle_type,
           trips:trips!trips_staff_id_fkey (
             id,
             trip_code,
@@ -198,25 +202,32 @@ export default function Dashboard() {
         `)
         .eq('role', 'specialist');
 
+      if (cachedRole === 'specialist' && currentUserId) {
+        query = query.eq('id', currentUserId);
+      }
+
+      const { data: profiles, error } = await query;
+
       if (error) {
         console.error('Error fetching live specialists from Supabase:', error);
       }
 
       if (profiles && profiles.length > 0) {
         const mapped: SpecialistActiveTrip[] = profiles.map((p: any) => {
-          const staffObj = Array.isArray(p.staff) ? p.staff[0] : p.staff;
+          const territory = p.territory || p.department || 'Wat Donmuang';
+          const vehiclePlate = p.assigned_vehicle_plate || p.assigned_vehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)';
           
           // Sort trips by started_at / created_at descending (newest first!)
           const sortedTrips = Array.isArray(p.trips)
             ? [...p.trips].sort((a: any, b: any) => new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime())
             : [];
 
-          // Find the active or planned/upcoming trip for the specialist (prioritizing newest in_progress / scheduled)
-          const activeTrip = sortedTrips.find((t: any) => t.status === 'in_progress') ||
-                             sortedTrips.find((t: any) => t.status === 'scheduled') ||
-                             sortedTrips.find((t: any) => t.status === 'draft') ||
-                             sortedTrips.find((t: any) => t.approval_status === 'pending') ||
-                             sortedTrips[0] || null;
+          // Find the active trip for the specialist — ONLY a trip that is currently in_progress (actively on the road, NOT completed/submitted/approved)
+          const activeTrip = sortedTrips.find((t: any) => {
+            if (t.status !== 'in_progress') return false;
+            if (t.approval_status === 'approved' || t.approval_status === 'pending') return false;
+            return true;
+          }) || null;
 
           const hasActiveTrip = !!activeTrip;
           const appts = hasActiveTrip ? (activeTrip?.appointments || []) : [];
@@ -283,13 +294,13 @@ export default function Dashboard() {
               ? p.full_name.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
               : 'MK',
             department: p.department || 'Key Accounts & Enterprise',
-            territory: staffObj?.territory || p.department || 'Wat Donmuang',
-            vehiclePlate: staffObj?.vehicle_plate || p.assigned_vehicle_plate || staffObj?.assigned_vehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)',
+            territory,
+            vehiclePlate,
             isOnline: effectiveOnline,
             lastSeenRaw: p.last_seen_at,
             hasActiveTrip,
             tripCode: hasActiveTrip ? (activeTrip?.trip_code || 'IN_PROGRESS') : 'STANDBY',
-            tripTitle: hasActiveTrip ? (activeTrip?.title || 'เส้นทางเข้าพบลูกค้า') : 'พร้อมปฏิบัติงาน (ไม่มีทริป)',
+            tripTitle: hasActiveTrip ? (activeTrip?.title || 'เส้นทางเข้าพบลูกค้า') : (language === 'th' ? 'สแตนด์บาย (ไม่มีงาน)' : 'Standby (No Active Trip)'),
             startTime: hasActiveTrip && activeTrip?.created_at ? new Date(activeTrip.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' : '-',
             telemetry: {
               lat,
@@ -384,7 +395,7 @@ export default function Dashboard() {
     return specialists.find((s) => s.id === soloId) || null;
   }, [specialists, soloId]);
 
-  const getDerivedStatus = (spec: SpecialistActiveTrip) => {
+  const getDerivedStatus = useCallback((spec: SpecialistActiveTrip) => {
     const diffMs = spec.lastSeenRaw
       ? Date.now() - new Date(spec.lastSeenRaw).getTime()
       : Infinity;
@@ -420,11 +431,11 @@ export default function Dashboard() {
       };
     }
 
-    // Active Online (< 3 mins)
+    // Active Online with No Active Trip -> Standby
     if (!spec.hasActiveTrip) {
       return {
         status: 'Online' as const,
-        label: '🟢 ออนไลน์ (พร้อมรับงาน)',
+        label: language === 'th' ? '🟢 สแตนด์บาย (Standby)' : '🟢 Standby',
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         dotClass: 'bg-emerald-500 animate-pulse',
         isMoving: false,
@@ -470,8 +481,8 @@ export default function Dashboard() {
       isOnline: true,
       isSignalLost: false,
       isOffline: false,
-    };
-  };
+      };
+  }, [t]);
 
   const filteredSpecialists = useMemo(() => {
     return specialists.filter((s) => {
@@ -496,7 +507,7 @@ export default function Dashboard() {
 
       return matchFilter && matchSearch;
     });
-  }, [specialists, motionFilter, searchQuery, t]);
+  }, [specialists, motionFilter, searchQuery, getDerivedStatus]);
 
   const mapVisibleSpecialists = useMemo(() => {
     if (soloId) {
@@ -537,6 +548,8 @@ export default function Dashboard() {
       ? '(Offline)'
       : derived.isSignalLost
       ? '⚠️ GPS ขาด'
+      : !spec.hasActiveTrip
+      ? '🟢 Standby'
       : derived.isMoving
       ? spec.telemetry.speedText
       : '🟢 Online';
@@ -682,7 +695,9 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
             <h1 className="font-extrabold text-lg sm:text-xl lg:text-2xl text-slate-900 dark:text-white tracking-tight leading-none">
-              {t('live_title')}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th' ? 'ติดตามพิกัดสดและสถานะเส้นทางของคุณ' : 'Your Live Location & Active Route')
+                : t('live_title')}
             </h1>
             <button
               onClick={() => {
@@ -698,7 +713,9 @@ export default function Dashboard() {
             </button>
           </div>
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 font-normal">
-            {t('live_subtitle')}
+            {localStorage.getItem('fastfleet_user_role') === 'specialist'
+              ? (language === 'th' ? 'ตรวจสอบพิกัด GPS ความเร็ว แบตเตอรี่ ทริปปัจจุบัน และจุดนัดหมายของคุณ' : 'Track your real-time GPS telemetry, speed, battery, and next client destinations.')
+              : t('live_subtitle')}
           </p>
         </div>
 
@@ -730,7 +747,7 @@ export default function Dashboard() {
 
       {/* 4 Soft Tinted Minimalist Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-        {/* 1. Online Specialists - Soft Emerald Tint */}
+        {/* 1. Online / Connection Status - Soft Emerald Tint */}
         <div
           onClick={() => setMotionFilter('online')}
           className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-emerald ${
@@ -741,27 +758,43 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
-              {language === 'th' ? 'พนักงานออนไลน์' : 'Online Specialists'}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th' ? 'สถานะสัญญาณ GPS' : 'GPS Signal Status')
+                : (language === 'th' ? 'พนักงานออนไลน์' : 'Online Specialists')}
             </span>
             <div className="w-9 h-9 rounded-2xl bg-white dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200/70 dark:border-emerald-800/70 shrink-0">
               <span className="material-symbols-outlined text-[19px]">radar</span>
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-emerald-950 dark:text-emerald-100 font-mono tnum tracking-tight">
-              {specialists.filter((s) => getDerivedStatus(s).isOnline).length}
-            </span>
-            <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80 font-medium tnum">
-              / {specialists.length} {language === 'th' ? 'คน' : 'staff'}
-            </span>
+            {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+              <span className="text-2xl sm:text-3xl font-extrabold text-emerald-950 dark:text-emerald-100 tracking-tight">
+                {specialists[0] && getDerivedStatus(specialists[0]).isOnline
+                  ? (language === 'th' ? 'ออนไลน์' : 'ONLINE')
+                  : (language === 'th' ? 'ออฟไลน์' : 'OFFLINE')}
+              </span>
+            ) : (
+              <>
+                <span className="text-3xl font-extrabold text-emerald-950 dark:text-emerald-100 font-mono tnum tracking-tight">
+                  {specialists.filter((s) => getDerivedStatus(s).isOnline).length}
+                </span>
+                <span className="text-xs text-emerald-700/80 dark:text-emerald-400/80 font-medium tnum">
+                  / {specialists.length} {language === 'th' ? 'คน' : 'staff'}
+                </span>
+              </>
+            )}
           </div>
           <div className="mt-1 text-[11px] text-emerald-700/80 dark:text-emerald-400/80 font-medium flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>{language === 'th' ? 'ส่งพิกัดสดเข้าสู่ระบบ' : 'Live GPS signal connected'}</span>
+            <span>
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (specialists[0]?.telemetry.lastPing ? `${language === 'th' ? 'อัปเดตล่าสุด' : 'Last ping'} ${specialists[0].telemetry.lastPing}` : (language === 'th' ? 'รอรับสัญญาณ' : 'Waiting signal'))
+                : (language === 'th' ? 'ส่งพิกัดสดเข้าสู่ระบบ' : 'Live GPS signal connected')}
+            </span>
           </div>
         </div>
 
-        {/* 2. Moving En Route - Soft Blue Tint */}
+        {/* 2. Moving En Route / Speed - Soft Blue Tint */}
         <div
           onClick={() => setMotionFilter('moving')}
           className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-blue ${
@@ -772,27 +805,41 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">
-              {language === 'th' ? 'กำลังเดินทาง' : 'En Route / Moving'}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th' ? 'ความเร็วปัจจุบัน' : 'Current Speed')
+                : (language === 'th' ? 'กำลังเดินทาง' : 'En Route / Moving')}
             </span>
             <div className="w-9 h-9 rounded-2xl bg-white dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-200/70 dark:border-blue-800/70 shrink-0">
               <span className="material-symbols-outlined text-[19px]">directions_car</span>
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-blue-950 dark:text-blue-100 font-mono tnum tracking-tight">
-              {specialists.filter((s) => getDerivedStatus(s).isMoving).length}
-            </span>
-            <span className="text-xs text-blue-700/80 dark:text-blue-400/80 font-medium">
-              {language === 'th' ? 'คันบนถนน' : 'active en route'}
-            </span>
+            {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+              <span className="text-3xl font-extrabold text-blue-950 dark:text-blue-100 font-mono tnum tracking-tight">
+                {specialists[0]?.telemetry.speedKmH ?? 0} <span className="text-xs font-sans font-medium text-blue-700/80 dark:text-blue-400/80">km/h</span>
+              </span>
+            ) : (
+              <>
+                <span className="text-3xl font-extrabold text-blue-950 dark:text-blue-100 font-mono tnum tracking-tight">
+                  {specialists.filter((s) => getDerivedStatus(s).isMoving).length}
+                </span>
+                <span className="text-xs text-blue-700/80 dark:text-blue-400/80 font-medium">
+                  {language === 'th' ? 'คันบนถนน' : 'active en route'}
+                </span>
+              </>
+            )}
           </div>
           <div className="mt-1 text-[11px] text-blue-700/80 dark:text-blue-400/80 font-medium flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-            <span>{language === 'th' ? 'ความเร็ว > 4.0 กม./ชม.' : 'Speed > 4.0 km/h'}</span>
+            <span>
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (specialists[0] && getDerivedStatus(specialists[0]).isMoving ? (language === 'th' ? 'กำลังเคลื่อนที่' : 'Moving') : (language === 'th' ? 'จอด / จุดนัดหมาย' : 'Stationary'))
+                : (language === 'th' ? 'ความเร็ว > 4.0 กม./ชม.' : 'Speed > 4.0 km/h')}
+            </span>
           </div>
         </div>
 
-        {/* 3. Standby / Stationary - Soft Amber Tint */}
+        {/* 3. Standby / Stationary or Battery - Soft Amber Tint */}
         <div
           onClick={() => setMotionFilter('stationary')}
           className={`p-4 sm:p-5 rounded-3xl transition-all cursor-pointer tactile-btn soft-tint-amber ${
@@ -803,23 +850,39 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider">
-              {language === 'th' ? 'จอดเข้าพบ / Standby' : 'Stationary / Standby'}
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (language === 'th' ? 'แบตเตอรี่อุปกรณ์' : 'Device Battery')
+                : (language === 'th' ? 'จอดเข้าพบ / Standby' : 'Stationary / Standby')}
             </span>
             <div className="w-9 h-9 rounded-2xl bg-white dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-200/70 dark:border-amber-800/70 shrink-0">
-              <span className="material-symbols-outlined text-[19px]">local_parking</span>
+              <span className="material-symbols-outlined text-[19px]">
+                {localStorage.getItem('fastfleet_user_role') === 'specialist' ? 'battery_charging_full' : 'local_parking'}
+              </span>
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-amber-950 dark:text-amber-100 font-mono tnum tracking-tight">
-              {specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length}
-            </span>
-            <span className="text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">
-              {language === 'th' ? 'จุดลูกค้า' : 'on-site / parked'}
-            </span>
+            {localStorage.getItem('fastfleet_user_role') === 'specialist' ? (
+              <span className="text-3xl font-extrabold text-amber-950 dark:text-amber-100 font-mono tnum tracking-tight">
+                {specialists[0]?.telemetry.batteryPercent !== null && specialists[0]?.telemetry.batteryPercent !== undefined ? `${specialists[0]?.telemetry.batteryPercent}%` : '-'}
+              </span>
+            ) : (
+              <>
+                <span className="text-3xl font-extrabold text-amber-950 dark:text-amber-100 font-mono tnum tracking-tight">
+                  {specialists.filter((s) => getDerivedStatus(s).isOnline && !getDerivedStatus(s).isMoving).length}
+                </span>
+                <span className="text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">
+                  {language === 'th' ? 'จุดลูกค้า' : 'on-site / parked'}
+                </span>
+              </>
+            )}
           </div>
           <div className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-400/80 font-medium flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            <span>{language === 'th' ? 'จอดหน้างาน / พบลูกค้า' : 'Stationary at client site'}</span>
+            <span>
+              {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                ? (specialists[0]?.telemetry.hasGpsFix ? (language === 'th' ? 'GPS แม่นยำสูง' : 'High Accuracy GPS') : (language === 'th' ? 'สัญญาณปกติ' : 'Normal'))
+                : (language === 'th' ? 'จอดหน้างาน / พบลูกค้า' : 'Stationary at client site')}
+            </span>
           </div>
         </div>
 
@@ -855,7 +918,9 @@ export default function Dashboard() {
                 <div className="mt-1 text-[11px] text-purple-700/80 dark:text-purple-400/80 font-medium flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
                   <span>
-                    {language === 'th' ? `${activeTripsCount} ทริปกำลังดำเนินงาน` : `${activeTripsCount} active trips running`}
+                    {localStorage.getItem('fastfleet_user_role') === 'specialist'
+                      ? (specialists[0]?.hasActiveTrip ? (language === 'th' ? `รหัสทริป: ${specialists[0].tripCode}` : `Trip: ${specialists[0].tripCode}`) : (language === 'th' ? 'สแตนด์บาย (ไม่มีทริป)' : 'Standby'))
+                      : (language === 'th' ? `${activeTripsCount} ทริปกำลังดำเนินงาน` : `${activeTripsCount} active trips running`)}
                   </span>
                 </div>
               </>
@@ -1172,7 +1237,7 @@ export default function Dashboard() {
                         {spec.tripTitle}
                       </span>
                       <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0 font-mono tnum">
-                        {spec.hasActiveTrip ? `${totalDropsCount} Drops (${closedCount}/${totalDropsCount})` : 'Standby'}
+                        {spec.hasActiveTrip ? `${totalDropsCount} Drops (${closedCount}/${totalDropsCount})` : (language === 'th' ? 'สแตนด์บาย' : 'Standby')}
                       </span>
                     </div>
 
