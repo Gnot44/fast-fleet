@@ -4,16 +4,18 @@ import { useLanguage, LanguageTogglePill } from '../context/LanguageContext';
 import { ThemeTogglePill } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
 
-const getInitialRole = (): 'admin' | 'specialist' => {
+export type UserRole = 'admin' | 'manager' | 'specialist';
+
+const getInitialRole = (): UserRole => {
   const cached = localStorage.getItem('fastfleet_user_role');
-  if (cached === 'specialist' || cached === 'admin') return cached;
-  return 'admin';
+  if (cached === 'specialist' || cached === 'manager' || cached === 'admin') return cached as UserRole;
+  return 'specialist';
 };
 
 const getInitialProfile = () => {
   const role = getInitialRole();
-  const name = localStorage.getItem('fastfleet_user_name') || (role === 'specialist' ? 'พนักงานการตลาด' : 'System Administrator');
-  const nickname = localStorage.getItem('fastfleet_user_nick') || (role === 'specialist' ? 'Specialist' : 'Admin');
+  const name = localStorage.getItem('fastfleet_user_name') || (role === 'specialist' ? 'พนักงานการตลาด' : role === 'manager' ? 'ผู้จัดการภาคสนาม' : 'System Administrator');
+  const nickname = localStorage.getItem('fastfleet_user_nick') || (role === 'specialist' ? 'Specialist' : role === 'manager' ? 'Manager' : 'Admin');
   const avatar = localStorage.getItem('fastfleet_user_avatar') || undefined;
   const initials = nickname ? nickname.slice(0, 2).toUpperCase() : name ? name.slice(0, 2).toUpperCase() : 'AD';
   return { name, nickname, avatar, initials };
@@ -25,7 +27,7 @@ export default function AdminLayout() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [userRole, setUserRole] = useState<'admin' | 'specialist'>(getInitialRole);
+  const [userRole, setUserRole] = useState<UserRole>(getInitialRole);
   const [userProfile, setUserProfile] = useState(getInitialProfile);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const location = useLocation();
@@ -68,13 +70,15 @@ export default function AdminLayout() {
             .maybeSingle();
 
           if (prof) {
-            const verifiedRole = prof.role === 'specialist' ? 'specialist' : 'admin';
+            const verifiedRole: UserRole = (prof.role === 'specialist' || prof.role === 'manager' || prof.role === 'admin')
+              ? (prof.role as UserRole)
+              : 'admin';
             setUserRole(verifiedRole);
             setUserProfile({
-              name: prof.full_name || 'Administrator',
-              nickname: prof.nickname || (verifiedRole === 'specialist' ? 'Specialist' : 'Admin'),
+              name: prof.full_name || (verifiedRole === 'specialist' ? 'Specialist' : verifiedRole === 'manager' ? 'Manager' : 'Administrator'),
+              nickname: prof.nickname || (verifiedRole === 'specialist' ? 'Specialist' : verifiedRole === 'manager' ? 'Manager' : 'Admin'),
               avatar: prof.avatar_url || undefined,
-              initials: (prof.nickname || prof.full_name || 'AD').slice(0, 2).toUpperCase(),
+              initials: (prof.nickname || prof.full_name || (verifiedRole === 'manager' ? 'MN' : 'AD')).slice(0, 2).toUpperCase(),
             });
             localStorage.setItem('fastfleet_user_role', verifiedRole);
             if (prof.full_name) localStorage.setItem('fastfleet_user_name', prof.full_name);
@@ -111,31 +115,39 @@ export default function AdminLayout() {
     };
   }, [navigate]);
 
-  // Route Protection: prevent specialist from accessing admin-only pages
+  // Route Protection: prevent specialist & manager from accessing unauthorized paths
   useEffect(() => {
-    if (!isCheckingAuth && userRole === 'specialist') {
-      const adminOnlyPaths = ['/admin/drivers', '/admin/reports', '/admin/settings'];
-      if (adminOnlyPaths.some(p => location.pathname.startsWith(p))) {
-        navigate('/admin/dashboard', { replace: true });
+    if (!isCheckingAuth) {
+      if (userRole === 'specialist') {
+        const adminOnlyPaths = ['/admin/drivers', '/admin/reports', '/admin/settings'];
+        if (adminOnlyPaths.some(p => location.pathname.startsWith(p))) {
+          navigate('/admin/dashboard', { replace: true });
+        }
+      } else if (userRole === 'manager') {
+        const managerRestrictedPaths = ['/admin/settings'];
+        if (managerRestrictedPaths.some(p => location.pathname.startsWith(p))) {
+          navigate('/admin/dashboard', { replace: true });
+        }
       }
     }
   }, [isCheckingAuth, userRole, location.pathname, navigate]);
 
   const allNavItems = [
-    { icon: 'dashboard', label: t('nav_dashboard'), path: '/admin/dashboard' },
-    { icon: 'route', label: t('nav_playback'), path: '/admin/playback' },
-    { icon: 'calendar_month', label: t('nav_schedule'), path: '/admin/schedule' },
+    { icon: 'dashboard', label: t('nav_dashboard'), path: '/admin/dashboard', allowed: ['admin', 'manager', 'specialist'] },
+    { icon: 'route', label: t('nav_playback'), path: '/admin/playback', allowed: ['admin', 'manager', 'specialist'] },
+    { icon: 'calendar_month', label: t('nav_schedule'), path: '/admin/schedule', allowed: ['admin', 'manager', 'specialist'] },
     { 
       icon: 'task_alt', 
       label: userRole === 'specialist' ? (language === 'th' ? 'ประวัติและรายงาน' : 'Trip History') : t('nav_history'), 
-      path: '/admin/history' 
+      path: '/admin/history',
+      allowed: ['admin', 'manager', 'specialist']
     },
-    { icon: 'groups', label: t('nav_drivers'), path: '/admin/drivers', adminOnly: true },
-    { icon: 'monitoring', label: t('nav_reports'), path: '/admin/reports', adminOnly: true },
-    { icon: 'settings', label: t('nav_settings'), path: '/admin/settings', adminOnly: true },
+    { icon: 'groups', label: t('nav_drivers'), path: '/admin/drivers', allowed: ['admin', 'manager'] },
+    { icon: 'monitoring', label: t('nav_reports'), path: '/admin/reports', allowed: ['admin', 'manager'] },
+    { icon: 'settings', label: t('nav_settings'), path: '/admin/settings', allowed: ['admin'] },
   ];
 
-  const navItems = allNavItems.filter((item) => !(userRole === 'specialist' && item.adminOnly));
+  const navItems = allNavItems.filter((item) => item.allowed.includes(userRole));
 
   // Close mobile drawer on route navigation
   useEffect(() => {

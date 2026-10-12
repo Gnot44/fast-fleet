@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export interface MarketingSpecialistUser {
   id: string;
@@ -417,7 +418,20 @@ export default function DriverManagement() {
 
         let createdUserId = `spec_${Date.now()}`;
 
-        const signUpRes = await supabase.auth.signUp({
+        // Use isolated non-persisted client to prevent replacing current admin session
+        const tempAuthClient = createClient(
+          import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co',
+          import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder',
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+              detectSessionInUrl: false,
+            },
+          }
+        );
+
+        const signUpRes = await tempAuthClient.auth.signUp({
           email: emailToCreate,
           password: pwdToCreate,
           options: {
@@ -1244,8 +1258,10 @@ export default function DriverManagement() {
                             const file = e.target.files?.[0];
                             if (file) {
                               try {
+                                const { data: { session: currentSession } } = await supabase.auth.getSession();
+                                const uploaderId = currentSession?.user?.id || 'admin';
                                 const ext = file.name.split('.').pop() || 'jpg';
-                                const pathName = `avatar_${Date.now()}.${ext}`;
+                                const pathName = `${uploaderId}/avatar_${Date.now()}.${ext}`;
                                 const { data: uploadRes, error: upErr } = await supabase.storage
                                   .from('avatars')
                                   .upload(pathName, file, { contentType: file.type, upsert: true });

@@ -40,6 +40,7 @@ import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useTripDraft } from '../lib/TripDraftContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
+import { getLocalDateString } from '../lib/dateUtils';
 
 function parsePhotos(photoField?: any): string[] {
   if (!photoField) return [];
@@ -86,8 +87,8 @@ export default function DashboardScreen({ navigation }: any) {
 
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
-    role: 'Field Marketing Specialist',
-    initials: 'MK',
+    role: '-',
+    initials: '...',
     avatar: null,
   });
 
@@ -150,7 +151,7 @@ export default function DashboardScreen({ navigation }: any) {
       if (!hasLoadedProfileRef.current || forceRefreshProfile) {
         const { data: prof } = await (supabase
           .from('profiles' as any) as any)
-          .select('*, staff(*)')
+          .select('*')
           .eq('id', user.id)
           .single();
 
@@ -161,7 +162,7 @@ export default function DashboardScreen({ navigation }: any) {
 
         setProfile({
           name: fullName,
-          role: prof?.position || (prof?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
+          role: prof?.position || (prof?.role === 'admin' ? 'System Administrator' : '-'),
           initials,
           avatar: prof?.avatar_url || null,
         });
@@ -180,7 +181,7 @@ export default function DashboardScreen({ navigation }: any) {
         const rejected: any[] = [];
         const pending: any[] = [];
         const history: any[] = [];
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
 
         const reverseCatMap: Record<string, string> = {
           'toll': 'ค่าทางด่วน',
@@ -280,7 +281,7 @@ export default function DashboardScreen({ navigation }: any) {
             isFullyCompleted: isFullyCompleted,
             hasIncompleteDrops: hasIncompleteDrops,
             isStarted: t.status === 'in_progress',
-            startOdometer: t.start_odometer?.toString() || '45200',
+            startOdometer: t.start_odometer?.toString() || '',
             startLocation: t.start_location || {
               name: 'สำนักงาน / จุดปล่อยรถ (Depot)',
               address: 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร',
@@ -786,7 +787,7 @@ export default function DashboardScreen({ navigation }: any) {
                   activeFilter === 'today' && styles.filterPillTextActive,
                 ]}
               >
-                {language === 'th' ? 'วันนี้' : 'Today'} ({upcomingTrips.filter((t) => t.rawDate === new Date().toISOString().split('T')[0]).length})
+                {language === 'th' ? 'วันนี้' : 'Today'} ({upcomingTrips.filter((t) => t.rawDate === getLocalDateString()).length})
               </Text>
             </TouchableOpacity>
 
@@ -893,7 +894,7 @@ export default function DashboardScreen({ navigation }: any) {
               >
                 {(Array.isArray(upcomingTrips)
                   ? upcomingTrips.filter((trip) => {
-                      const todayStr = new Date().toISOString().split('T')[0];
+                      const todayStr = getLocalDateString();
                       if (activeFilter === 'today') return trip.rawDate === todayStr;
                       if (activeFilter === 'drafts') return trip.hasIncompleteDrops || trip.status === 'In Progress' || trip.isOverdue;
                       return true;

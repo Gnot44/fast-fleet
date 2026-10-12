@@ -98,19 +98,27 @@ export default function ReportsAnalytics() {
   useEffect(() => {
     loadAnalyticsData();
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedLoadAnalytics = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadAnalyticsData();
+      }, 500);
+    };
+
     const channel = supabase
       .channel('analytics-realtime-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => {
-        loadAnalyticsData();
+        debouncedLoadAnalytics();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => {
-        loadAnalyticsData();
+        debouncedLoadAnalytics();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => {
-        loadAnalyticsData();
+        debouncedLoadAnalytics();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-        loadAnalyticsData();
+        debouncedLoadAnalytics();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => {
         supabase.from('departments').select('name').order('created_at', { ascending: true }).then(({ data }) => {
@@ -120,6 +128,7 @@ export default function ReportsAnalytics() {
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);

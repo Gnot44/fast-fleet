@@ -40,6 +40,7 @@ import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useTripDraft } from '../lib/TripDraftContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
+import { getLocalDateString } from '../lib/dateUtils';
 
 type ViewMode = 'month' | 'week' | 'day';
 
@@ -136,7 +137,7 @@ export default function TripScheduleScreen({ navigation }: any) {
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [selectedDateKey, setSelectedDateKey] = useState(today.toISOString().split('T')[0]);
+  const [selectedDateKey, setSelectedDateKey] = useState(getLocalDateString(today));
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [allTrips, setAllTrips] = useState<TripItem[]>([]);
   const [isOperating, setIsOperating] = useState(false);
@@ -152,6 +153,15 @@ export default function TripScheduleScreen({ navigation }: any) {
         .eq('staff_id', user.id)
         .order('trip_date', { ascending: true });
 
+      // Fetch user's assigned vehicle from profile as fallback
+      const { data: profData } = await (supabase.from('profiles' as any) as any)
+        .select('assigned_vehicle_plate, assigned_vehicle_model')
+        .eq('id', user.id)
+        .single();
+      const profileVehicle = profData?.assigned_vehicle_plate
+        ? `${profData.assigned_vehicle_model || ''} (${profData.assigned_vehicle_plate})`.trim()
+        : null;
+
       const reverseCatMap: Record<string, string> = {
         'toll': 'ค่าทางด่วน',
         'parking': 'ค่าที่จอดรถ',
@@ -161,7 +171,7 @@ export default function TripScheduleScreen({ navigation }: any) {
       };
 
       if (tripsData) {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const mapped: TripItem[] = tripsData.map((t: any) => {
           const rawAppts = t.appointments || [];
           const tripExpenses = t.expenses || [];
@@ -318,7 +328,7 @@ export default function TripScheduleScreen({ navigation }: any) {
               approvalStatus: approvalStatus,
               managerFeedback: t.manager_feedback,
               revisionCount: revCount,
-              vehicle: 'Isuzu D-Max (1กข-4452)',
+              vehicle: t.assigned_vehicle || profileVehicle || '-',
             status: t.status === 'in_progress' ? 'In Progress' : (t.status === 'completed' ? 'Completed' : 'Scheduled'),
             startLocation: t.start_location || {
               name: 'สำนักงาน / จุดปล่อยรถ (Depot)',
@@ -326,12 +336,12 @@ export default function TripScheduleScreen({ navigation }: any) {
               latitude: 13.7563,
               longitude: 100.5018,
             },
-            startOdometer: t.start_odometer?.toString() || '45200',
+            startOdometer: t.start_odometer?.toString() || '',
             drops: formattedDrops,
             stops: sortedAppts.map((a: any) => ({
               time: '09:00 AM',
               client: a.company_name,
-              contact: `${a.recipient_name || a.customer_name || 'ผู้จัดการ'} (${a.recipient_phone || '081-000-0000'})`,
+              contact: `${a.recipient_name || a.customer_name || ''} ${a.recipient_phone ? `(${a.recipient_phone})` : ''}`.trim() || '-',
               location: a.destination_address,
               status: !a.confirmation_status
                 ? 'pending'
@@ -379,7 +389,7 @@ export default function TripScheduleScreen({ navigation }: any) {
     const d = new Date();
     setCurrentYear(d.getFullYear());
     setCurrentMonth(d.getMonth());
-    setSelectedDateKey(d.toISOString().split('T')[0]);
+    setSelectedDateKey(getLocalDateString(d));
   };
 
   // Get trips for a specific date key (YYYY-MM-DD)
@@ -420,7 +430,7 @@ export default function TripScheduleScreen({ navigation }: any) {
     const firstDay = new Date(currentYear, currentMonth, 1);
     const lastDay = new Date(currentYear, currentMonth + 1, 0);
     const daysInMonth = lastDay.getDate();
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     // In JS, getDay(): 0 is Sunday, 1 is Mon... 6 is Sat
     // Convert to Monday=0, Tuesday=1 ... Sunday=6
@@ -574,7 +584,7 @@ export default function TripScheduleScreen({ navigation }: any) {
   };
 
   const handleRescheduleToToday = async (trip: TripItem) => {
-    const todayKey = new Date().toISOString().split('T')[0];
+    const todayKey = getLocalDateString();
     Alert.alert(
       language === 'th' ? 'เลื่อนวันแผนงาน' : 'Reschedule Plan',
       language === 'th'
@@ -1024,7 +1034,7 @@ export default function TripScheduleScreen({ navigation }: any) {
                           </Text>
                         </TouchableOpacity>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          {trip.dateKey !== new Date().toISOString().split('T')[0] && trip.approvalStatus !== 'approved' && trip.approvalStatus !== 'pending' && trip.status !== 'Completed' && !trip.isOverdue && (
+                          {trip.dateKey !== getLocalDateString() && trip.approvalStatus !== 'approved' && trip.approvalStatus !== 'pending' && trip.status !== 'Completed' && !trip.isOverdue && (
                             <TouchableOpacity
                               style={[styles.tripHeaderActionBtn, { backgroundColor: '#EFF6FF' }]}
                               onPress={() => handleRescheduleToToday(trip)}

@@ -1,5 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 import { supabase } from './supabase';
+import { Database } from './database.types';
+
+export type OfflineQueueTable = keyof Database['public']['Tables'];
 
 export async function openDatabase() {
   const db = await SQLite.openDatabaseAsync('fleet-manage.db');
@@ -61,10 +64,10 @@ export async function processQueue(): Promise<{ processed: number; failed: numbe
     for (const item of rows) {
       try {
         const payloadData = JSON.parse(item.payload);
-        const targetTable = item.endpoint as any;
+        const targetTable = item.endpoint as OfflineQueueTable;
 
         // Perform insert to Supabase
-        const { error } = await supabase.from(targetTable).insert(payloadData);
+        const { error } = await supabase.from(targetTable).insert(payloadData as any);
 
         if (!error) {
           // Success: delete processed item from offline queue

@@ -337,6 +337,14 @@ export default function Dashboard() {
   useEffect(() => {
     fetchLiveSpecialists();
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetchLiveSpecialists = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchLiveSpecialists();
+      }, 500);
+    };
+
     // Set up Realtime subscriptions for profiles, trips, and appointments changes
     const channel = supabase
       .channel('live-specialists-presence-room')
@@ -344,28 +352,28 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'profiles' },
         () => {
-          fetchLiveSpecialists();
+          debouncedFetchLiveSpecialists();
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'appointments' },
         () => {
-          fetchLiveSpecialists();
+          debouncedFetchLiveSpecialists();
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
         () => {
-          fetchLiveSpecialists();
+          debouncedFetchLiveSpecialists();
         }
       )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'location_logs' },
         () => {
-          fetchLiveSpecialists();
+          debouncedFetchLiveSpecialists();
         }
       )
       .subscribe();
@@ -382,6 +390,7 @@ export default function Dashboard() {
     }, 1000);
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
@@ -482,7 +491,7 @@ export default function Dashboard() {
       isSignalLost: false,
       isOffline: false,
       };
-  }, [t]);
+  }, [t, language]);
 
   const filteredSpecialists = useMemo(() => {
     return specialists.filter((s) => {

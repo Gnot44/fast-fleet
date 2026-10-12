@@ -361,7 +361,7 @@ export default function LocationPickerModal({
           <MapView
             ref={mapRef}
             style={StyleSheet.absoluteFill}
-            provider={PROVIDER_GOOGLE}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             mapType="standard"
             showsUserLocation={true}
             showsMyLocationButton={false}
@@ -377,12 +377,6 @@ export default function LocationPickerModal({
             onRegionChangeComplete={handleRegionChangeComplete}
             onPress={handleMapPress}
           >
-            <UrlTile
-              urlTemplate={GOOGLE_MAPS_TILE_URL}
-              maximumZ={19}
-              flipY={false}
-              zIndex={-1}
-            />
           </MapView>
         )}
 

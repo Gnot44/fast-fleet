@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.trips (
     submitted_at TIMESTAMPTZ,
     approved_at TIMESTAMPTZ,
     approved_by UUID REFERENCES public.profiles(id),
-    tenant_id TEXT DEFAULT 'FASTFLEET_DEFAULT',
+    tenant_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     check_in_at TIMESTAMPTZ,
     check_out_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    tenant_id TEXT DEFAULT 'FASTFLEET_DEFAULT',
+    tenant_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -380,11 +380,45 @@ VALUES
 ON CONFLICT (id) DO UPDATE SET public = true;
 
 -- Storage Security Policies
-CREATE POLICY "Public read for trip photos" ON storage.objects
+CREATE POLICY "Public read for fleet storage buckets" ON storage.objects
     FOR SELECT USING (bucket_id IN ('trip_photos', 'expense_receipts', 'avatars'));
 
-CREATE POLICY "Authenticated users can upload photos" ON storage.objects
-    FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated owners or admin can insert storage objects" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id IN ('trip_photos', 'expense_receipts', 'avatars')
+        AND (
+            (storage.foldername(name))[1] = (SELECT auth.uid())::text
+            OR public.is_admin()
+        )
+    );
+
+CREATE POLICY "Authenticated owners or admin can update storage objects" ON storage.objects
+    FOR UPDATE TO authenticated
+    USING (
+        bucket_id IN ('trip_photos', 'expense_receipts', 'avatars')
+        AND (
+            (storage.foldername(name))[1] = (SELECT auth.uid())::text
+            OR public.is_admin()
+        )
+    )
+    WITH CHECK (
+        bucket_id IN ('trip_photos', 'expense_receipts', 'avatars')
+        AND (
+            (storage.foldername(name))[1] = (SELECT auth.uid())::text
+            OR public.is_admin()
+        )
+    );
+
+CREATE POLICY "Authenticated owners or admin can delete storage objects" ON storage.objects
+    FOR DELETE TO authenticated
+    USING (
+        bucket_id IN ('trip_photos', 'expense_receipts', 'avatars')
+        AND (
+            (storage.foldername(name))[1] = (SELECT auth.uid())::text
+            OR public.is_admin()
+        )
+    );
 
 -- ==============================================================================
 -- 13. Enable Realtime Publications

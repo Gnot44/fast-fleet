@@ -76,7 +76,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
   const params = route?.params || {};
   const tripId = params.tripId;
   const tripTitle = params.tripTitle || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
-  const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max SpaceCab (1กข-5555 กทม.)';
+  const selectedVehicle = params.selectedVehicle || '-';
   // Remove license plate to keep badge compact
   const displayVehicleName = selectedVehicle.split('(')[0]?.trim() || selectedVehicle;
   const startLocation = params.startLocation || DEFAULT_BANGKOK_LOCATION;
@@ -359,7 +359,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
         return num;
       }
     }
-    return 45200;
+    return 0;
   }, [tripStartOdometer, startOdometer]);
 
   // Overall effective odometer (latest completed or DB current)
@@ -1162,7 +1162,7 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
             <MapView
               ref={mapRef}
               style={styles.map}
-              provider={PROVIDER_GOOGLE}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
               mapType="standard"
               showsUserLocation={true}
               initialRegion={{
@@ -1172,12 +1172,6 @@ export default function ActiveTrackerScreen({ navigation, route }: any) {
                 longitudeDelta: 0.08,
               }}
             >
-              <UrlTile
-                urlTemplate={GOOGLE_MAPS_TILE_URL}
-                maximumZ={19}
-                flipY={false}
-                zIndex={-1}
-              />
               {/* Driver Live Marker */}
               <Marker
                 coordinate={{

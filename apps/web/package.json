@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "node --env-file=.env scripts/e2e_test_bot.mjs",
+    "test:flow": "node --env-file=.env scripts/physical_test_flow.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

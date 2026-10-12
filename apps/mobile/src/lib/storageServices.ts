@@ -62,9 +62,11 @@ export async function uploadImageToSupabase(
       return uriOrBase64;
     }
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id || 'anonymous';
     const ext = 'jpg';
     const fileName = customFileName || `${bucket}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
-    const filePath = `uploads/${fileName}`;
+    const filePath = `${userId}/${fileName}`;
 
     let bodyData: any = null;
 

@@ -1,35 +1,47 @@
 import { describe, it, expect } from 'vitest';
 
+export type AppRole = 'admin' | 'manager' | 'specialist';
+
 export interface NavItem {
   icon: string;
   label: string;
   path: string;
+  allowedRoles?: AppRole[];
   adminOnly?: boolean;
 }
 
 export const ALL_NAV_ITEMS: NavItem[] = [
-  { icon: 'dashboard', label: 'ติดตามพิกัดสด', path: '/admin/dashboard' },
-  { icon: 'route', label: 'ดูเส้นทางย้อนหลัง', path: '/admin/playback' },
-  { icon: 'calendar_month', label: 'ปฏิทินแผนงาน', path: '/admin/schedule' },
-  { icon: 'task_alt', label: 'ประวัติและรายงาน', path: '/admin/history' },
-  { icon: 'groups', label: 'ทีมการตลาด', path: '/admin/drivers', adminOnly: true },
-  { icon: 'monitoring', label: 'รายงานและวิเคราะห์', path: '/admin/reports', adminOnly: true },
-  { icon: 'settings', label: 'ตั้งค่าระบบ', path: '/admin/settings', adminOnly: true },
+  { icon: 'dashboard', label: 'ติดตามพิกัดสด', path: '/admin/dashboard', allowedRoles: ['admin', 'manager', 'specialist'] },
+  { icon: 'route', label: 'ดูเส้นทางย้อนหลัง', path: '/admin/playback', allowedRoles: ['admin', 'manager', 'specialist'] },
+  { icon: 'calendar_month', label: 'ปฏิทินแผนงาน', path: '/admin/schedule', allowedRoles: ['admin', 'manager', 'specialist'] },
+  { icon: 'task_alt', label: 'ประวัติและรายงาน', path: '/admin/history', allowedRoles: ['admin', 'manager', 'specialist'] },
+  { icon: 'groups', label: 'ทีมการตลาด', path: '/admin/drivers', allowedRoles: ['admin', 'manager'], adminOnly: true },
+  { icon: 'monitoring', label: 'รายงานและวิเคราะห์', path: '/admin/reports', allowedRoles: ['admin', 'manager'], adminOnly: true },
+  { icon: 'settings', label: 'ตั้งค่าระบบ', path: '/admin/settings', allowedRoles: ['admin'], adminOnly: true },
 ];
 
-export function getVisibleNavItems(role: 'admin' | 'specialist'): NavItem[] {
-  return ALL_NAV_ITEMS.filter((item) => !(role === 'specialist' && item.adminOnly));
+export function getVisibleNavItems(role: AppRole): NavItem[] {
+  return ALL_NAV_ITEMS.filter((item) => {
+    if (item.allowedRoles) return item.allowedRoles.includes(role);
+    return !(role === 'specialist' && item.adminOnly);
+  });
 }
 
-export function shouldRedirectSpecialistRoute(role: 'admin' | 'specialist', pathname: string): boolean {
-  if (role !== 'specialist') return false;
-  const adminOnlyPaths = ['/admin/drivers', '/admin/reports', '/admin/settings'];
-  return adminOnlyPaths.some((p) => pathname.startsWith(p));
+export function shouldRedirectSpecialistRoute(role: AppRole, pathname: string): boolean {
+  if (role === 'specialist') {
+    const adminOnlyPaths = ['/admin/drivers', '/admin/reports', '/admin/settings'];
+    return adminOnlyPaths.some((p) => pathname.startsWith(p));
+  }
+  if (role === 'manager') {
+    const managerBlockedPaths = ['/admin/settings'];
+    return managerBlockedPaths.some((p) => pathname.startsWith(p));
+  }
+  return false;
 }
 
 export function filterTripsForRole(
   trips: Array<{ id: string; staff_id: string; title: string }>,
-  role: 'admin' | 'specialist',
+  role: AppRole,
   currentUserId: string
 ) {
   if (role === 'specialist') {
@@ -38,8 +50,8 @@ export function filterTripsForRole(
   return trips;
 }
 
-export function canReviewAndApproveTrips(role: 'admin' | 'specialist'): boolean {
-  return role === 'admin';
+export function canReviewAndApproveTrips(role: AppRole): boolean {
+  return role === 'admin' || role === 'manager';
 }
 
 describe('Specialist RBAC & Data Isolation Tests', () => {
@@ -110,8 +122,30 @@ describe('Specialist RBAC & Data Isolation Tests', () => {
     expect(adminTrips.length).toBe(4);
   });
 
-  it('TC-RBAC-05: Specialist cannot approve or reject trips (manager audit action is Admin only)', () => {
+  it('TC-RBAC-05: Specialist cannot approve or reject trips (manager audit action is Admin/Manager only)', () => {
     expect(canReviewAndApproveTrips('specialist')).toBe(false);
+    expect(canReviewAndApproveTrips('manager')).toBe(true);
     expect(canReviewAndApproveTrips('admin')).toBe(true);
+  });
+
+  it('TC-RBAC-06: Manager sees 6 navigation items (including Drivers & Reports, excluding Settings)', () => {
+    const mgrNav = getVisibleNavItems('manager');
+    expect(mgrNav.length).toBe(6);
+    expect(mgrNav.map((n) => n.path)).toEqual([
+      '/admin/dashboard',
+      '/admin/playback',
+      '/admin/schedule',
+      '/admin/history',
+      '/admin/drivers',
+      '/admin/reports',
+    ]);
+    expect(mgrNav.some((n) => n.path === '/admin/settings')).toBe(false);
+  });
+
+  it('TC-RBAC-07: Route guard blocks Manager from accessing System Settings while allowing Drivers & Reports', () => {
+    expect(shouldRedirectSpecialistRoute('manager', '/admin/settings')).toBe(true);
+    expect(shouldRedirectSpecialistRoute('manager', '/admin/drivers')).toBe(false);
+    expect(shouldRedirectSpecialistRoute('manager', '/admin/reports')).toBe(false);
+    expect(shouldRedirectSpecialistRoute('manager', '/admin/dashboard')).toBe(false);
   });
 });

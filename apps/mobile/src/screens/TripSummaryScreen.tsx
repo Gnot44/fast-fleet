@@ -46,6 +46,7 @@ import {
 import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/mapServices';
+import { getLocalDateString } from '../lib/dateUtils';
 
 function parsePhotos(photoField?: any): string[] {
   if (!photoField) return [];
@@ -89,19 +90,19 @@ export default function TripSummaryScreen({ navigation, route }: any) {
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
-  const tripRoute = params.tripTitle || params.tripRoute || 'Bangkok Central Delivery Route';
-  const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max (1กข-4452)';
+  const tripRoute = params.tripTitle || params.tripRoute || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
+  const selectedVehicle = params.selectedVehicle || '-';
   
   // Starting Location & Odometer state
-  const [startOdometer, setStartOdometer] = useState<string>(params.startOdometer || '45200');
+  const [startOdometer, setStartOdometer] = useState<string>(params.startOdometer || '');
   const [startLocation] = useState(
     params.startLocation || {
       name: language === 'th' ? 'สำนักงาน / จุดปล่อยรถ (Depot)' : 'Office / Dispatch Depot',
-      address: 'ถนนสุขุมวิท เขตคลองเตย กรุงเทพมหานคร',
+      address: '',
     }
   );
   const [isEditStartOdoOpen, setIsEditStartOdoOpen] = useState(false);
-  const [editingOdoValue, setEditingOdoValue] = useState(params.startOdometer || '45200');
+  const [editingOdoValue, setEditingOdoValue] = useState(params.startOdometer || '');
 
   const rawDrops = Array.isArray(params.drops) ? params.drops : [];
 
@@ -621,7 +622,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
           trip_code: newTripCode,
           staff_id: staffId,
           title: tripRoute,
-          trip_date: new Date().toISOString().split('T')[0],
+          trip_date: getLocalDateString(),
           status: isPending ? 'completed' : 'in_progress',
           approval_status: targetApprovalStatus,
           submitted_at: isPending ? new Date().toISOString() : null,

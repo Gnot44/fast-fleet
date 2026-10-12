@@ -670,7 +670,13 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
     const deletedIds = deletedDropIdsRef.current.length > 0 ? [...deletedDropIdsRef.current] : null;
     deletedDropIdsRef.current = [];
 
-    const staffId = params.staffId || '42284d55-3997-4add-9226-dd9cf2f085df';
+    const { data: { user } } = await supabase.auth.getUser();
+    const staffId = params.staffId || user?.id;
+    if (!staffId) {
+      console.warn('Cannot sync itinerary: staffId is undefined');
+      setIsSaving(false);
+      return;
+    }
     const updatePayloads = finalDrops.map((item, idx) => {
       const seq = idx + 1;
       const rawCust = (item.customerName || item.recipient || '').trim();
@@ -1185,7 +1191,7 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                         <MapView
                           ref={mapRef}
                           style={styles.map}
-                          provider={PROVIDER_GOOGLE}
+                          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                           mapType="standard"
                           showsUserLocation={true}
                           initialRegion={{
@@ -1197,12 +1203,6 @@ export default function EditTripItineraryScreen({ navigation, route }: any) {
                           onRegionChangeComplete={handleManualMapRegionChangeComplete}
                           onPress={handleMapPress}
                         >
-                          <UrlTile
-                            urlTemplate={GOOGLE_MAPS_TILE_URL}
-                            maximumZ={19}
-                            flipY={false}
-                            zIndex={-1}
-                          />
                         </MapView>
                       )}
 

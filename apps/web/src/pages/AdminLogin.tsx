@@ -53,7 +53,9 @@ export default function AdminLogin() {
           .eq('id', authData.user.id)
           .maybeSingle();
 
-        const role = prof?.role === 'specialist' ? 'specialist' : 'admin';
+        const role = (prof?.role === 'manager' || prof?.role === 'admin')
+          ? prof.role
+          : 'specialist';
         localStorage.setItem('fastfleet_user_role', role);
         if (prof?.full_name) localStorage.setItem('fastfleet_user_name', prof.full_name);
         if (prof?.nickname) localStorage.setItem('fastfleet_user_nick', prof.nickname);

@@ -25,29 +25,39 @@ export const ANTI_DRIFT_CONFIG = {
   HEARTBEAT_MS: 20000,    // 20 seconds
 };
 
+export interface GpsConfigPayload {
+  mbSpeedMoving?: number;
+  mbDistMoving?: number;
+  mbSpeedStatic?: number;
+  mbStaticRadius?: number;
+  dropIgnoreData?: boolean;
+}
+
 // Fetch and sync GPS config from system_settings dynamically
 export async function syncGpsConfigFromDatabase() {
   try {
-    const { data } = await (supabase.from('system_settings' as any) as any)
+    const { data } = await supabase
+      .from('system_settings')
       .select('gps_config')
       .limit(1)
       .maybeSingle();
 
-    if (data && data.gps_config) {
-      if (typeof data.gps_config.mbSpeedMoving === 'number') {
-        ANTI_DRIFT_CONFIG.MB_SPEED_MOVING = data.gps_config.mbSpeedMoving;
+    if (data && data.gps_config && typeof data.gps_config === 'object' && !Array.isArray(data.gps_config)) {
+      const cfg = data.gps_config as GpsConfigPayload;
+      if (typeof cfg.mbSpeedMoving === 'number') {
+        ANTI_DRIFT_CONFIG.MB_SPEED_MOVING = cfg.mbSpeedMoving;
       }
-      if (typeof data.gps_config.mbDistMoving === 'number') {
-        ANTI_DRIFT_CONFIG.MB_DIST_MOVING = data.gps_config.mbDistMoving;
+      if (typeof cfg.mbDistMoving === 'number') {
+        ANTI_DRIFT_CONFIG.MB_DIST_MOVING = cfg.mbDistMoving;
       }
-      if (typeof data.gps_config.mbSpeedStatic === 'number') {
-        ANTI_DRIFT_CONFIG.MB_SPEED_STATIC = data.gps_config.mbSpeedStatic;
+      if (typeof cfg.mbSpeedStatic === 'number') {
+        ANTI_DRIFT_CONFIG.MB_SPEED_STATIC = cfg.mbSpeedStatic;
       }
-      if (typeof data.gps_config.mbStaticRadius === 'number') {
-        ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS = data.gps_config.mbStaticRadius;
+      if (typeof cfg.mbStaticRadius === 'number') {
+        ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS = cfg.mbStaticRadius;
       }
-      if (typeof data.gps_config.dropIgnoreData === 'boolean') {
-        ANTI_DRIFT_CONFIG.DROP_IGNORE_DATA = data.gps_config.dropIgnoreData;
+      if (typeof cfg.dropIgnoreData === 'boolean') {
+        ANTI_DRIFT_CONFIG.DROP_IGNORE_DATA = cfg.dropIgnoreData;
       }
       console.log(`[Anti-Drift] 🔄 Synced GPS settings from DB: Moving > ${ANTI_DRIFT_CONFIG.MB_SPEED_MOVING} km/h & ${ANTI_DRIFT_CONFIG.MB_DIST_MOVING}m, Stopped <= ${ANTI_DRIFT_CONFIG.MB_SPEED_STATIC} km/h & ${ANTI_DRIFT_CONFIG.MB_STATIC_RADIUS}m`);
     }
@@ -245,7 +255,7 @@ async function processLocationTelemetry(rawCoords: {
     }
 
     // Stream filtered and stabilized telemetry to Supabase Presence & Live Map
-    const { error: rpcErr } = await (supabase.rpc as any)('update_specialist_presence', {
+    const { error: rpcErr } = await supabase.rpc('update_specialist_presence', {
       p_is_online: true,
       p_lat: evalResult.coords.latitude,
       p_lng: evalResult.coords.longitude,
@@ -257,7 +267,8 @@ async function processLocationTelemetry(rawCoords: {
     if (rpcErr) {
       // Direct table update fallback
       try {
-        await (supabase.from('profiles' as any) as any)
+        await supabase
+          .from('profiles')
           .update({
             is_online: true,
             last_seen_at: new Date().toISOString(),
@@ -323,12 +334,13 @@ export async function sendLocationPing(isOnline: boolean = true) {
     if (!user) return;
 
     if (!isOnline) {
-      const { error: rpcErr } = await (supabase.rpc as any)('update_specialist_presence', {
+      const { error: rpcErr } = await supabase.rpc('update_specialist_presence', {
         p_is_online: false,
       });
       if (rpcErr) {
         try {
-          await (supabase.from('profiles' as any) as any)
+          await supabase
+            .from('profiles')
             .update({
               is_online: false,
               last_seen_at: new Date().toISOString(),
@@ -387,7 +399,8 @@ export async function isTrackingAllowed(forceRefresh: boolean = false): Promise<
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return false;
 
-    const { data: prof } = await (supabase.from('profiles' as any) as any)
+    const { data: prof } = await supabase
+      .from('profiles')
       .select('is_tracking_enabled, user_tracking_enabled')
       .eq('id', user.id)
       .single();

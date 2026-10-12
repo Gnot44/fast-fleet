@@ -20,7 +20,7 @@
         "NSLocationAlwaysUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งตลอดเวลาเพื่อติดตามการเดินทางของทีมการตลาด"
       },
       "config": {
-        "googleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
+        "googleMapsApiKey": ""
       }
     },
     "android": {
@@ -44,7 +44,7 @@
       "package": "com.gnot44.fastfleet",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
+          "apiKey": ""
         }
       },
       "predictiveBackGestureEnabled": false
@@ -56,8 +56,8 @@
       [
         "react-native-maps",
         {
-          "androidGoogleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY",
-          "iosGoogleMapsApiKey": "AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY"
+          "androidGoogleMapsApiKey": "",
+          "iosGoogleMapsApiKey": ""
         }
       ],
       "expo-sqlite",

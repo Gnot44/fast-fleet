@@ -1196,6 +1196,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
           contentContainerStyle={styles.scrollInner}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           scrollEnabled={scrollEnabled}
         >
           {/* ========================================================================= */}
@@ -1268,7 +1269,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                 <MapView
                   ref={startMapRef}
                   style={[StyleSheet.absoluteFill, { borderRadius: 20 }]}
-                  provider={PROVIDER_GOOGLE}
+                  provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                   mapType="standard"
                   showsUserLocation={true}
                   initialRegion={{
@@ -1285,12 +1286,6 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                   onRegionChangeComplete={handleStartMapRegionChangeComplete}
                   onPress={handleStartMapPress}
                 >
-                  <UrlTile
-                    urlTemplate={GOOGLE_MAPS_TILE_URL}
-                    maximumZ={19}
-                    flipY={false}
-                    zIndex={-1}
-                  />
                 </MapView>
               )}
 
@@ -1937,7 +1932,7 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                 ) : (
                   <MapView
                     style={[StyleSheet.absoluteFill, { borderRadius: 20 }]}
-                    provider={PROVIDER_GOOGLE}
+                    provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                     mapType="standard"
                     region={{
                       latitude: startLocationCoord.latitude,
@@ -1946,12 +1941,6 @@ export default function NewAppointmentScreen({ navigation, route }: any) {
                       longitudeDelta: 0.12,
                     }}
                   >
-                    <UrlTile
-                      urlTemplate={GOOGLE_MAPS_TILE_URL}
-                      maximumZ={19}
-                      flipY={false}
-                      zIndex={-1}
-                    />
                     {/* Origin Marker */}
                     <Marker
                       coordinate={{

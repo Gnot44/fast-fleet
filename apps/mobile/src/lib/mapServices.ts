@@ -270,16 +270,22 @@ export async function reverseGeocodeGoogle(
     const osmUrl = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=th`;
     const res = await fetch(osmUrl, {
       headers: {
-        'User-Agent': 'FastFleetMobileApp/1.0',
+        'User-Agent': 'FastFleet-FleetApp/1.0 (contact: admin@fastfleet.io)',
+        'Accept': 'application/json',
       },
     });
-    const data = await res.json();
-    if (data && (data.name || data.display_name)) {
-      const name = data.name || data.address?.road || data.address?.suburb || 'ตำแหน่งที่เลือก';
-      return saveAndReturn({
-        name,
-        address: data.display_name || `พิกัด: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
-      });
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data && (data.name || data.display_name)) {
+          const name = data.name || data.address?.road || data.address?.suburb || 'ตำแหน่งที่เลือก';
+          return saveAndReturn({
+            name,
+            address: data.display_name || `พิกัด: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+          });
+        }
+      }
     }
   } catch (_) {
     // Continue
@@ -397,37 +403,43 @@ export async function fetchPlacePredictions(
 
     const res = await fetch(osmUrl, {
       headers: {
-        'User-Agent': 'FastFleetMobileApp/1.0',
+        'User-Agent': 'FastFleet-FleetApp/1.0 (contact: admin@fastfleet.io)',
+        'Accept': 'application/json',
       },
     });
-    const data = await res.json();
 
-    if (Array.isArray(data) && data.length > 0) {
-      return data.map((item: any) => {
-        const placeId = `osm_${item.osm_type || 'node'}_${item.osm_id || item.place_id}`;
-        const mainText = item.name || item.address?.shop || item.address?.amenity || item.address?.road || item.display_name.split(',')[0];
-        const secondaryText = item.display_name;
-        const lat = parseFloat(item.lat);
-        const lng = parseFloat(item.lon);
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data.map((item: any) => {
+            const placeId = `osm_${item.osm_type || 'node'}_${item.osm_id || item.place_id}`;
+            const mainText = item.name || item.address?.shop || item.address?.amenity || item.address?.road || item.display_name.split(',')[0];
+            const secondaryText = item.display_name;
+            const lat = parseFloat(item.lat);
+            const lng = parseFloat(item.lon);
 
-        placeDetailsCache.set(placeId, {
-          coordinates: { latitude: lat, longitude: lng },
-          name: mainText,
-          formattedAddress: secondaryText,
-        });
+            placeDetailsCache.set(placeId, {
+              coordinates: { latitude: lat, longitude: lng },
+              name: mainText,
+              formattedAddress: secondaryText,
+            });
 
-        return {
-          place_id: placeId,
-          description: secondaryText,
-          main_text: mainText,
-          secondary_text: secondaryText,
-          latitude: lat,
-          longitude: lng,
-        };
-      });
+            return {
+              place_id: placeId,
+              description: secondaryText,
+              main_text: mainText,
+              secondary_text: secondaryText,
+              latitude: lat,
+              longitude: lng,
+            };
+          });
+        }
+      }
     }
-  } catch (osmErr) {
-    console.warn('Nominatim search error:', osmErr);
+  } catch (_osmErr) {
+    // Graceful fallback to next provider
   }
 
   // 3. Fallback: Native Expo Geocoder
@@ -453,8 +465,8 @@ export async function fetchPlacePredictions(
         };
       });
     }
-  } catch (nativeErr) {
-    console.warn('Native geocode error:', nativeErr);
+  } catch (_nativeErr) {
+    // Native geocoder on Android requires active Google Play Services backend. If unavailable, fail gracefully.
   }
 
   return [];

@@ -5,6 +5,11 @@ import {
   resolveTripOdoAndGpsMetrics,
   resolveDropTelemetryList,
 } from '../utils/telemetryUtils';
+import {
+  getLocalDateString,
+  getStartOfWeekString,
+  getEndOfWeekString,
+} from '../utils/dateUtils';
 
 export interface PlannedDropItem {
   id: string;
@@ -87,10 +92,10 @@ export default function SpecialistScheduleCalendar() {
   // Date Range Presets: 'today' | 'week' | 'month' | 'all' | 'custom'
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'all' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<string>(
-    new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
+    getLocalDateString(new Date(today.getFullYear(), today.getMonth(), 1))
   );
   const [customEndDate, setCustomEndDate] = useState<string>(
-    new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0]
+    getLocalDateString(new Date(today.getFullYear(), today.getMonth() + 1, 0))
   );
 
   // View Mode: 'calendar' | 'list' | 'table' | 'summary'
@@ -239,8 +244,8 @@ export default function SpecialistScheduleCalendar() {
               title,
               amount,
               receipt_url,
-              receipt_image_path,
-              )
+              receipt_image_path
+            )
           `)
           .order('created_at', { ascending: false });
 
@@ -270,8 +275,8 @@ export default function SpecialistScheduleCalendar() {
             else if (t.status === 'in_progress') tripStat = 'In Progress';
             else tripStat = 'Scheduled';
 
-            const rawDate = t.trip_date || (t.created_at ? t.created_at.split('T')[0] : '2026-08-24');
-            const dateOnly = typeof rawDate === 'string' ? rawDate.split('T')[0] : '2026-08-24';
+            const rawDate = t.trip_date || (t.created_at ? t.created_at.split('T')[0] : getLocalDateString());
+            const dateOnly = typeof rawDate === 'string' ? rawDate.split('T')[0] : getLocalDateString();
             const fullName = prof.full_name || 'kosit goonlaboot';
             const nick = prof.nickname || fullName.split(' ')[0] || 'kosit';
             const empId = prof.employee_id || 'AITS10002772';
@@ -386,15 +391,24 @@ export default function SpecialistScheduleCalendar() {
 
     loadData();
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedLoadData = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadData();
+      }, 500);
+    };
+
     // Supabase Live Subscription
     const channel = supabase
       .channel('calendar-schedule-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => loadData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => loadData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => debouncedLoadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => debouncedLoadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => debouncedLoadData())
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -823,11 +837,11 @@ export default function SpecialistScheduleCalendar() {
 
       // 3. Date Range Filter
       if (datePreset === 'today') {
-        const todayStr = '2026-08-24';
+        const todayStr = getLocalDateString();
         if (t.date !== todayStr) return false;
       } else if (datePreset === 'week') {
-        const firstStr = '2026-08-23';
-        const lastStr = '2026-08-29';
+        const firstStr = getStartOfWeekString();
+        const lastStr = getEndOfWeekString();
         if (t.date < firstStr || t.date > lastStr) return false;
       } else if (datePreset === 'month') {
         const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
@@ -1142,7 +1156,7 @@ export default function SpecialistScheduleCalendar() {
       days.push({ dayNumber: null, dateStr: null, isToday: false, trips: [] });
     }
 
-    const todayStr = '2026-08-24';
+    const todayStr = getLocalDateString();
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayTrips = filteredTrips.filter((t) => t.date === dateStr);
@@ -1179,7 +1193,7 @@ export default function SpecialistScheduleCalendar() {
     const d = new Date();
     setCurrentYear(d.getFullYear());
     setCurrentMonth(d.getMonth());
-    setDatePreset('today');
+    setDatePreset('month');
   };
 
   const getStatusBadge = (status: string) => {

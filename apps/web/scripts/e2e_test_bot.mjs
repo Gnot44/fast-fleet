@@ -5,8 +5,14 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://wufuewwgikdouauuoqus.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1ZnVld3dnaWtkb3VhdXVvcXVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MzIwMTIsImV4cCI6MjEwMjAwODAxMn0._uEfdwSBS4EruoswH7f2Taw8SquPmT3P5uZ5Mfwalnk';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('\x1b[31m[FastFleet QA Error] Missing SUPABASE_URL or SUPABASE_ANON_KEY in environment variables.\x1b[0m');
+  console.error('Please provide via environment or run with: node --env-file=.env scripts/e2e_test_bot.mjs');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

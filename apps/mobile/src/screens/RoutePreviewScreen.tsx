@@ -52,9 +52,9 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
   const { resetDraft, setActiveTripDrops } = useTripDraft();
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
-  const tripTitle = params.tripTitle || 'Bangkok Central Express Route';
+  const tripTitle = params.tripTitle || (language === 'th' ? 'เส้นทางเข้าพบลูกค้า' : 'Client Visit Route');
   const scheduledDate = params.scheduledDate || 'Today';
-  const selectedVehicle = params.selectedVehicle || 'Isuzu D-Max (1กข-4452)';
+  const selectedVehicle = params.selectedVehicle || '-';
   const isOverdue = !!params.isOverdue;
   const [tripDateKey, setTripDateKey] = useState<string>(params.rawDate || params.scheduledDate || '');
 
@@ -414,7 +414,7 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
           ) : (
             <MapView
               style={styles.map}
-              provider={PROVIDER_GOOGLE}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
               mapType="standard"
               region={{
                 latitude: startLocation.latitude || 13.735,
@@ -423,12 +423,6 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
                 longitudeDelta: 0.12,
               }}
             >
-              <UrlTile
-                urlTemplate={GOOGLE_MAPS_TILE_URL}
-                maximumZ={19}
-                flipY={false}
-                zIndex={-1}
-              />
               {/* Origin Start Marker (Point 1) */}
               <Marker
                 coordinate={{

@@ -25,6 +25,7 @@ import {
   Building,
   Map,
   CheckCircle,
+  Check,
   X,
   Compass,
   Phone,
@@ -106,6 +107,46 @@ export default function AddNewDropScreen({ navigation, route }: any) {
   const isSelectingRef = useRef<boolean>(false);
   const dropGeocodeTimer = useRef<any>(null);
   const isInteractingDropMapRef = useRef(false);
+
+  // Keyboard and scroll management
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const customerNameInputRef = useRef<TextInput | null>(null);
+  const phoneInputRef = useRef<TextInput | null>(null);
+  const companyInputRef = useRef<TextInput | null>(null);
+  const customAgendaInputRef = useRef<TextInput | null>(null);
+  const destinationAddressInputRef = useRef<TextInput | null>(null);
+
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        if (e?.endCoordinates?.height) {
+          setKeyboardHeight(e.endCoordinates.height);
+        }
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleFieldFocus = (yOffset: number) => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
+    }, 120);
+  };
 
   // Sync camera when selectedCoord changes programmatically (GPS, Search, or Modal)
   useEffect(() => {
@@ -346,7 +387,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
 
       const cleanCustomer = customerName.trim();
       const cleanCompany = companyName.trim();
-      const cleanAddress = (destinationAddress || 'Bangkok Central Area').trim();
+      const cleanAddress = (destinationAddress || '').trim();
 
       // Resolved display name: Customer Name if provided, else destination address, else company
       const resolvedDisplayName = cleanCustomer || cleanAddress || cleanCompany || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop');
@@ -359,7 +400,14 @@ export default function AddNewDropScreen({ navigation, route }: any) {
             .select('staff_id')
             .eq('id', tripId)
             .single();
-          const staffId = tripRow?.staff_id || user?.id || '42284d55-3997-4add-9226-dd9cf2f085df';
+          const staffId = tripRow?.staff_id || user?.id;
+          if (!staffId) {
+            Alert.alert(
+              language === 'th' ? 'กรุณาเข้าสู่ระบบ' : 'Authentication Required',
+              language === 'th' ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง' : 'Session expired, please sign in again.'
+            );
+            return;
+          }
 
           const resolvedCompanyName = cleanCompany || cleanCustomer || cleanAddress || (language === 'th' ? 'สถานที่นัดหมาย' : 'Client Stop');
           const resolvedCustomerName = cleanCustomer || cleanCompany || cleanAddress || (language === 'th' ? 'ลูกค้านัดหมาย' : 'Client Visit');
@@ -571,7 +619,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         style={{ flex: 1 }}
       >
         {/* Top Header */}
@@ -587,29 +635,53 @@ export default function AddNewDropScreen({ navigation, route }: any) {
             {isEditing ? (language === 'th' ? 'แก้ไขข้อมูลลูกค้า' : 'Edit Client Visit') : t('add_client_title')}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <LanguageTogglePill />
-            <TouchableOpacity
-              style={styles.gpsHeaderBtn}
-              onPress={handleUseCurrentLocation}
-              activeOpacity={0.8}
-            >
-              {fetchingGps ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <Compass size={14} color="#FFFFFF" />
-                  <Text style={styles.gpsHeaderBtnText}>{t('add_live_gps')}</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {isKeyboardVisible ? (
+              <TouchableOpacity
+                style={styles.keyboardDismissHeaderBtn}
+                onPress={() => Keyboard.dismiss()}
+                activeOpacity={0.8}
+              >
+                <Check size={14} color="#FFFFFF" />
+                <Text style={styles.keyboardDismissHeaderBtnText}>
+                  {language === 'th' ? 'เสร็จสิ้น' : 'Done'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <LanguageTogglePill />
+                <TouchableOpacity
+                  style={styles.gpsHeaderBtn}
+                  onPress={handleUseCurrentLocation}
+                  activeOpacity={0.8}
+                >
+                  {fetchingGps ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Compass size={14} color="#FFFFFF" />
+                      <Text style={styles.gpsHeaderBtnText}>{t('add_live_gps')}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollContent}
-          contentContainerStyle={styles.scrollInner}
+          contentContainerStyle={[
+            styles.scrollInner,
+            {
+              paddingBottom: isKeyboardVisible
+                ? Math.max(keyboardHeight, 280) + 60
+                : 170,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           scrollEnabled={scrollEnabled}
         >
           {/* Interactive Google Map Container */}
@@ -631,7 +703,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
               <MapView
                 ref={mapRef}
                 style={styles.map}
-                provider={PROVIDER_GOOGLE}
+                provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                 mapType="standard"
                 showsUserLocation={true}
                 initialRegion={{
@@ -644,12 +716,6 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 onRegionChangeComplete={handleDropMapRegionChangeComplete}
                 onPress={handleMapPress}
               >
-                <UrlTile
-                  urlTemplate={GOOGLE_MAPS_TILE_URL}
-                  maximumZ={19}
-                  flipY={false}
-                  zIndex={-1}
-                />
               </MapView>
             )}
 
@@ -685,6 +751,9 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                   value={searchQuery}
                   onChangeText={handleQueryChange}
                   returnKeyType="search"
+                  onFocus={() => {
+                    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+                  }}
                 />
                 {searching && <ActivityIndicator size="small" color="#1D4ED8" style={{ marginRight: 6 }} />}
                 {searchQuery.length > 0 && (
@@ -751,11 +820,15 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 <View style={styles.inputFieldContainer}>
                   <User size={16} color="#747686" style={styles.inputIcon} />
                   <TextInput
+                    ref={customerNameInputRef}
                     style={styles.textInput}
                     placeholder={t('add_contact_placeholder')}
                     placeholderTextColor="#94A3B8"
                     value={customerName}
                     onChangeText={setCustomerName}
+                    onFocus={() => handleFieldFocus(260)}
+                    returnKeyType="next"
+                    onSubmitEditing={() => phoneInputRef.current?.focus()}
                   />
                 </View>
               </View>
@@ -771,12 +844,16 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 <View style={styles.inputFieldContainer}>
                   <Phone size={16} color="#747686" style={styles.inputIcon} />
                   <TextInput
+                    ref={phoneInputRef}
                     style={styles.textInput}
                     placeholder={t('add_phone_placeholder')}
                     placeholderTextColor="#94A3B8"
                     keyboardType="phone-pad"
                     value={phoneNumber}
                     onChangeText={setPhoneNumber}
+                    onFocus={() => handleFieldFocus(340)}
+                    returnKeyType="next"
+                    onSubmitEditing={() => companyInputRef.current?.focus()}
                   />
                 </View>
               </View>
@@ -787,11 +864,21 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 <View style={styles.inputFieldContainer}>
                   <Building size={16} color="#747686" style={styles.inputIcon} />
                   <TextInput
+                    ref={companyInputRef}
                     style={styles.textInput}
                     placeholder={t('add_company_placeholder')}
                     placeholderTextColor="#94A3B8"
                     value={companyName}
                     onChangeText={setCompanyName}
+                    onFocus={() => handleFieldFocus(420)}
+                    returnKeyType="next"
+                    onSubmitEditing={() => {
+                      if (selectedAgendaKey === 'other') {
+                        customAgendaInputRef.current?.focus();
+                      } else {
+                        destinationAddressInputRef.current?.focus();
+                      }
+                    }}
                   />
                 </View>
               </View>
@@ -852,6 +939,7 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                   <View style={[styles.inputFieldContainer, { marginTop: 8, borderColor: '#1D4ED8', borderWidth: 1.5 }]}>
                     <Briefcase size={16} color="#1D4ED8" style={styles.inputIcon} />
                     <TextInput
+                      ref={customAgendaInputRef}
                       style={styles.textInput}
                       placeholder={language === 'th' ? 'โปรดระบุวัตถุประสงค์เพิ่มเติม...' : 'Please specify other purpose...'}
                       placeholderTextColor="#94A3B8"
@@ -860,6 +948,9 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                         setCustomAgendaText(text);
                         setMeetingAgenda(text ? `อื่นๆ: ${text}` : '');
                       }}
+                      onFocus={() => handleFieldFocus(580)}
+                      returnKeyType="next"
+                      onSubmitEditing={() => destinationAddressInputRef.current?.focus()}
                       autoFocus
                     />
                   </View>
@@ -884,11 +975,13 @@ export default function AddNewDropScreen({ navigation, route }: any) {
                 <View style={styles.inputFieldContainer}>
                   <Map size={16} color="#747686" style={styles.inputIcon} />
                   <TextInput
+                    ref={destinationAddressInputRef}
                     style={styles.textInput}
                     placeholder={t('add_location_placeholder')}
                     placeholderTextColor="#94A3B8"
                     value={destinationAddress}
                     onChangeText={setDestinationAddress}
+                    onFocus={() => handleFieldFocus(700)}
                     multiline
                   />
                 </View>
@@ -897,24 +990,26 @@ export default function AddNewDropScreen({ navigation, route }: any) {
           </TouchableWithoutFeedback>
         </ScrollView>
 
-        {/* Sticky Bottom CTA */}
-        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
-          <TouchableOpacity
-            style={[styles.confirmButton, isSubmitting && { opacity: 0.6 }]}
-            onPress={handleConfirm}
-            disabled={isSubmitting}
-            activeOpacity={0.9}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
-            )}
-            <Text style={styles.confirmButtonText}>
-              {isSubmitting ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...') : t('btn_confirm')}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* Sticky Bottom CTA - hidden when keyboard is visible to avoid blocking form fields */}
+        {!isKeyboardVisible && (
+          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
+            <TouchableOpacity
+              style={[styles.confirmButton, isSubmitting && { opacity: 0.6 }]}
+              onPress={handleConfirm}
+              disabled={isSubmitting}
+              activeOpacity={0.9}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <CheckCircle size={18} color="#FFFFFF" fill="#FFFFFF" />
+              )}
+              <Text style={styles.confirmButtonText}>
+                {isSubmitting ? (language === 'th' ? 'กำลังบันทึก...' : 'Saving...') : t('btn_confirm')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Location Picker Modal */}
         <LocationPickerModal
@@ -1351,5 +1446,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#1D4ED8',
+  },
+  keyboardDismissHeaderBtn: {
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  keyboardDismissHeaderBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

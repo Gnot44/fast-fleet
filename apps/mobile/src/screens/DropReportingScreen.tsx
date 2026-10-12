@@ -662,7 +662,11 @@ export default function DropReportingScreen({ navigation, route }: any) {
       const apptId = updatedDrop.appointmentId || updatedDrop.id;
       const tripId = params.tripId;
       const { data: { user } } = await supabase.auth.getUser();
-      const staffId = user?.id || drop.staff_id || params.staffId || '42284d55-3997-4add-9226-dd9cf2f085df';
+      const staffId = user?.id || drop.staff_id || params.staffId;
+      if (!staffId) {
+        console.warn('Cannot save drop: staffId is undefined');
+        return;
+      }
 
       if (apptId) {
         // 1. Update appointment record in Supabase
@@ -902,6 +906,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
           contentContainerStyle={styles.scrollInner}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Context Card */}
           <View style={[styles.contextCard, isEditingFromSummary && styles.contextCardEditing]}>

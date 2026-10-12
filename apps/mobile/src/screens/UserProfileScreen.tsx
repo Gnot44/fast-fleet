@@ -46,18 +46,19 @@ export default function UserProfileScreen({ navigation }: any) {
   const [isUpdatingTracking, setIsUpdatingTracking] = useState(false);
   const [profile, setProfile] = useState<any>({
     name: 'กำลังโหลด...',
-    initials: 'MK',
+    initials: '...',
     staffId: '-',
-    role: 'Field Marketing Specialist',
-    department: 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-    territory: 'Bangkok Central (B2B)',
+    role: '-',
+    department: '-',
+    territory: '-',
     email: '-',
     phone: '-',
     vehicle: '-',
-    licenseClass: 'Corporate Transport Class B',
-    safetyScore: 98,
-    rating: 5.0,
+    licenseClass: '-',
+    safetyScore: null,
+    rating: null,
     tripsCompleted: 0,
+    onTimeRate: null,
     avatar: null,
     isTrackingEnforced: true,
     userTrackingEnabled: true,
@@ -71,30 +72,67 @@ export default function UserProfileScreen({ navigation }: any) {
         if (user) {
           const { data: profData } = await (supabase
             .from('profiles' as any) as any)
-            .select('*, staff(*)')
+            .select('*')
             .eq('id', user.id)
             .single();
 
-          const staffObj = Array.isArray(profData?.staff) ? profData.staff[0] : profData?.staff;
+          // Fetch trip stats: completed count & average safety score
+          const { data: tripStats } = await (supabase
+            .from('trips' as any) as any)
+            .select('status, safety_score')
+            .eq('staff_id', user.id);
+
+          const completedTrips = tripStats?.filter((t: any) => t.status === 'completed') || [];
+          const avgSafety = completedTrips.length > 0
+            ? Math.round(completedTrips.reduce((sum: number, t: any) => sum + (Number(t.safety_score) || 0), 0) / completedTrips.length)
+            : null;
+
+          // Fetch on-time rate from appointments
+          const { data: apptStats } = await (supabase
+            .from('appointments' as any) as any)
+            .select('scheduled_at, arrived_at, status')
+            .eq('staff_id', user.id)
+            .in('status', ['completed', 'checked_in', 'checked_out']);
+
+          let onTimeRate: number | null = null;
+          if (apptStats && apptStats.length > 0) {
+            const onTimeCount = apptStats.filter((a: any) => {
+              if (!a.arrived_at || !a.scheduled_at) return false;
+              const arrived = new Date(a.arrived_at).getTime();
+              const scheduled = new Date(a.scheduled_at).getTime();
+              return arrived <= scheduled + 15 * 60 * 1000; // within 15 min grace
+            }).length;
+            onTimeRate = Math.round((onTimeCount / apptStats.length) * 1000) / 10;
+          }
+
           const fullName = profData?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'พนักงานการตลาด';
           const initials = fullName
             ? fullName.split(' ').slice(0, 2).map((w: string) => w.charAt(0).toUpperCase()).join('')
             : 'MK';
 
+          // Build vehicle display string from real DB fields
+          let vehicleDisplay = '-';
+          if (profData?.assigned_vehicle_plate) {
+            vehicleDisplay = profData.assigned_vehicle_model
+              ? `${profData.assigned_vehicle_model} (${profData.assigned_vehicle_plate})`
+              : profData.assigned_vehicle_plate;
+          }
+
           setProfile({
             name: fullName,
             initials,
-            staffId: staffObj?.staff_id || user.user_metadata?.staff_id || 'FM-SPECIALIST',
-            role: profData?.position || staffObj?.position || (profData?.role === 'admin' ? 'System Administrator' : 'Field Marketing Specialist'),
-            department: profData?.department || 'ฝ่ายการตลาดและบริหารงานภาคสนาม',
-            territory: staffObj?.territory || 'Bangkok Central (B2B)',
+            staffId: profData?.employee_id || user.user_metadata?.staff_id || '-',
+            role: profData?.position || (profData?.role === 'admin' ? 'System Administrator' : '-'),
+            department: profData?.department || '-',
+            territory: profData?.territory || '-',
             email: profData?.email || user.email,
             phone: profData?.phone || '-',
-            vehicle: staffObj?.assigned_vehicle || profData?.assigned_vehicle_plate || 'ยานพาหนะประจำการ',
-            licenseClass: 'Corporate Transport Class B',
-            safetyScore: staffObj?.safety_score || 98,
-            rating: staffObj?.rating || 5.0,
-            tripsCompleted: staffObj?.total_trips || 0,
+            vehicle: vehicleDisplay,
+            licenseClass: profData?.driving_license_type || '-',
+            safetyScore: avgSafety,
+            rating: null,
+            tripsCompleted: completedTrips.length,
+            onTimeRate,
             avatar: profData?.avatar_url || null,
             isTrackingEnforced: profData?.is_tracking_enabled !== false,
             userTrackingEnabled: profData?.user_tracking_enabled !== false,
@@ -240,10 +278,12 @@ export default function UserProfileScreen({ navigation }: any) {
               <View style={[styles.staffIdBadge, { backgroundColor: colors.primaryLight }]}>
                 <Text style={[styles.staffIdText, { color: colors.primary }]}>{profile.staffId}</Text>
               </View>
-              <View style={[styles.safetyBadge, { backgroundColor: colors.successLight }]}>
-                <Award size={12} color={colors.success} />
-                <Text style={[styles.safetyBadgeText, { color: colors.successText }]}>Safety Score {profile.safetyScore}%</Text>
-              </View>
+              {profile.safetyScore != null && (
+                <View style={[styles.safetyBadge, { backgroundColor: colors.successLight }]}>
+                  <Award size={12} color={colors.success} />
+                  <Text style={[styles.safetyBadgeText, { color: colors.successText }]}>Safety Score {profile.safetyScore}%</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -257,12 +297,12 @@ export default function UserProfileScreen({ navigation }: any) {
           <View style={[styles.statBoxDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statBox}>
             <Text style={[styles.statBoxLabel, { color: colors.textSecondary }]}>{t('profile_stats_rating')}</Text>
-            <Text style={[styles.statBoxValue, { color: '#F59E0B' }]}>⭐ {profile.rating}</Text>
+            <Text style={[styles.statBoxValue, { color: '#F59E0B' }]}>{profile.rating != null ? `⭐ ${profile.rating}` : '-'}</Text>
           </View>
           <View style={[styles.statBoxDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statBox}>
             <Text style={[styles.statBoxLabel, { color: colors.textSecondary }]}>{t('profile_stats_ontime')}</Text>
-            <Text style={[styles.statBoxValue, { color: colors.success }]}>99.2%</Text>
+            <Text style={[styles.statBoxValue, { color: colors.success }]}>{profile.onTimeRate != null ? `${profile.onTimeRate}%` : '-'}</Text>
           </View>
         </View>
 

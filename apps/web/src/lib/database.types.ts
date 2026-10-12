@@ -143,41 +143,6 @@ export type Database = {
           },
         ]
       }
-      consent_logs: {
-        Row: {
-          consent_given: boolean
-          created_at: string
-          id: string
-          ip_address: unknown
-          profile_id: string
-          user_agent: string | null
-        }
-        Insert: {
-          consent_given: boolean
-          created_at?: string
-          id?: string
-          ip_address?: unknown
-          profile_id: string
-          user_agent?: string | null
-        }
-        Update: {
-          consent_given?: boolean
-          created_at?: string
-          id?: string
-          ip_address?: unknown
-          profile_id?: string
-          user_agent?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "consent_logs_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       departments: {
         Row: {
           created_at: string
@@ -353,6 +318,7 @@ export type Database = {
           driving_license_no: string | null
           driving_license_type: string | null
           email: string
+          employee_id: string | null
           full_name: string
           id: string
           is_online: boolean | null
@@ -364,10 +330,12 @@ export type Database = {
           push_token: string | null
           role: string
           status: string
+          territory: string | null
           timezone: string | null
           two_factor_enabled: boolean | null
           updated_at: string
           user_tracking_enabled: boolean
+          vehicle_type: string | null
         }
         Insert: {
           assigned_vehicle?: string | null
@@ -386,6 +354,7 @@ export type Database = {
           driving_license_no?: string | null
           driving_license_type?: string | null
           email: string
+          employee_id?: string | null
           full_name: string
           id: string
           is_online?: boolean | null
@@ -397,10 +366,12 @@ export type Database = {
           push_token?: string | null
           role?: string
           status?: string
+          territory?: string | null
           timezone?: string | null
           two_factor_enabled?: boolean | null
           updated_at?: string
           user_tracking_enabled?: boolean
+          vehicle_type?: string | null
         }
         Update: {
           assigned_vehicle?: string | null
@@ -419,6 +390,7 @@ export type Database = {
           driving_license_no?: string | null
           driving_license_type?: string | null
           email?: string
+          employee_id?: string | null
           full_name?: string
           id?: string
           is_online?: boolean | null
@@ -430,98 +402,14 @@ export type Database = {
           push_token?: string | null
           role?: string
           status?: string
+          territory?: string | null
           timezone?: string | null
           two_factor_enabled?: boolean | null
           updated_at?: string
           user_tracking_enabled?: boolean
+          vehicle_type?: string | null
         }
         Relationships: []
-      }
-      staff: {
-        Row: {
-          assigned_vehicle: string | null
-          created_at: string
-          current_location: string | null
-          department: string | null
-          driving_license_expiry: string | null
-          driving_license_no: string | null
-          driving_license_type: string | null
-          emergency_contact: string | null
-          id: string
-          on_time_percentage: number | null
-          on_time_rate: number | null
-          position: string | null
-          profile_id: string
-          rating: number | null
-          safety_score: number | null
-          staff_id: string | null
-          territory: string | null
-          total_distance_km: number | null
-          total_trips: number | null
-          updated_at: string
-          vehicle_model: string | null
-          vehicle_plate: string | null
-          vehicle_type: string | null
-        }
-        Insert: {
-          assigned_vehicle?: string | null
-          created_at?: string
-          current_location?: string | null
-          department?: string | null
-          driving_license_expiry?: string | null
-          driving_license_no?: string | null
-          driving_license_type?: string | null
-          emergency_contact?: string | null
-          id?: string
-          on_time_percentage?: number | null
-          on_time_rate?: number | null
-          position?: string | null
-          profile_id: string
-          rating?: number | null
-          safety_score?: number | null
-          staff_id?: string | null
-          territory?: string | null
-          total_distance_km?: number | null
-          total_trips?: number | null
-          updated_at?: string
-          vehicle_model?: string | null
-          vehicle_plate?: string | null
-          vehicle_type?: string | null
-        }
-        Update: {
-          assigned_vehicle?: string | null
-          created_at?: string
-          current_location?: string | null
-          department?: string | null
-          driving_license_expiry?: string | null
-          driving_license_no?: string | null
-          driving_license_type?: string | null
-          emergency_contact?: string | null
-          id?: string
-          on_time_percentage?: number | null
-          on_time_rate?: number | null
-          position?: string | null
-          profile_id?: string
-          rating?: number | null
-          safety_score?: number | null
-          staff_id?: string | null
-          territory?: string | null
-          total_distance_km?: number | null
-          total_trips?: number | null
-          updated_at?: string
-          vehicle_model?: string | null
-          vehicle_plate?: string | null
-          vehicle_type?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "staff_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: true
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       system_settings: {
         Row: {
@@ -699,6 +587,10 @@ export type Database = {
         Returns: number
       }
       is_admin: { Args: never; Returns: boolean }
+      sync_trip_itinerary: {
+        Args: { p_deleted_ids: string[]; p_trip_id: string; p_updates: Json }
+        Returns: Json
+      }
       update_specialist_presence: {
         Args: {
           p_address?: string

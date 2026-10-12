@@ -1,5 +1,5 @@
 export const GOOGLE_MAPS_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyDYNtBMG47WiMxmfcMpJ-8nk6wZCPTwOmY';
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
 export const GOOGLE_MAPS_TILE_URL =
   'https://mt1.google.com/vt/lyrs=m&hl=th&x={x}&y={y}&z={z}';
@@ -66,15 +66,23 @@ export async function searchAddressGeocode(address: string) {
       address
     )}&format=json&countrycodes=th&limit=1&addressdetails=1&accept-language=th`;
     const res = await fetch(osmUrl, {
-      headers: { 'User-Agent': 'FastFleetMobileApp/1.0' },
+      headers: {
+        'User-Agent': 'FastFleet-FleetApp/1.0 (contact: admin@fastfleet.io)',
+        'Accept': 'application/json',
+      },
     });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      return {
-        latitude: parseFloat(data[0].lat),
-        longitude: parseFloat(data[0].lon),
-        formattedAddress: data[0].display_name,
-      };
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return {
+            latitude: parseFloat(data[0].lat),
+            longitude: parseFloat(data[0].lon),
+            formattedAddress: data[0].display_name,
+          };
+        }
+      }
     }
   } catch (_) {}
 

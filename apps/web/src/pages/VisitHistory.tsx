@@ -547,18 +547,29 @@ export default function VisitHistory() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('trips').update({
+      const { error: tripError } = await supabase.from('trips').update({
         approval_status: 'approved',
         status: 'completed',
         approved_at: new Date().toISOString(),
         approved_by: user?.id || null,
       }).eq('id', tripId);
 
-      await supabase.from('expenses').update({
+      if (tripError) {
+        showToast(`❌ อนุมัติไม่สำเร็จ: ${tripError.message}`);
+        return;
+      }
+
+      const { error: expError } = await supabase.from('expenses').update({
         status: 'approved',
       }).eq('trip_id', tripId);
-    } catch (err) {
+
+      if (expError) {
+        console.warn('Expense approval warning:', expError.message);
+      }
+    } catch (err: any) {
       console.warn('Error updating approval status in DB:', err);
+      showToast(`❌ เกิดข้อผิดพลาด: ${err?.message || 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'}`);
+      return;
     }
 
     setTripsList((prev) =>
@@ -590,13 +601,20 @@ export default function VisitHistory() {
     const tripId = selectedTrip.id;
 
     try {
-      await supabase.from('trips').update({
+      const { error: tripError } = await supabase.from('trips').update({
         approval_status: 'pending',
         approved_at: null,
         approved_by: null,
       }).eq('id', tripId);
-    } catch (err) {
+
+      if (tripError) {
+        showToast(`❌ ยกเลิกการอนุมัติไม่สำเร็จ: ${tripError.message}`);
+        return;
+      }
+    } catch (err: any) {
       console.warn('Error resetting approval status in DB:', err);
+      showToast(`❌ เกิดข้อผิดพลาด: ${err?.message || 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'}`);
+      return;
     }
 
     setTripsList((prev) =>
@@ -633,7 +651,7 @@ export default function VisitHistory() {
     const formattedFeedback = `[รอบที่ ${nextRev}] ${rejectFeedbackText.trim()}`;
 
     try {
-      await supabase
+      const { error: tripError } = await supabase
         .from('trips')
         .update({
           approval_status: 'revision_requested',
@@ -641,8 +659,15 @@ export default function VisitHistory() {
           status: 'in_progress',
         })
         .eq('id', selectedTrip.id);
-    } catch (err) {
+
+      if (tripError) {
+        showToast(`❌ ส่งกลับแก้ไขไม่สำเร็จ: ${tripError.message}`);
+        return;
+      }
+    } catch (err: any) {
       console.warn('Error saving revision request to DB:', err);
+      showToast(`❌ เกิดข้อผิดพลาด: ${err?.message || 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'}`);
+      return;
     }
 
     setTripsList((prev) =>
