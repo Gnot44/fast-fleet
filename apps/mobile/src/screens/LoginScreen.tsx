@@ -65,8 +65,26 @@ export default function LoginScreen({ navigation }: any) {
             ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบหรือติดต่อผู้ดูแลระบบ'
             : (error.message || 'Invalid email or password. Please check your credentials.')
         );
-      } else {
-        // Direct every login to PrivacyConsent to review terms and consent
+      } else if (data?.user) {
+        // Verify account active status from profiles
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('status')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (prof && (prof.status === 'suspended' || prof.status === 'inactive')) {
+          await supabase.auth.signOut();
+          Alert.alert(
+            language === 'th' ? 'บัญชีถูกระงับการใช้งาน ⚠️' : 'Account Suspended ⚠️',
+            language === 'th'
+              ? 'บัญชีผู้ใช้งานของคุณถูกระงับสิทธิ์การใช้งานชั่วคราว กรุณาติดต่อฝ่ายบริหารงานหรือผู้ดูแลระบบเพื่อขอเปิดสิทธิ์'
+              : 'Your account has been suspended. Please contact the administrator.'
+          );
+          return;
+        }
+
+        // Direct every active login to PrivacyConsent to review terms and consent
         navigation.reset({
           index: 0,
           routes: [{ name: 'PrivacyConsent' }],

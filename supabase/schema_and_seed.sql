@@ -47,38 +47,17 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     driving_license_no TEXT,
     driving_license_type TEXT,
     driving_license_expiry TEXT,
+    employee_id TEXT,
+    territory TEXT,
+    vehicle_type TEXT,
     is_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     user_tracking_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. Marketing Specialists Telemetry & Performance Table
-CREATE TABLE IF NOT EXISTS public.staff (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    profile_id UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
-    staff_id TEXT NOT NULL UNIQUE,
-    position TEXT DEFAULT 'Field Marketing Specialist',
-    territory TEXT DEFAULT 'Bangkok Central (B2B)',
-    assigned_vehicle TEXT DEFAULT 'Isuzu D-Max (1กข-4452)',
-    vehicle_plate TEXT DEFAULT '1กข-4452 กทม.',
-    vehicle_model TEXT DEFAULT 'Isuzu D-Max SpaceCab',
-    vehicle_type TEXT DEFAULT 'Pickup Truck',
-    driving_license_no TEXT,
-    driving_license_type TEXT,
-    driving_license_expiry DATE,
-    current_location TEXT,
-    total_trips INTEGER DEFAULT 0,
-    total_distance_km NUMERIC(10, 2) DEFAULT 0.00,
-    on_time_rate NUMERIC(5, 2) DEFAULT 98.50,
-    on_time_percentage NUMERIC(5, 2) DEFAULT 98.50,
-    rating NUMERIC(3, 2) DEFAULT 4.90,
-    safety_score INTEGER DEFAULT 98,
-    emergency_contact TEXT,
-    department TEXT DEFAULT 'Field Marketing',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Note: Staff-specific fields (employee_id, territory, vehicle_type) have been
+-- consolidated directly into public.profiles to maintain a single source of truth.
 
 -- 4. Trips & Itineraries Table
 CREATE TABLE IF NOT EXISTS public.trips (
@@ -89,7 +68,7 @@ CREATE TABLE IF NOT EXISTS public.trips (
     trip_date DATE NOT NULL DEFAULT CURRENT_DATE,
     type TEXT NOT NULL DEFAULT 'instant' CHECK (type IN ('instant', 'scheduled')),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'in_progress', 'completed', 'cancelled')),
-    approval_status TEXT NOT NULL DEFAULT 'pending' CHECK (approval_status IN ('pending', 'approved', 'revision_requested')),
+    approval_status TEXT NOT NULL DEFAULT 'draft' CHECK (approval_status IN ('draft', 'pending', 'approved', 'revision_requested')),
     assigned_vehicle TEXT,
     start_odometer NUMERIC(10, 2),
     end_odometer NUMERIC(10, 2),
@@ -128,7 +107,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     appointment_type TEXT DEFAULT 'pitch' CHECK (appointment_type IN ('pitch', 'renewal', 'healthcheck', 'demo', 'other')),
     type TEXT DEFAULT 'pitch',
     agenda TEXT,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'arrived', 'completed', 'cancelled')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'arrived', 'completed', 'cancelled', 'incomplete')),
     confirmation_status BOOLEAN DEFAULT FALSE,
     meeting_notes TEXT,
     meeting_notes_updated_at TIMESTAMPTZ,
@@ -166,6 +145,13 @@ CREATE TABLE IF NOT EXISTS public.expenses (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Covering Indexes for Foreign Key performance
+CREATE INDEX IF NOT EXISTS idx_appointments_trip_id ON public.appointments(trip_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_staff_id ON public.expenses(staff_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_trip_id ON public.expenses(trip_id);
+CREATE INDEX IF NOT EXISTS idx_trips_staff_id ON public.trips(staff_id);
+CREATE INDEX IF NOT EXISTS idx_trips_approved_by ON public.trips(approved_by);
+
 -- 7. Realtime GPS Location Logs & Anti-Drift Telemetry Table
 CREATE TABLE IF NOT EXISTS public.location_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -185,17 +171,7 @@ CREATE TABLE IF NOT EXISTS public.location_logs (
 -- Index for high-speed spatial & temporal queries
 CREATE INDEX IF NOT EXISTS idx_location_logs_staff_time ON public.location_logs(staff_id, created_at DESC);
 
--- 8. Privacy & GPS Consent Logs Table
-CREATE TABLE IF NOT EXISTS public.consent_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    consent_given BOOLEAN NOT NULL DEFAULT TRUE,
-    ip_address INET,
-    user_agent TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 9. System Global Settings Table
+-- 8. System Global Settings Table
 CREATE TABLE IF NOT EXISTS public.system_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     company_name TEXT DEFAULT 'FastFleet Field Marketing Co., Ltd.',
@@ -316,21 +292,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ==============================================================================
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.location_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.consent_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
--- Helper function to check if current user is admin
+-- Helper function to check if current user is admin (optimized with scalar subquery)
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (
         SELECT 1 FROM public.profiles
-        WHERE id = auth.uid() AND role IN ('admin', 'manager')
+        WHERE id = (SELECT auth.uid()) AND role IN ('admin', 'manager')
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -340,33 +314,222 @@ CREATE POLICY "Allow public read access to departments" ON public.departments FO
 CREATE POLICY "Allow admin write access to departments" ON public.departments FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 -- Profiles Policies
-CREATE POLICY "Admins can view and manage all profiles" ON public.profiles
-    FOR ALL USING (public.is_admin() OR auth.uid() = id);
-
--- Staff Policies
-CREATE POLICY "Admins can manage staff, specialists can view self" ON public.staff
-    FOR ALL USING (public.is_admin() OR profile_id = auth.uid());
+CREATE POLICY "Allow authenticated read profiles" ON public.profiles
+    FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow users to insert own profile or admins" ON public.profiles
+    FOR INSERT TO authenticated
+    WITH CHECK (((SELECT auth.uid()) = id) OR public.is_admin());
+CREATE POLICY "Allow users to update own profile or admins" ON public.profiles
+    FOR UPDATE TO authenticated
+    USING (((SELECT auth.uid()) = id) OR public.is_admin())
+    WITH CHECK (((SELECT auth.uid()) = id) OR public.is_admin());
 
 -- Trips Policies
-CREATE POLICY "Admins manage all trips, specialists manage own trips" ON public.trips
-    FOR ALL USING (public.is_admin() OR staff_id = auth.uid());
+CREATE POLICY "Staff and Admins can manage trips" ON public.trips
+    FOR ALL TO authenticated
+    USING ((staff_id = (SELECT auth.uid())) OR public.is_admin())
+    WITH CHECK ((staff_id = (SELECT auth.uid())) OR public.is_admin());
 
 -- Appointments Policies
-CREATE POLICY "Admins manage all appointments, specialists manage own" ON public.appointments
-    FOR ALL USING (public.is_admin() OR staff_id = auth.uid());
+CREATE POLICY "Staff and Admins can manage appointments" ON public.appointments
+    FOR ALL TO authenticated
+    USING ((staff_id = (SELECT auth.uid())) OR public.is_admin())
+    WITH CHECK ((staff_id = (SELECT auth.uid())) OR public.is_admin());
 
 -- Expenses Policies
-CREATE POLICY "Admins manage all expenses, specialists manage own" ON public.expenses
-    FOR ALL USING (public.is_admin() OR staff_id = auth.uid());
+CREATE POLICY "Staff and Admins can manage expenses" ON public.expenses
+    FOR ALL TO authenticated
+    USING ((staff_id = (SELECT auth.uid())) OR public.is_admin())
+    WITH CHECK ((staff_id = (SELECT auth.uid())) OR public.is_admin());
 
 -- Location Logs Policies
-CREATE POLICY "Admins can read all locations, specialists insert own" ON public.location_logs
-    FOR ALL USING (public.is_admin() OR staff_id = auth.uid());
+CREATE POLICY "Staff and Admins can manage location logs" ON public.location_logs
+    FOR ALL TO authenticated
+    USING ((staff_id = (SELECT auth.uid())) OR public.is_admin())
+    WITH CHECK ((staff_id = (SELECT auth.uid())) OR public.is_admin());
 
 -- System Settings Policies
 CREATE POLICY "Anyone authenticated can read settings, admin can update" ON public.system_settings
-    FOR ALL USING (auth.role() = 'authenticated')
+    FOR ALL TO authenticated USING (true)
     WITH CHECK (public.is_admin());
+
+-- ------------------------------------------------------------------------------
+-- Role Escalation Protection Trigger
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.prevent_profile_role_escalation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+BEGIN
+  IF (SELECT auth.uid()) IS NULL OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' AND NEW.role IN ('admin', 'manager') THEN
+    RAISE EXCEPTION 'Access denied: cannot assign privileged role'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND NEW.role IS DISTINCT FROM OLD.role THEN
+    RAISE EXCEPTION 'Access denied: only administrators can change roles'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_prevent_profile_role_escalation ON public.profiles;
+CREATE TRIGGER trg_prevent_profile_role_escalation
+  BEFORE INSERT OR UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_profile_role_escalation();
+
+-- ------------------------------------------------------------------------------
+-- New Auth User Profile Creation Trigger
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, email)
+  VALUES (
+    NEW.id,
+    COALESCE(
+      NEW.raw_user_meta_data->>'full_name',
+      NEW.raw_app_meta_data->>'full_name',
+      NEW.email
+    ),
+    NEW.email
+  );
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ------------------------------------------------------------------------------
+-- Itinerary Sync RPC Function
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.sync_trip_itinerary(
+  p_trip_id uuid,
+  p_deleted_ids uuid[],
+  p_updates jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = 'public'
+AS $$
+DECLARE
+  item JSONB;
+  v_uid UUID := auth.uid();
+  v_owner UUID;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT staff_id INTO v_owner FROM trips WHERE id = p_trip_id;
+  IF v_owner IS NULL THEN
+    RAISE EXCEPTION 'Trip not found or not accessible' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_owner <> v_uid AND NOT is_admin() THEN
+    RAISE EXCEPTION 'Access denied' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_deleted_ids IS NOT NULL AND array_length(p_deleted_ids, 1) > 0 THEN
+    DELETE FROM appointments
+    WHERE id = ANY(p_deleted_ids)
+      AND trip_id = p_trip_id;
+  END IF;
+
+  IF p_updates IS NOT NULL AND jsonb_array_length(p_updates) > 0 THEN
+    FOR item IN SELECT * FROM jsonb_array_elements(p_updates)
+    LOOP
+      INSERT INTO appointments (
+        id, trip_id, staff_id, type, sequence_order,
+        company_name, customer_name, recipient_name, recipient_phone,
+        destination_address, destination_lat, destination_lng,
+        agenda, status, confirmation_status
+      )
+      VALUES (
+        (item->>'id')::UUID,
+        p_trip_id,
+        v_owner,
+        COALESCE(item->>'type', 'appointment'),
+        COALESCE((item->>'sequence_order')::INT, 1),
+        COALESCE(item->>'company_name', 'Client Stop'),
+        COALESCE(item->>'customer_name', 'Client Visit'),
+        COALESCE(item->>'recipient_name', item->>'customer_name', 'Client Visit'),
+        COALESCE(item->>'recipient_phone', ''),
+        COALESCE(item->>'destination_address', ''),
+        (item->>'destination_lat')::DOUBLE PRECISION,
+        (item->>'destination_lng')::DOUBLE PRECISION,
+        COALESCE(item->>'agenda', 'เข้าพบและนำเสนอสินค้า'),
+        COALESCE(item->>'status', 'pending'),
+        COALESCE((item->>'confirmation_status')::BOOLEAN, false)
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        sequence_order = EXCLUDED.sequence_order,
+        company_name = EXCLUDED.company_name,
+        customer_name = EXCLUDED.customer_name,
+        recipient_name = EXCLUDED.recipient_name,
+        recipient_phone = EXCLUDED.recipient_phone,
+        destination_address = EXCLUDED.destination_address,
+        destination_lat = EXCLUDED.destination_lat,
+        destination_lng = EXCLUDED.destination_lng,
+        agenda = EXCLUDED.agenda
+      WHERE appointments.trip_id = p_trip_id;
+    END LOOP;
+  END IF;
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- Admin Password Reset RPC Function
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_reset_user_password(target_user_id uuid, new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'auth', 'extensions'
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access Denied: Only administrators can reset user passwords';
+    END IF;
+
+    UPDATE auth.users
+    SET encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
+        updated_at = NOW()
+    WHERE id = target_user_id;
+END;
+$$;
+
+-- Function Execution Permissions Hardening
+REVOKE EXECUTE ON FUNCTION public.prevent_profile_role_escalation() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.sync_trip_total_expenses() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.sync_trip_itinerary(uuid, uuid[], jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sync_trip_itinerary(uuid, uuid[], jsonb) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.update_specialist_presence(boolean, double precision, double precision, text, real, real) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_specialist_presence(boolean, double precision, double precision, text, real, real) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
+
 
 -- ==============================================================================
 -- 12. Supabase Storage Buckets Configuration

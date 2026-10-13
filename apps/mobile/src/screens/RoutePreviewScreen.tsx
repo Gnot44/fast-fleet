@@ -43,7 +43,7 @@ import {
   LEG_COLORS,
   DEFAULT_BANGKOK_LOCATION,
 } from '../lib/mapServices';
-import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { useLanguage, LanguageTogglePill, formatExpenseCategoryDisplay } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { useTripDraft } from '../lib/TripDraftContext';
 
@@ -96,20 +96,12 @@ export default function RoutePreviewScreen({ navigation, route }: any) {
             .select('*')
             .eq('trip_id', tripId);
 
-          const reverseCatMap: Record<string, string> = {
-            'toll': 'ค่าทางด่วน',
-            'parking': 'ค่าที่จอดรถ',
-            'fuel': 'ค่าน้ำมัน',
-            'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
-            'other': 'อื่นๆ',
-          };
-
           if (appts && appts.length > 0) {
             const mapped = appts.map((a: any) => {
               const apptExps = (dbExpenses || []).filter((e: any) => e.appointment_id === a.id);
               const mappedExps = apptExps.map((e: any) => ({
                 id: e.id,
-                category: reverseCatMap[e.category] || e.category,
+                category: formatExpenseCategoryDisplay(e.category, language === 'en' ? 'en' : 'th'),
                 amount: String(e.amount),
                 receiptUri: e.receipt_url || e.receipt_image_path,
                 receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),

@@ -449,6 +449,44 @@ export const QUICK_EXPENSE_CATEGORIES = {
   ],
 };
 
+export function normalizeExpenseCategory(cat: string): string {
+  if (!cat) return 'other';
+  const c = cat.trim();
+  if (c === 'ค่าทางด่วน' || c.toLowerCase() === 'toll fee' || c.toLowerCase() === 'toll') return 'toll';
+  if (c === 'ค่าที่จอดรถ' || c.toLowerCase() === 'parking fee' || c.toLowerCase() === 'parking') return 'parking';
+  if (c === 'ค่าน้ำมัน' || c.toLowerCase() === 'fuel') return 'fuel';
+  if (
+    c === 'ค่าอาหาร / เลี้ยงรับรองลูกค้า' ||
+    c === 'ค่าอาหาร / เลี้ยงรับรอง' ||
+    c === 'ค่าเลี้ยงรับรอง' ||
+    c.toLowerCase() === 'meals & client hospitality' ||
+    c.toLowerCase() === 'entertainment'
+  ) {
+    return 'entertainment';
+  }
+  return 'other';
+}
+
+export function formatExpenseCategoryDisplay(cat: string, lang: 'th' | 'en' = 'th'): string {
+  const norm = normalizeExpenseCategory(cat);
+  if (lang === 'en') {
+    switch (norm) {
+      case 'toll': return 'Toll Fee';
+      case 'parking': return 'Parking Fee';
+      case 'fuel': return 'Fuel';
+      case 'entertainment': return 'Meals & Client Hospitality';
+      default: return 'Other';
+    }
+  }
+  switch (norm) {
+    case 'toll': return 'ค่าทางด่วน';
+    case 'parking': return 'ค่าที่จอดรถ';
+    case 'fuel': return 'ค่าน้ำมัน';
+    case 'entertainment': return 'ค่าอาหาร / เลี้ยงรับรอง';
+    default: return 'อื่นๆ';
+  }
+}
+
 export const QUICK_NOTE_TEMPLATES = {
   th: [
     'นำเสนอแผนการตลาดและผลิตภัณฑ์เรียบร้อย ลูกค้าสนใจขอใบเสนอราคา',

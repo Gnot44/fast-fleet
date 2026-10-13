@@ -37,7 +37,7 @@ import {
   Paperclip,
   ImageIcon,
 } from 'lucide-react-native';
-import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { useLanguage, LanguageTogglePill, normalizeExpenseCategory, formatExpenseCategoryDisplay } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import {
   uploadImageToSupabase,
@@ -440,16 +440,9 @@ export default function DropReportingScreen({ navigation, route }: any) {
             .eq('appointment_id', apptId);
 
           if (dbExpenses && dbExpenses.length > 0) {
-            const reverseCatMap: Record<string, string> = {
-              'toll': 'ค่าทางด่วน',
-              'parking': 'ค่าที่จอดรถ',
-              'fuel': 'ค่าน้ำมัน',
-              'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
-              'other': 'อื่นๆ',
-            };
             const mappedExps: ExpenseItem[] = dbExpenses.map((exp: any) => ({
               id: exp.id,
-              category: reverseCatMap[exp.category] || exp.category || 'ค่าใช้จ่ายเข้าพบ',
+              category: formatExpenseCategoryDisplay(exp.category, language === 'en' ? 'en' : 'th'),
               amount: String(exp.amount),
               receiptUri: exp.receipt_url || exp.receipt_image_path,
               receiptName: exp.title || (exp.receipt_url ? 'Receipt.jpg' : undefined),
@@ -695,15 +688,6 @@ export default function DropReportingScreen({ navigation, route }: any) {
             .delete()
             .eq('appointment_id', apptId);
 
-          const catMap: Record<string, string> = {
-            'ค่าทางด่วน': 'toll',
-            'ค่าที่จอดรถ': 'parking',
-            'ค่าน้ำมัน': 'fuel',
-            'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
-            'ค่าเลี้ยงรับรอง': 'entertainment',
-            'อื่นๆ': 'other',
-          };
-
           const expenseRows = updatedDrop.expenses
             .map((exp: any) => ({
               exp,
@@ -714,7 +698,7 @@ export default function DropReportingScreen({ navigation, route }: any) {
               staff_id: staffId,
               trip_id: tripId,
               appointment_id: apptId,
-              category: catMap[exp.category] || exp.category || 'other',
+              category: normalizeExpenseCategory(exp.category),
               title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
               amount: amt,
               receipt_url: exp.receiptUri,

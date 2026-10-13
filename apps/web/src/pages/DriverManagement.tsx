@@ -349,6 +349,11 @@ export default function DriverManagement() {
       return;
     }
 
+    if (formData.password && !formData.password.includes('••••') && formData.password.trim().length < 6) {
+      alert('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -369,6 +374,9 @@ export default function DriverManagement() {
       const fullVehicleStr = `${formData.assignedVehicleModel || 'Isuzu D-Max'} (${formData.assignedVehiclePlate || '1กข-4452 กทม.'})`;
 
       if (editingSpecialist) {
+        const newPassword = formData.password?.trim();
+        const isPasswordChanged = !!(newPassword && !newPassword.includes('••••') && newPassword.length >= 6);
+
         // UPDATE Existing Specialist
         setSpecialists((prev) =>
           prev.map((s) =>
@@ -376,6 +384,7 @@ export default function DriverManagement() {
               ? ({
                   ...s,
                   ...formData,
+                  password: isPasswordChanged ? newPassword : s.password,
                   department: finalDept,
                   fullName: formData.fullName!.trim(),
                   nickname: formData.nickname?.trim() || formData.fullName!.trim().split(' ')[0],
@@ -384,6 +393,20 @@ export default function DriverManagement() {
               : s
           )
         );
+
+        if (isPasswordChanged) {
+          try {
+            const { error: pwdErr } = await supabase.rpc('admin_reset_user_password', {
+              target_user_id: editingSpecialist.id,
+              new_password: newPassword,
+            });
+            if (pwdErr) {
+              console.warn('Password update error:', pwdErr);
+            }
+          } catch (pwdCatch) {
+            console.warn('Error resetting password via RPC:', pwdCatch);
+          }
+        }
 
         await supabase
           .from('profiles')
@@ -407,7 +430,7 @@ export default function DriverManagement() {
           })
           .eq('id', editingSpecialist.id);
 
-        showToast(`✓ อัปเดตข้อมูลของ ${formData.fullName} เรียบร้อยแล้ว`);
+        showToast(`✓ อัปเดตข้อมูลของ ${formData.fullName} เรียบร้อยแล้ว${isPasswordChanged ? ' (พร้อมอัปเดตรหัสผ่านใหม่)' : ''}`);
         setIsAddModalOpen(false);
         setEditingSpecialist(null);
       } else {

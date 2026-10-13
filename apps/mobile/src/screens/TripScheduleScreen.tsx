@@ -36,7 +36,7 @@ import {
   Send,
 } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
-import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { useLanguage, LanguageTogglePill, formatExpenseCategoryDisplay } from '../lib/LanguageContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useTripDraft } from '../lib/TripDraftContext';
 import FloatingBottomNav from '../components/FloatingBottomNav';
@@ -162,14 +162,6 @@ export default function TripScheduleScreen({ navigation }: any) {
         ? `${profData.assigned_vehicle_model || ''} (${profData.assigned_vehicle_plate})`.trim()
         : null;
 
-      const reverseCatMap: Record<string, string> = {
-        'toll': 'ค่าทางด่วน',
-        'parking': 'ค่าที่จอดรถ',
-        'fuel': 'ค่าน้ำมัน',
-        'entertainment': 'ค่าอาหาร / เลี้ยงรับรอง',
-        'other': 'อื่นๆ',
-      };
-
       if (tripsData) {
         const todayStr = getLocalDateString();
         const mapped: TripItem[] = tripsData.map((t: any) => {
@@ -230,7 +222,7 @@ export default function TripScheduleScreen({ navigation }: any) {
             const apptExps = tripExpenses.filter((e: any) => e.appointment_id === a.id);
             const mappedExps = apptExps.map((e: any) => ({
               id: e.id,
-              category: reverseCatMap[e.category] || e.category,
+              category: formatExpenseCategoryDisplay(e.category, language === 'en' ? 'en' : 'th'),
               amount: String(e.amount),
               receiptUri: e.receipt_url || e.receipt_image_path,
               receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),

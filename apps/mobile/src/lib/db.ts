@@ -1,3 +1,12 @@
+/**
+ * FastFleet Mobile Offline Queue Helper
+ * 
+ * NOTE: The primary offline storage and synchronization engine for FastFleet
+ * is AsyncStorage via `TripDraftContext` (`apps/mobile/src/lib/TripDraftContext.tsx`).
+ * 
+ * This SQLite module is retained for optional raw row queueing.
+ */
+
 import * as SQLite from 'expo-sqlite';
 import { supabase } from './supabase';
 import { Database } from './database.types';

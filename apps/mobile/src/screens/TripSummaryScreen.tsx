@@ -43,7 +43,7 @@ import {
   Lock,
 } from 'lucide-react-native';
 
-import { useLanguage, LanguageTogglePill } from '../lib/LanguageContext';
+import { useLanguage, LanguageTogglePill, normalizeExpenseCategory, formatExpenseCategoryDisplay } from '../lib/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { getDistanceMeters } from '../lib/mapServices';
 import { getLocalDateString } from '../lib/dateUtils';
@@ -201,19 +201,11 @@ export default function TripSummaryScreen({ navigation, route }: any) {
         .order('sequence_order', { ascending: true });
 
       if (appts && appts.length > 0) {
-        const reverseCatMap: Record<string, string> = {
-          toll: 'ค่าทางด่วน',
-          parking: 'ค่าที่จอดรถ',
-          fuel: 'ค่าน้ำมัน',
-          entertainment: 'ค่าอาหาร / เลี้ยงรับรอง',
-          other: 'อื่นๆ',
-        };
-
         const dbMappedDrops = appts.map((a: any) => {
           const tripExpenses = a.expenses || [];
           const mappedExps = tripExpenses.map((e: any) => ({
             id: e.id,
-            category: reverseCatMap[e.category] || e.category,
+            category: formatExpenseCategoryDisplay(e.category, language === 'en' ? 'en' : 'th'),
             amount: String(e.amount),
             receiptUri: e.receipt_url || e.receipt_image_path,
             receiptName: e.title || (e.receipt_url ? 'Slip.jpg' : undefined),
@@ -656,15 +648,6 @@ export default function TripSummaryScreen({ navigation, route }: any) {
 
     // Sync appointments concurrently
     if (tripId && Array.isArray(dropsList)) {
-      const catMap: Record<string, string> = {
-        'ค่าทางด่วน': 'toll',
-        'ค่าที่จอดรถ': 'parking',
-        'ค่าน้ำมัน': 'fuel',
-        'ค่าอาหาร / เลี้ยงรับรอง': 'entertainment',
-        'ค่าเลี้ยงรับรอง': 'entertainment',
-        'อื่นๆ': 'other',
-      };
-
       await Promise.all(
         dropsList.map(async (d: any, i: number) => {
           const isDataComp = isDropFullyCompleted(d);
@@ -732,7 +715,7 @@ export default function TripSummaryScreen({ navigation, route }: any) {
                 staff_id: staffId,
                 trip_id: tripId,
                 appointment_id: apptId,
-                category: catMap[exp.category] || exp.category || 'other',
+                category: normalizeExpenseCategory(exp.category),
                 title: exp.note || exp.category || 'ค่าใช้จ่ายเข้าพบ',
                 amount: amt,
                 receipt_url: exp.receiptUri,

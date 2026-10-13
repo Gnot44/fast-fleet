@@ -237,6 +237,19 @@ async function processLocationTelemetry(rawCoords: {
       // ignore
     }
 
+    // Adaptive battery conservation mode: if battery < 15%, throttle ping interval to save battery
+    const targetHeartbeatMs = batteryLevel < 15 ? 45000 : 20000;
+    if (ANTI_DRIFT_CONFIG.HEARTBEAT_MS !== targetHeartbeatMs) {
+      ANTI_DRIFT_CONFIG.HEARTBEAT_MS = targetHeartbeatMs;
+      if (presenceInterval && isTrackingActive) {
+        clearInterval(presenceInterval);
+        presenceInterval = setInterval(() => {
+          sendLocationPing(true);
+        }, targetHeartbeatMs);
+        console.log(`[PresenceService] 🔋 Battery level ${batteryLevel}%. Adjusted heartbeat interval to ${targetHeartbeatMs / 1000}s`);
+      }
+    }
+
     // Process through Smartphone GPS Anti-Drift Engine
     const evalResult = evaluateAntiDrift(
       { latitude: rawCoords.latitude, longitude: rawCoords.longitude },
